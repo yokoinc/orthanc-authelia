@@ -3,13 +3,6 @@
 # =============================================================================
 # Single Sign-On (SSO) authentication for Orthanc PACS with multi-factor support
 # Handles user authentication, session management, and access control
-#
-# SECURITY NOTE: This configuration uses environment variables for all secrets.
-# Set these in your .env file or Docker environment:
-# - AUTHELIA_SESSION_SECRET (minimum 64 characters)
-# - AUTHELIA_STORAGE_ENCRYPTION_KEY (minimum 64 characters)
-# - AUTHELIA_JWT_SECRET (minimum 64 characters)
-# =============================================================================
 
 ---
 # =============================================================================
@@ -33,13 +26,13 @@ server:
 # LOGGING CONFIGURATION
 # =============================================================================
 log:
-  level: ${AUTHELIA_LOG_LEVEL:-info}  # Log level: trace, debug, info, warn, error
+  level: info                       # Log level: trace, debug, info, warn, error
 
 # =============================================================================
 # TWO-FACTOR AUTHENTICATION (TOTP)
 # =============================================================================
 totp:
-  issuer: ${AUTHELIA_TOTP_ISSUER:-Orthanc PACS}  # Issuer name displayed in authenticator apps
+  issuer: Orthanc PACS              # Issuer name displayed in authenticator apps
 
 # =============================================================================
 # USER AUTHENTICATION BACKEND
@@ -77,7 +70,7 @@ access_control:
   
   rules:
     # Share links with tokens - bypass authentication for specific paths
-    - domain: ${AUTHELIA_DOMAIN:-pacs.example.com}
+    - domain: pacs.yokoinc.ovh
       policy: bypass                # Allow without authentication
       resources:
         - "^/dicom-web.*token=.*$"  # DICOM-Web API with token
@@ -85,17 +78,17 @@ access_control:
         - "^/ohif.*token=.*$"       # OHIF with token
       
     # Administrators - Full access to all PACS functions
-    - domain: ${AUTHELIA_DOMAIN:-pacs.example.com}
+    - domain: pacs.yokoinc.ovh
       policy: one_factor            # Require authentication (1FA)
       subject: "group:admin"
       
     # Medical doctors - Standard medical access
-    - domain: ${AUTHELIA_DOMAIN:-pacs.example.com}
+    - domain: pacs.yokoinc.ovh
       policy: one_factor
       subject: "group:doctor"
       
     # External users - Limited read-only access
-    - domain: ${AUTHELIA_DOMAIN:-pacs.example.com}
+    - domain: pacs.yokoinc.ovh
       policy: one_factor
       subject: "group:external"
 
@@ -109,36 +102,39 @@ session:
   expiration: 1h                   # Maximum session duration
   inactivity: 15m                  # Auto-logout after inactivity
   remember_me: 8h                  # "Remember me" duration
-  secret: ${AUTHELIA_SESSION_SECRET}  # CRITICAL: Set this environment variable!
+  # IMPORTANT: Generate a secure random string of at least 64 characters
+  # Example command: openssl rand -base64 48
+  secret: \${AUTHELIA_SESSION_SECRET}  # CRITICAL: Set this environment variable!
   
   cookies:
-    - domain: ${AUTHELIA_DOMAIN:-pacs.example.com}     # Domain for session cookies
-      authelia_url: ${AUTHELIA_URL:-https://pacs.example.com/auth}  # Authelia login URL
-      default_redirection_url: ${AUTHELIA_DEFAULT_REDIRECT_URL:-https://pacs.example.com/}  # Default redirect after login
+    - domain: pacs.yokoinc.ovh     # Domain for session cookies
+      authelia_url: https://pacs.yokoinc.ovh/auth  # Authelia login URL
+      default_redirection_url: https://pacs.yokoinc.ovh/  # Default redirect after login
       same_site: lax               # Cookie same-site policy
   
   # Redis backend for session storage (scales better than file storage)
   redis:
-    host: ${REDIS_HOST:-redis}      # Redis container hostname
-    port: ${REDIS_PORT:-6379}       # Redis port
-    database_index: ${REDIS_DB:-0}  # Redis database number
-    password: ${REDIS_PASSWORD:-}   # Redis password if configured
+    host: redis                    # Redis container hostname
+    port: 6379                     # Redis port
+    database_index: 0              # Redis database number
 
 # =============================================================================
 # RATE LIMITING & BRUTE FORCE PROTECTION
 # =============================================================================
 # Protect against authentication attacks
 regulation:
-  max_retries: ${AUTHELIA_MAX_RETRIES:-5}    # Maximum failed login attempts
-  find_time: ${AUTHELIA_FIND_TIME:-2m}       # Time window for counting failures
-  ban_time: ${AUTHELIA_BAN_TIME:-5m}         # Ban duration after max retries
+  max_retries: 5                   # Maximum failed login attempts
+  find_time: 2m                    # Time window for counting failures
+  ban_time: 5m                     # Ban duration after max retries
 
 # =============================================================================
 # DATA STORAGE CONFIGURATION
 # =============================================================================
 # Local SQLite storage for user data and authentication logs
 storage:
-  encryption_key: ${AUTHELIA_STORAGE_ENCRYPTION_KEY}  # CRITICAL: Set this environment variable!
+  # IMPORTANT: Generate a secure random string of at least 64 characters
+  # Example command: openssl rand -base64 48
+  encryption_key: \${AUTHELIA_STORAGE_ENCRYPTION_KEY}  # CRITICAL: Set this environment variable!
   local:
     path: /config/db.sqlite3       # SQLite database file location
 
@@ -148,7 +144,9 @@ storage:
 # Configuration for password reset and account verification
 identity_validation:
   reset_password:
-    jwt_secret: ${AUTHELIA_JWT_SECRET}  # CRITICAL: Set this environment variable!
+    # IMPORTANT: Generate a secure random string of at least 64 characters
+    # Example command: openssl rand -base64 48
+    jwt_secret: \${AUTHELIA_JWT_SECRET}  # CRITICAL: Set this environment variable!
 
 # =============================================================================
 # NOTIFICATION SYSTEM

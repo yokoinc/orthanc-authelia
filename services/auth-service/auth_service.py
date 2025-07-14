@@ -121,10 +121,16 @@ def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security)):
 
 def verify_admin_auth(request: Request):
     """Verify admin authentication from Authelia headers"""
+    remote_user = request.headers.get("Remote-User", "")
     remote_groups = request.headers.get("Remote-Groups", "")
+    
+    # Debug logging
+    logger.info(f"Auth check - Remote-User: '{remote_user}', Remote-Groups: '{remote_groups}'")
+    logger.info(f"All headers: {dict(request.headers)}")
+    
     if "admin" not in remote_groups:
         raise HTTPException(status_code=403, detail="Admin access required")
-    return request.headers.get("Remote-User", "unknown")
+    return remote_user or "unknown"
 
 def normalize_bearer_token(token_value: str) -> str:
     """Remove Bearer prefix if present"""
@@ -523,6 +529,46 @@ async def revoke_token(token_id: str, request: Request):
         "revoked_at": time.time()
     })
 
+@app.get("/tokens/expired")
+async def list_expired_tokens(request: Request):
+    """List expired tokens from audit logs"""
+    verify_admin_auth(request)
+    
+    # Get expired tokens from audit logs
+    expired_tokens = []
+    cursor = 0
+    while True:
+        cursor, keys = redis_client.scan(cursor, match="audit:revoke:*", count=100)
+        for key in keys:
+            audit_data_raw = redis_client.get(key)
+            if audit_data_raw:
+                try:
+                    audit_data = json.loads(audit_data_raw)
+                    # Transform audit data to token format
+                    expired_token = {
+                        "id": audit_data.get("token_id", ""),
+                        "token_type": audit_data.get("token_type", "unknown"),
+                        "created_at": audit_data.get("token_created_at", time.time()),
+                        "expired_at": audit_data.get("revoked_at", time.time()),
+                        "current_uses": audit_data.get("token_uses", 0),
+                        "max_uses": audit_data.get("token_max_uses", DEFAULT_TOKEN_MAX_USES),
+                        "resources": []  # Not stored in audit logs
+                    }
+                    expired_tokens.append(expired_token)
+                except json.JSONDecodeError:
+                    continue
+        
+        if cursor == 0:
+            break
+    
+    # Sort by expiration date (newest first)
+    expired_tokens.sort(key=lambda x: x.get("expired_at", 0), reverse=True)
+    
+    return JSONResponse(content={
+        "tokens": expired_tokens,
+        "count": len(expired_tokens)
+    })
+
 @app.get("/tokens/stats")
 async def token_stats(request: Request):
     """Get statistics about tokens"""
@@ -590,18 +636,14 @@ async def token_management_interface(request: Request):
     
     # Serve the token management interface
     try:
-        with open("/app/static/token-manager.html", "r", encoding="utf-8") as f:
+        with open("/app/templates/token-manager.html", "r", encoding="utf-8") as f:
             content = f.read()
         
-        # Inject JavaScript configuration
-        js_config_script = f"""
-        <script>
-        window.PACS_CONFIG = {json.dumps(JS_CONFIG)};
-        </script>
-        """
-        
-        # Insert before closing </head>
-        content = content.replace("</head>", f"{js_config_script}</head>")
+        # Replace placeholder config with real config
+        content = content.replace(
+            'window.PACS_CONFIG = {\n        "REFRESH_INTERVAL": 30000,\n        "API_BASE": "",\n        "DEBUG_MODE": false\n    };',
+            f'window.PACS_CONFIG = {json.dumps(JS_CONFIG)};'
+        )
         
         return HTMLResponse(content=content)
     except FileNotFoundError:

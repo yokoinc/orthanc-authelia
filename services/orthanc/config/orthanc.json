@@ -44,7 +44,7 @@
     "Port": 5432,                              // PostgreSQL port
     "Database": "orthanc",                     // Database name
     "Username": "orthanc",                     // Database username
-    "Password": "orthanc_password"             // Database password (change in production)
+    "Password": "change_this_password_in_production"  // Database password (must match .env)
   },
 
   // =============================================================================
@@ -178,7 +178,7 @@
     "WebServiceUserProfileUrl": "http://auth-service:8000/user/get-profile",      // User profile
     "WebServiceTokenCreationBaseUrl": "http://auth-service:8000/tokens/",        // Token creation
     "WebServiceUsername": "share-user",                              // Service username
-    "WebServicePassword": "change-me",                                // Service password (change in production)
+    "WebServicePassword": "change_this_password_in_production",       // Service password (must match .env AUTH_PASSWORD)
     "StandardConfigurations": [
       "ohif",
       "stone-webviewer",

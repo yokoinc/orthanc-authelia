@@ -1,8 +1,6 @@
 # PAX-MA-STACK - Orthanc with OHIF Viewer and Authelia Authentication
 # Complete medical imaging solution with PostgreSQL, Redis, and Nginx reverse proxy
 
-version: '3.8'
-
 services:
   # =============================================================================
   # DATABASE SERVICES
@@ -22,7 +20,7 @@ services:
       - pax-network
 
   redis:
-    image: redis:alpine
+    image: redis:8.0-alpine
     container_name: pax-redis
     restart: unless-stopped
     networks:
@@ -76,7 +74,7 @@ services:
       - pax-network                 # Custom authentication service
 
   authelia:
-    image: authelia/authelia:4.38.8
+    image: authelia/authelia:4.39.5 
     container_name: pax-authelia
     restart: unless-stopped
     depends_on:
@@ -109,7 +107,6 @@ services:
       - auth-service                    # Authentication service
     volumes:
       - ./services/orthanc/config/orthanc.json:/etc/orthanc/orthanc.json:ro  # PACS configuration
-      - ./services/orthanc/plugins:/var/lib/orthanc/plugins:ro  # Custom plugins directory
     networks:
       - pax-network
 
@@ -134,15 +131,16 @@ services:
   # =============================================================================
   
   nginx:
-    image: nginx:alpine
+    image: nginx:1.28.0-alpine
     container_name: pax-nginx
     restart: unless-stopped
     ports:
-      - "${NGINX_HTTP_PORT:-${NGINX_EXTERNAL_PORT:-30080}}:80"     # HTTP port
-      - "${NGINX_HTTPS_PORT:-}:443"                                 # HTTPS port (empty if SSL disabled)
+      - "${NGINX_EXTERNAL_PORT:-30080}:80"     # HTTP port
+      - "${NGINX_HTTPS_PORT:-}:443"            # HTTPS port (empty if SSL disabled)
     volumes:
       - ./services/reverse-proxy/${NGINX_CONFIG:-nginx.conf}:/etc/nginx/nginx.conf:ro  # Config file based on SSL mode
       - ./services/reverse-proxy/conf.d:/etc/nginx/conf.d:ro                           # Additional configurations
+      - ./services/reverse-proxy/html:/usr/share/nginx/html:ro                         # Custom error pages
       - ${SSL_CERT_PATH:-/dev/null}:/etc/nginx/ssl/cert.pem:ro                         # SSL certificate (optional)
       - ${SSL_KEY_PATH:-/dev/null}:/etc/nginx/ssl/key.pem:ro                           # SSL private key (optional)
     environment:

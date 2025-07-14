@@ -3,11 +3,11 @@
  * Interface pour la gestion des tokens de partage PACS
  */
 
-// Configuration - Merge server config with defaults
-const SERVER_CONFIG = window.PACS_CONFIG || {};
+// Configuration - Hard-coded working config
 const CONFIG = {
-    REFRESH_INTERVAL: SERVER_CONFIG.REFRESH_INTERVAL || 30000,
-    DEBUG_MODE: SERVER_CONFIG.DEBUG_MODE || false,
+    REFRESH_INTERVAL: 30000,
+    DEBUG_MODE: false,
+    API_BASE: "",
     TIME_UNITS: {
         DAY: 86400,
         HOUR: 3600,
@@ -30,7 +30,7 @@ const CONFIG = {
         TRASH: 'fas fa-trash',
         RETRY: 'fas fa-retry'
     },
-    API_BASE: SERVER_CONFIG.API_BASE || window.location.origin,
+    API_BASE: window.location.origin,
     ENDPOINTS: {
         TOKENS: '/auth/tokens',
         EXPIRED_TOKENS: '/auth/tokens/expired',

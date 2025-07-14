@@ -70,7 +70,7 @@ access_control:
   
   rules:
     # Share links with tokens - bypass authentication for specific paths
-    - domain: pacs.example.com
+    - domain: ${AUTHELIA_DOMAIN}
       policy: bypass                # Allow without authentication
       resources:
         - "^/dicom-web.*token=.*$"  # DICOM-Web API with token
@@ -78,17 +78,17 @@ access_control:
         - "^/ohif.*token=.*$"       # OHIF with token
       
     # Administrators - Full access to all PACS functions
-    - domain: pacs.example.com
+    - domain: ${AUTHELIA_DOMAIN}
       policy: one_factor            # Require authentication (1FA)
       subject: "group:admin"
       
     # Medical doctors - Standard medical access
-    - domain: pacs.example.com
+    - domain: ${AUTHELIA_DOMAIN}
       policy: one_factor
       subject: "group:doctor"
       
     # External users - Limited read-only access
-    - domain: pacs.example.com
+    - domain: ${AUTHELIA_DOMAIN}
       policy: one_factor
       subject: "group:external"
 
@@ -104,12 +104,12 @@ session:
   remember_me: 8h                  # "Remember me" duration
   # IMPORTANT: Generate a secure random string of at least 64 characters
   # Example command: openssl rand -base64 48
-  secret: ${AUTHELIA_SESSION_SECRET}  # CRITICAL: Set this environment variable!
+  secret: \${AUTHELIA_SESSION_SECRET}  # CRITICAL: Set this environment variable!
   
   cookies:
-    - domain: pacs.example.com     # Domain for session cookies
-      authelia_url: https://pacs.example.com/auth  # Authelia login URL
-      default_redirection_url: https://pacs.example.com/  # Default redirect after login
+    - domain: ${AUTHELIA_DOMAIN}     # Domain for session cookies
+      authelia_url: ${AUTHELIA_URL}  # Authelia login URL
+      default_redirection_url: ${AUTHELIA_DEFAULT_REDIRECT_URL}  # Default redirect after login
       same_site: lax               # Cookie same-site policy
   
   # Redis backend for session storage (scales better than file storage)
@@ -134,7 +134,7 @@ regulation:
 storage:
   # IMPORTANT: Generate a secure random string of at least 64 characters
   # Example command: openssl rand -base64 48
-  encryption_key: ${AUTHELIA_STORAGE_ENCRYPTION_KEY}  # CRITICAL: Set this environment variable!
+  encryption_key: \${AUTHELIA_STORAGE_ENCRYPTION_KEY}  # CRITICAL: Set this environment variable!
   local:
     path: /config/db.sqlite3       # SQLite database file location
 
@@ -146,7 +146,7 @@ identity_validation:
   reset_password:
     # IMPORTANT: Generate a secure random string of at least 64 characters
     # Example command: openssl rand -base64 48
-    jwt_secret: ${AUTHELIA_JWT_SECRET}  # CRITICAL: Set this environment variable!
+    jwt_secret: \${AUTHELIA_JWT_SECRET}  # CRITICAL: Set this environment variable!
 
 # =============================================================================
 # NOTIFICATION SYSTEM
