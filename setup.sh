@@ -1,13 +1,13 @@
 #!/bin/bash
 # =============================================================================
-# PAX-ORTHANC QUICK SETUP
+# ORTHANC-AUTHELIA QUICK SETUP
 # =============================================================================
 # Generates secure secrets and creates working .env file
 # =============================================================================
 
 set -e
 
-echo "🚀 PAX-ORTHANC Quick Setup"
+echo "🚀 ORTHANC-AUTHELIA Quick Setup"
 echo "=========================="
 echo
 

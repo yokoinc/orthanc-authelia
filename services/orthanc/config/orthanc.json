@@ -103,6 +103,7 @@
       "EnableViewerQuickButton": true,         // Quick access to viewers
       "ViewersOrdering": [                     // Viewer priority order
         "ohif",                                // OHIF viewer
+        "ohif-seg",
         "stone-webviewer",                     // Stone Web Viewer
         "volview"                              // VolView 3D viewer
       ],

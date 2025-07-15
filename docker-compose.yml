@@ -1,4 +1,4 @@
-# PAX-MA-STACK - Orthanc with OHIF Viewer and Authelia Authentication
+# ORTHANC-AUTHELIA - Orthanc with OHIF Viewer and Authelia Authentication
 # Complete medical imaging solution with PostgreSQL, Redis, and Nginx reverse proxy
 
 services:
@@ -8,7 +8,7 @@ services:
   
   postgres:
     image: postgres:15
-    container_name: pax-postgres
+    container_name: orthanc-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}              # Database name for Orthanc PACS
@@ -17,14 +17,14 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data  # Persistent database storage
     networks:
-      - pax-network
+      - orthanc-network
 
   redis:
     image: redis:8.0-alpine
-    container_name: pax-redis
+    container_name: orthanc-redis
     restart: unless-stopped
     networks:
-      - pax-network                 # Session storage for Authelia
+      - orthanc-network                 # Session storage for Authelia
 
   # =============================================================================
   # AUTHENTICATION SERVICES
@@ -34,7 +34,7 @@ services:
     build:
       context: ./services/auth-service
       dockerfile: Dockerfile
-    container_name: pax-auth-service
+    container_name: orthanc-auth-service
     restart: unless-stopped
     environment:
       # Authentication
@@ -71,18 +71,18 @@ services:
       - ./services/auth-service/static:/app/static:ro  # Mount static files
       - ./services/auth-service/templates:/app/templates:ro  # Mount templates
     networks:
-      - pax-network                 # Custom authentication service
+      - orthanc-network                 # Custom authentication service
 
   authelia:
     image: authelia/authelia:4.39.5 
-    container_name: pax-authelia
+    container_name: orthanc-authelia
     restart: unless-stopped
     depends_on:
       - redis                           # Requires Redis for session storage
     volumes:
       - ./services/authelia/config:/config  # Configuration and user database
     networks:
-      - pax-network
+      - orthanc-network
     environment:
       - TZ=${TZ}                          # Timezone for session management
       - AUTHELIA_SESSION_SECRET=${AUTHELIA_SESSION_SECRET}
@@ -100,7 +100,7 @@ services:
   
   orthanc:
     image: jodogne/orthanc-plugins:latest  # x86_64 only - core PACS server
-    container_name: pax-orthanc
+    container_name: orthanc-orthanc
     restart: unless-stopped
     depends_on:
       - postgres                        # Database for DICOM metadata
@@ -108,15 +108,15 @@ services:
     volumes:
       - ./services/orthanc/config/orthanc.json:/etc/orthanc/orthanc.json:ro  # PACS configuration
     networks:
-      - pax-network
+      - orthanc-network
 
   # =============================================================================
   # MEDICAL IMAGING VIEWERS
   # =============================================================================
   
   ohif:
-    image: registry.yokoinc.ovh/pacs-ohif:3.10.2
-    container_name: pax-ohif
+    image: registry.yokoinc.ovh/orthanc-ohif:3.10.2
+    container_name: orthanc-ohif
     restart: unless-stopped
     environment:
       - PUBLIC_URL=${OHIF_PUBLIC_URL}               # Base URL for OHIF viewer
@@ -124,7 +124,7 @@ services:
     volumes:
       - ./services/ohif/config/app-config.js:/usr/share/nginx/html/ohif/app-config.js:ro  # OHIF configuration
     networks:
-      - pax-network
+      - orthanc-network
 
   # =============================================================================
   # REVERSE PROXY & LOAD BALANCER
@@ -132,7 +132,7 @@ services:
   
   nginx:
     image: nginx:1.28.0-alpine
-    container_name: pax-nginx
+    container_name: orthanc-nginx
     restart: unless-stopped
     ports:
       - "${NGINX_EXTERNAL_PORT:-30080}:80"     # HTTP port
@@ -151,7 +151,7 @@ services:
       - ohif                            # Medical imaging viewer
       - auth-service                    # Token management
     networks:
-      - pax-network
+      - orthanc-network
 
 # =============================================================================
 # PERSISTENT STORAGE
@@ -165,5 +165,5 @@ volumes:
 # =============================================================================
 
 networks:
-  pax-network:
+  orthanc-network:
     driver: bridge                      # Internal network for service communication
