@@ -243,6 +243,9 @@ config.old/
 *.sublime-project
 *.sublime-workspace
 
+# Claude Code
+.claude/
+
 # ===============================================
 # Git and Version Control
 # ===============================================
@@ -305,3 +308,6 @@ demo_data/
 
 # Local Docker registry data
 registry/
+
+# Custom deployment files
+pacs-yokoinc.yml

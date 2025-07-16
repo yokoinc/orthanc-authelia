@@ -10,6 +10,7 @@ import redis
 import os
 import logging
 import urllib.parse
+from pathlib import Path
 
 app = FastAPI(title="PACS Auth Service", description="Authentication and token management for PACS")
 security = HTTPBasic()
@@ -32,16 +33,7 @@ CACHE_VALIDITY_SHARE_TOKEN = int(os.getenv("CACHE_VALIDITY_SHARE_TOKEN", "60")) 
 AUDIT_RETENTION_DAYS = int(os.getenv("AUDIT_RETENTION_DAYS", "90"))  # 90 days
 UNLIMITED_TOKEN_DURATION = int(os.getenv("UNLIMITED_TOKEN_DURATION", str(365 * 24 * 3600)))  # 1 year
 
-# UI Messages configuration
-UI_MESSAGES = {
-    "INVALID_TOKEN": os.getenv("UI_MSG_INVALID_TOKEN", "Aucun token fourni."),
-    "EXPIRED_TOKEN": os.getenv("UI_MSG_EXPIRED_TOKEN", "Ce lien de partage n'est plus valide."),
-    "NO_STUDY": os.getenv("UI_MSG_NO_STUDY", "Aucune étude associée à ce token."),
-    "INVALID_STUDY": os.getenv("UI_MSG_INVALID_STUDY", "Identifiant d'étude manquant."),
-    "USAGE_LIMIT": os.getenv("UI_MSG_USAGE_LIMIT", "Ce lien de partage a atteint sa limite d'utilisation.")
-}
-
-# Configuration du logging
+# Logging configuration
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL.upper()),
@@ -52,8 +44,50 @@ logging.basicConfig(
 )
 logger = logging.getLogger("auth-service")
 
+# Language configuration
+LANGUAGE = os.getenv("LANGUAGE", "en")
+
+# Load translations from JSON files
+def load_translations(language="en"):
+    """Load translations from JSON files"""
+    translations_dir = Path("/app/translations")
+    translation_file = translations_dir / f"{language}.json"
+    
+    # Fallback to English if requested language not found
+    if not translation_file.exists():
+        translation_file = translations_dir / "en.json"
+    
+    try:
+        with open(translation_file, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        logger.error(f"Error loading translations: {e}")
+        # Return minimal English fallback
+        return {
+            "ui": {
+                "invalid_token": "No token provided.",
+                "expired_token": "This sharing link is no longer valid.",
+                "no_study": "No study associated with this token.",
+                "invalid_study": "Missing study identifier.",
+                "usage_limit": "This sharing link has reached its usage limit."
+            },
+            "js": {}
+        }
+
+# Load translations based on configured language
+TRANSLATIONS = load_translations(LANGUAGE)
+
+# Extract UI messages for backward compatibility
+UI_MESSAGES = {
+    "INVALID_TOKEN": TRANSLATIONS["ui"]["invalid_token"],
+    "EXPIRED_TOKEN": TRANSLATIONS["ui"]["expired_token"],
+    "NO_STUDY": TRANSLATIONS["ui"]["no_study"],
+    "INVALID_STUDY": TRANSLATIONS["ui"]["invalid_study"],
+    "USAGE_LIMIT": TRANSLATIONS["ui"]["usage_limit"]
+}
+
 # Configuration CDN
-FONT_AWESOME_CDN = os.getenv("FONT_AWESOME_CDN", "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css")
+FONT_AWESOME_CDN = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
 
 # Configuration JavaScript
 JS_CONFIG = {
@@ -165,10 +199,14 @@ def render_error_template(title: str, message: str, icon_class: str, status_code
                              extra_content="")
     return HTMLResponse(content=content, status_code=status_code)
 
-def render_access_denied_template(message: str = "Admin access required", back_link: str = "") -> HTMLResponse:
+def render_access_denied_template(message: str = None, back_link: str = "") -> HTMLResponse:
     """Render access denied template"""
-    back_link_html = f'<a href="{back_link}">← Back to PACS</a>' if back_link else ""
+    if message is None:
+        message = TRANSLATIONS["ui"]["access_denied_message"]
+    
+    back_link_html = f'<a href="{back_link}">{TRANSLATIONS["ui"]["back_to_pacs"]}</a>' if back_link else ""
     content = render_template("access_denied.html", 
+                             access_denied_title=TRANSLATIONS["ui"]["access_denied_title"],
                              message=message,
                              back_link=back_link_html)
     return HTMLResponse(content=content, status_code=403)
@@ -333,13 +371,13 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
     
     # Map Authelia group to user permissions
     if "admin" in group:
-        user_name = "Administrator"
+        user_name = TRANSLATIONS["ui"]["administrator"]
         permissions = ["view", "download", "upload", "delete", "modify", "anonymize", "share", "send", "settings", "edit-labels"]
     elif "doctor" in group:
-        user_name = "Doctor"
+        user_name = TRANSLATIONS["ui"]["doctor"]
         permissions = ["view", "download", "upload", "share", "send", "edit-labels"]
     else:
-        user_name = "External User"
+        user_name = TRANSLATIONS["ui"]["external_user"]
         permissions = ["view", "download"]
     
     return JSONResponse(content={
@@ -624,7 +662,7 @@ async def token_test_interface(request: Request):
             content = f.read()
         return HTMLResponse(content=content)
     except FileNotFoundError:
-        return render_file_not_found_template("Test Page Not Found", "Test page not found")
+        return render_file_not_found_template(TRANSLATIONS["ui"]["test_page_not_found"], TRANSLATIONS["ui"]["test_page_not_found_message"])
 
 @app.get("/tokens/manage")
 async def token_management_interface(request: Request):
@@ -632,22 +670,55 @@ async def token_management_interface(request: Request):
     try:
         verify_admin_auth(request)
     except HTTPException:
-        return render_access_denied_template("Admin access required to manage tokens.", "/ui/")
+        return render_access_denied_template(TRANSLATIONS["ui"]["admin_access_required"], "/ui/")
     
     # Serve the token management interface
     try:
-        with open("/app/templates/token-manager.html", "r", encoding="utf-8") as f:
-            content = f.read()
+        # Prepare JavaScript configuration with translations
+        js_config = dict(JS_CONFIG)
         
-        # Replace placeholder config with real config
-        content = content.replace(
-            'window.PACS_CONFIG = {\n        "REFRESH_INTERVAL": 30000,\n        "API_BASE": "",\n        "DEBUG_MODE": false\n    };',
-            f'window.PACS_CONFIG = {json.dumps(JS_CONFIG)};'
-        )
+        # Add JavaScript translations based on current language
+        js_translations = {}
+        for key, value in TRANSLATIONS["js"].items():
+            js_translations[key.upper()] = value
+        
+        if js_translations:
+            js_config["MESSAGES"] = js_translations
+        
+        # Prepare template variables from translations
+        ui_translations = TRANSLATIONS["ui"]
+        template_vars = {
+            "TITLE": ui_translations["title"],
+            "SUBTITLE": ui_translations["subtitle"],
+            "REFRESH_BUTTON": ui_translations["refresh_button"],
+            "TOTAL_TOKENS": ui_translations["total_tokens"],
+            "OHIF_VIEWER": ui_translations["ohif_viewer"],
+            "INSTANT_LINKS": ui_translations["instant_links"],
+            "HIGH_USAGE": ui_translations["high_usage"],
+            "ACTIVE_TOKENS": ui_translations["active_tokens"],
+            "EXPIRED_TOKENS": ui_translations["expired_tokens"],
+            "LOADING_TOKENS": ui_translations["loading_tokens"],
+            "LOADING_EXPIRED_TOKENS": ui_translations["loading_expired_tokens"],
+            "ADMIN_LABEL": ui_translations["admin_label"],
+            "CONFIRM_REVOKE_TITLE": ui_translations["confirm_revoke_title"],
+            "CONFIRM_REVOKE_MESSAGE": ui_translations["confirm_revoke_message"],
+            "CONFIRM_REVOKE_WARNING": ui_translations["confirm_revoke_warning"],
+            "CANCEL_BUTTON": ui_translations["cancel_button"],
+            "REVOKE_BUTTON": ui_translations["revoke_button"],
+            "SUCCESS_TOAST": ui_translations["success_toast"],
+            "TOKEN_REVOKED_SUCCESS": ui_translations["token_revoked_success"],
+            "ERROR_TOAST": ui_translations["error_toast"],
+            "ERROR_OCCURRED": ui_translations["error_occurred"]
+        }
+        
+        # Render template with variables
+        content = render_template("token-manager.html", 
+                                js_config=json.dumps(js_config, indent=4),
+                                **template_vars)
         
         return HTMLResponse(content=content)
     except FileNotFoundError:
-        return render_file_not_found_template("Interface Not Found", "Token management interface not found.")
+        return render_file_not_found_template(TRANSLATIONS["ui"]["interface_not_found"], TRANSLATIONS["ui"]["token_management_interface_not_found"])
 
 @app.get("/share/")
 async def share_redirect(request: Request):
@@ -655,30 +726,30 @@ async def share_redirect(request: Request):
     token = request.query_params.get("token")
     
     if not token:
-        return render_error_template("Lien invalide", UI_MESSAGES["INVALID_TOKEN"], "fas fa-shield-alt", 400)
+        return render_error_template(TRANSLATIONS["ui"]["invalid_link"], UI_MESSAGES["INVALID_TOKEN"], "fas fa-shield-alt", 400)
     
     # Check if token exists and is valid
     token_data = get_token(token)
     if not token_data:
-        return render_error_template("Lien expiré", UI_MESSAGES["EXPIRED_TOKEN"], "fas fa-clock", 410)
+        return render_error_template(TRANSLATIONS["ui"]["expired_token"], UI_MESSAGES["EXPIRED_TOKEN"], "fas fa-clock", 410)
     
     # Check if token has expired
     if time.time() >= token_data["expires_at"]:
         delete_token(token)
-        return render_error_template("Lien expiré", UI_MESSAGES["EXPIRED_TOKEN"], "fas fa-clock", 410)
+        return render_error_template(TRANSLATIONS["ui"]["expired_token"], UI_MESSAGES["EXPIRED_TOKEN"], "fas fa-clock", 410)
     
     # Get study from token resources
     resources = token_data.get("resources", [])
     if not resources:
-        return render_error_template("Aucune étude", UI_MESSAGES["NO_STUDY"], "fas fa-folder-open", 400)
+        return render_error_template(TRANSLATIONS["ui"]["no_study"], UI_MESSAGES["NO_STUDY"], "fas fa-folder-open", 400)
     
     study_uid = resources[0].get("DicomUid", "").strip()  # Remove any whitespace
     if not study_uid:
-        return render_error_template("Étude invalide", UI_MESSAGES["INVALID_STUDY"], "fas fa-exclamation-triangle", 400)
+        return render_error_template(TRANSLATIONS["ui"]["invalid_study"], UI_MESSAGES["INVALID_STUDY"], "fas fa-exclamation-triangle", 400)
     
     # Increment token usage counter for share access
     if not increment_token_usage(token):
-        return render_error_template("Lien expiré", UI_MESSAGES["USAGE_LIMIT"], "fas fa-clock", 410)
+        return render_error_template(TRANSLATIONS["ui"]["link_expired"], UI_MESSAGES["USAGE_LIMIT"], "fas fa-clock", 410)
     
     # Redirect to OHIF with study and token for Authorization Plugin
     base_url = get_base_url(request)
@@ -688,30 +759,15 @@ async def share_redirect(request: Request):
     study_uid_encoded = urllib.parse.quote(study_uid, safe='')
     ohif_url = f"{base_url}/ohif/viewer?StudyInstanceUIDs={study_uid_encoded}&token={token}&_cb={cache_bust}"
     
-    return HTMLResponse(content=f"""
-        <html>
-            <head>
-                <title>Redirection vers OHIF</title>
-                <meta http-equiv="refresh" content="0; url={ohif_url}">
-                <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
-                <style>
-                    body {{ font-family: Avenir, Helvetica, Arial, sans-serif; 
-                           background: #1e242a; color: #e0e0e0; text-align: center; padding: 50px; margin: 0;
-                           -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }}
-                    h1 {{ color: #6ea0c8; margin-bottom: 20px; }}
-                    p {{ color: #b0b0b0; }}
-                    a {{ color: #6ea0c8; text-decoration: none; }}
-                    a:hover {{ text-decoration: underline; }}
-                    .icon {{ font-size: 1.2em; margin-right: 8px; }}
-                </style>
-            </head>
-            <body>
-                <h1><i class="fas fa-spinner fa-pulse icon"></i>Redirection...</h1>
-                <p>Redirection vers l'étude...</p>
-                <p><a href="{ohif_url}">Cliquer ici si la redirection ne fonctionne pas</a></p>
-            </body>
-        </html>
-    """)
+    # Use redirect template with translations
+    content = render_template("redirect.html",
+                             redirect_title=TRANSLATIONS["ui"]["redirect_title"],
+                             redirecting=TRANSLATIONS["ui"]["redirecting"],
+                             redirect_message=TRANSLATIONS["ui"]["redirect_message"],
+                             redirect_click_here=TRANSLATIONS["ui"]["redirect_click_here"],
+                             ohif_url=ohif_url)
+    
+    return HTMLResponse(content=content)
 
 @app.get("/health")
 def health_check():

@@ -1,22 +1,22 @@
 ---
 users:
   admin@example.com:
-    displayname: "Administrateur PACS"
-    password: "$argon2id$v=19$m=65536,t=3,p=4$UdZSJePOoejeJKlqYDT8AQ$0c9SgJ4ShPOQy0mzwxZOlBy0IMYfEn5oWmK3HeqpQLo"
+    displayname: "PACS Administrator"
+    password: "$argon2id$v=19$m=65536,t=3,p=4$cV4zooAU6KZ0ekOPvt3Vaw$ucm+1skyO16+X6mLhzhabvrDjLf26r6dGKLow01aqPQ"
     email: admin@example.com
     groups:
       - admin
       
   doctor@example.com:
-    displayname: "Médecin"
-    password: "$argon2id$v=19$m=65536,t=3,p=4$yeaaAby0tZzKjYveNi6zCA$G55AGJYIHuZSTCa0o07AKOXekIfMpmrPH7jYzKNt7yA"
+    displayname: "Medical Doctor"
+    password: "$argon2id$v=19$m=65536,t=3,p=4$5s3dADvwo2/774m/e+Odqg$0Ac+u23mUeroCYI489wc7oW4f0yA4s1gGWmaSCqPoZI"
     email: doctor@example.com
     groups:
       - doctor
       
   external@example.com:
-    displayname: "Utilisateur Externe"
-    password: "$argon2id$v=19$m=65536,t=3,p=4$G1xhCtTUoT9O1j08awoA7w$uNZtzlez8t6RgoQOiqLNBY+ayABBrtQ5JO8Zt2GAAV0"
+    displayname: "External User"
+    password: "$argon2id$v=19$m=65536,t=3,p=4$PVSjXvKO2cR/XgVcu1aKQw$AKFOE0jOMcEksdkhslxaMl9sWmTouM/C7g0WbJis+hM"
     email: external@example.com
     groups:
       - external

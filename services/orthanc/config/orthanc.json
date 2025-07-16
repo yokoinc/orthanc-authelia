@@ -44,7 +44,7 @@
     "Port": 5432,                              // PostgreSQL port
     "Database": "orthanc",                     // Database name
     "Username": "orthanc",                     // Database username
-    "Password": "change_this_password_in_production"  // Database password (must match .env)
+    "Password": "firenze7344"  // Database password from .env
   },
 
   // =============================================================================
@@ -103,7 +103,6 @@
       "EnableViewerQuickButton": true,         // Quick access to viewers
       "ViewersOrdering": [                     // Viewer priority order
         "ohif",                                // OHIF viewer
-        "ohif-seg",
         "stone-webviewer",                     // Stone Web Viewer
         "volview"                              // VolView 3D viewer
       ],
@@ -179,7 +178,7 @@
     "WebServiceUserProfileUrl": "http://auth-service:8000/user/get-profile",      // User profile
     "WebServiceTokenCreationBaseUrl": "http://auth-service:8000/tokens/",        // Token creation
     "WebServiceUsername": "share-user",                              // Service username
-    "WebServicePassword": "change_this_password_in_production",       // Service password (must match .env AUTH_PASSWORD)
+    "WebServicePassword": "firenze7344",       // Service password from .env
     "StandardConfigurations": [
       "ohif",
       "stone-webviewer",

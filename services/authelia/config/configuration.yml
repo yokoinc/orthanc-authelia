@@ -1,8 +1,8 @@
 # =============================================================================
-# AUTHELIA AUTHENTICATION CONFIGURATION FOR PACS STACK
+# AUTHELIA AUTHENTICATION CONFIGURATION FOR ORTHANC-AUTHELIA
 # =============================================================================
 # Single Sign-On (SSO) authentication for Orthanc PACS with multi-factor support
-# Handles user authentication, session management, and access control
+# Generated from configuration.yml.example by setup script
 
 ---
 # =============================================================================
@@ -21,18 +21,21 @@ server:
   tls:
     certificate: ""                 # TLS handled by nginx reverse proxy
     key: ""
+  headers:
+    csp_template: ""                # Disable CSP for now
+  # asset_path: /config/assets      # Use default assets path
 
 # =============================================================================
 # LOGGING CONFIGURATION
 # =============================================================================
 log:
-  level: info                       # Log level: trace, debug, info, warn, error
+  level: info      # Log level from .env
 
 # =============================================================================
 # TWO-FACTOR AUTHENTICATION (TOTP)
 # =============================================================================
 totp:
-  issuer: Orthanc PACS              # Issuer name displayed in authenticator apps
+  issuer: ORTHANC-AUTHELIA          # Issuer name displayed in authenticator apps
 
 # =============================================================================
 # USER AUTHENTICATION BACKEND
@@ -69,6 +72,17 @@ access_control:
   default_policy: deny              # Deny access by default (secure)
   
   rules:
+    # Authelia authentication pages - bypass authentication (must be accessible)
+    - domain: pacs.yokoinc.ovh
+      policy: bypass                # Allow without authentication
+      resources:
+        - "^/auth/.*$"              # Authelia login pages
+        - "^/api/.*$"               # Authelia API endpoints
+        - "^/static/.*$"            # Static assets
+        - "^/locales/.*$"           # Localization files
+        - "^/manifest.json$"        # Web app manifest
+        - "^/favicon.ico$"          # Favicon
+    
     # Share links with tokens - bypass authentication for specific paths
     - domain: pacs.yokoinc.ovh
       policy: bypass                # Allow without authentication
@@ -102,21 +116,19 @@ session:
   expiration: 1h                   # Maximum session duration
   inactivity: 15m                  # Auto-logout after inactivity
   remember_me: 8h                  # "Remember me" duration
-  # IMPORTANT: Generate a secure random string of at least 64 characters
-  # Example command: openssl rand -base64 48
-  secret: \${AUTHELIA_SESSION_SECRET}  # CRITICAL: Set this environment variable!
+  secret: W+wyPvvqGl7AHzfgaouwbw4G4ifo4CsLdedQ/+/K5ebqEvdui4V0PSfZ4KSZEMgy  # Session secret from .env
   
   cookies:
-    - domain: pacs.yokoinc.ovh     # Domain for session cookies
+    - domain: pacs.yokoinc.ovh   # Domain for session cookies
       authelia_url: https://pacs.yokoinc.ovh/auth  # Authelia login URL
-      default_redirection_url: https://pacs.yokoinc.ovh/  # Default redirect after login
+      default_redirection_url: https://pacs.yokoinc.ovh/ui/app/  # Default redirect after login
       same_site: lax               # Cookie same-site policy
   
   # Redis backend for session storage (scales better than file storage)
   redis:
-    host: redis                    # Redis container hostname
-    port: 6379                     # Redis port
-    database_index: 0              # Redis database number
+    host: redis            # Redis container hostname
+    port: 6379            # Redis port
+    database_index: 0    # Redis database number
 
 # =============================================================================
 # RATE LIMITING & BRUTE FORCE PROTECTION
@@ -132,9 +144,7 @@ regulation:
 # =============================================================================
 # Local SQLite storage for user data and authentication logs
 storage:
-  # IMPORTANT: Generate a secure random string of at least 64 characters
-  # Example command: openssl rand -base64 48
-  encryption_key: \${AUTHELIA_STORAGE_ENCRYPTION_KEY}  # CRITICAL: Set this environment variable!
+  encryption_key: kmaDel6mehrttnUPwGAadQZp/9ld0aR/criqO7HjsGxWMVEauZ5UUHUAnIAUfS4M  # Storage encryption key from .env
   local:
     path: /config/db.sqlite3       # SQLite database file location
 
@@ -144,9 +154,7 @@ storage:
 # Configuration for password reset and account verification
 identity_validation:
   reset_password:
-    # IMPORTANT: Generate a secure random string of at least 64 characters
-    # Example command: openssl rand -base64 48
-    jwt_secret: \${AUTHELIA_JWT_SECRET}  # CRITICAL: Set this environment variable!
+    jwt_secret: ds5ZppDtMfe/xj7qgYJkIAVl0RizOFEdGOSmMOHoV8T6qUlr4zVfEY4OJuQQWdXP  # JWT secret from .env
 
 # =============================================================================
 # NOTIFICATION SYSTEM

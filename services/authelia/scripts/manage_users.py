@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # =============================================================================
-# AUTHELIA USER MANAGEMENT SCRIPT FOR ORTHANC PACS
+# AUTHELIA USER MANAGEMENT SCRIPT FOR ORTHANC-AUTHELIA
 # =============================================================================
 # Comprehensive user management for Authelia authentication in PACS environment
 # Usage: python3 manage_users.py [command] [options]
@@ -22,7 +22,7 @@ from pathlib import Path
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-USERS_FILE = "/volume2/docker/orthanc/services/authelia/config/users_database.yml"
+USERS_FILE = "services/authelia/config/users_database.yml"
 CONTAINER_NAME = "orthanc-authelia"
 
 # =============================================================================
@@ -41,7 +41,7 @@ def generate_password_hash(password):
     try:
         # Use Authelia's built-in crypto command for hash generation
         result = subprocess.run([
-            "docker", "run", "--rm", "authelia/authelia:latest",
+            "docker", "run", "--rm", "authelia/authelia:4.39.5",
             "authelia", "crypto", "hash", "generate", "argon2",
             "--password", password
         ], capture_output=True, text=True, check=True)
@@ -54,7 +54,7 @@ def generate_password_hash(password):
         raise Exception("Hash not found in output")
         
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error generating password hash: {e}")
+        print(f"ERROR: Error generating password hash: {e}")
         return None
 
 # =============================================================================
@@ -89,9 +89,9 @@ def restart_authelia():
     """
     try:
         subprocess.run(["docker", "restart", CONTAINER_NAME], check=True)
-        print("✅ Authelia restarted successfully")
+        print("Authelia restarted successfully")
     except subprocess.CalledProcessError:
-        print("❌ Error restarting Authelia container")
+        print("ERROR: Error restarting Authelia container")
 
 # =============================================================================
 # USER MANAGEMENT COMMANDS
@@ -101,7 +101,7 @@ def init_database():
     Initialize user database with default PACS users
     Creates admin, doctor, and external user accounts
     """
-    print("🔧 Initializing user database...")
+    print("Initializing user database...")
     
     # Default users for PACS environment with different access levels
     default_users = {
@@ -128,12 +128,12 @@ def init_database():
     }
     
     save_users(default_users)
-    print("✅ Database initialized with default users")
-    print("👤 Created users:")
+    print("Database initialized with default users")
+    print("Created users:")
     print("   - admin@example.com / admin123 (group: admin)")
     print("   - doctor@example.com / doctor123 (group: doctor)")
     print("   - external@example.com / external123 (group: external)")
-    print("🔒 WARNING: Change default passwords in production!")
+    print("WARNING: Change default passwords in production!")
     
     restart_authelia()
 
@@ -147,16 +147,16 @@ def add_user(email, password, displayname, groups):
         displayname (str): Display name for the user
         groups (str): Comma-separated list of groups
     """
-    print(f"➕ Adding user {email}...")
+    print(f"Adding user {email}...")
     
     # Validate email format
     if not email or '@' not in email:
-        print("❌ Invalid email address")
+        print("ERROR: Invalid email address")
         return
     
     # Validate password strength
     if not password or len(password) < 6:
-        print("❌ Password too short (minimum 6 characters)")
+        print("ERROR: Password too short (minimum 6 characters)")
         return
     
     # Validate groups against PACS roles
@@ -165,20 +165,20 @@ def add_user(email, password, displayname, groups):
     
     for group in group_list:
         if group not in valid_groups:
-            print(f"❌ Invalid group: {group}. Valid groups: {valid_groups}")
+            print(f"ERROR: Invalid group: {group}. Valid groups: {valid_groups}")
             return
     
     data = load_users()
     
     # Check if user already exists
     if email in data["users"]:
-        print(f"❌ User {email} already exists")
+        print(f"ERROR: User {email} already exists")
         return
     
     # Generate secure password hash
     password_hash = generate_password_hash(password)
     if not password_hash:
-        print("❌ Error generating password hash")
+        print("ERROR: Error generating password hash")
         return
     
     # Add user to database
@@ -190,7 +190,7 @@ def add_user(email, password, displayname, groups):
     }
     
     save_users(data)
-    print(f"✅ User {email} added successfully")
+    print(f"User {email} added successfully")
     print(f"   - Name: {displayname or email}")
     print(f"   - Groups: {', '.join(group_list)}")
     
@@ -203,17 +203,17 @@ def delete_user(email):
     Args:
         email (str): Email of user to delete
     """
-    print(f"🗑️  Deleting user {email}...")
+    print(f"Deleting user {email}...")
     
     data = load_users()
     
     if email not in data["users"]:
-        print(f"❌ User {email} does not exist")
+        print(f"ERROR: User {email} does not exist")
         return
     
     del data["users"][email]
     save_users(data)
-    print(f"✅ User {email} deleted successfully")
+    print(f"User {email} deleted successfully")
     
     restart_authelia()
 
@@ -225,28 +225,28 @@ def change_password(email, new_password):
         email (str): User email
         new_password (str): New password
     """
-    print(f"🔑 Changing password for {email}...")
+    print(f"Changing password for {email}...")
     
     # Validate password strength
     if len(new_password) < 6:
-        print("❌ Password too short (minimum 6 characters)")
+        print("ERROR: Password too short (minimum 6 characters)")
         return
     
     data = load_users()
     
     if email not in data["users"]:
-        print(f"❌ User {email} does not exist")
+        print(f"ERROR: User {email} does not exist")
         return
     
     # Generate new password hash
     password_hash = generate_password_hash(new_password)
     if not password_hash:
-        print("❌ Error generating password hash")
+        print("ERROR: Error generating password hash")
         return
     
     data["users"][email]["password"] = password_hash
     save_users(data)
-    print(f"✅ Password changed for {email}")
+    print(f"Password changed for {email}")
     
     restart_authelia()
 
@@ -254,7 +254,7 @@ def list_users():
     """
     List all users in the database with their details
     """
-    print("👥 User list:")
+    print("User list:")
     
     data = load_users()
     
@@ -266,7 +266,7 @@ def list_users():
     for email, user_data in data["users"].items():
         groups = ", ".join(user_data.get("groups", []))
         displayname = user_data.get("displayname", "")
-        print(f"   📧 {email}")
+        print(f"   {email}")
         print(f"      Name: {displayname}")
         print(f"      Groups: {groups}")
         
@@ -331,7 +331,7 @@ def main():
         parser.print_help()
         return
     
-    print(f"🔧 Authelia User Manager - {args.command.upper()}")
+    print(f"Authelia User Manager - {args.command.upper()}")
     print("=" * 50)
     
     # Execute requested command
@@ -344,7 +344,7 @@ def main():
         if confirmation.lower() == 'y':
             delete_user(args.email)
         else:
-            print("❌ Deletion cancelled")
+            print("Deletion cancelled")
     elif args.command == 'password':
         change_password(args.email, args.new_password)
     elif args.command == 'list':

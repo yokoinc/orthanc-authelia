@@ -1,6 +1,6 @@
 /**
  * Token Manager JavaScript
- * Interface pour la gestion des tokens de partage PACS
+ * Interface for managing PACS sharing tokens
  */
 
 // Configuration - Hard-coded working config
@@ -8,6 +8,33 @@ const CONFIG = {
     REFRESH_INTERVAL: 30000,
     DEBUG_MODE: false,
     API_BASE: "",
+    // UI Messages - Can be overridden by server-side configuration
+    MESSAGES: {
+        EXPIRED: "Expired",
+        NO_RESOURCE: "No resource",
+        NO_ACTIVE_TOKENS: "No active tokens found.",
+        NO_EXPIRED_TOKENS: "No recent expired tokens.",
+        EXPIRES_IN: "Expires in",
+        RESOURCE: "Resource",
+        CREATED_ON: "Created on",
+        EXPIRED_ON: "Expired on",
+        USAGE: "Usage",
+        REASON: "Reason",
+        LIMIT_REACHED: "Limit reached",
+        TIME_ELAPSED: "Time elapsed",
+        REVOKED: "Revoked",
+        TOKEN_REVOKED_SUCCESS: "Token revoked successfully",
+        SUSPICIOUS_USAGE: "Suspicious usage",
+        SUSPICIOUS_USAGE_DETECTED: "Suspicious usage detected",
+        REVOCATION_ERROR: "Error during revocation: ",
+        LOADING_TOKENS: "Loading tokens...",
+        LOADING_EXPIRED_TOKENS: "Loading expired tokens...",
+        LOADING_ERROR: "Error loading: ",
+        LOADING_EXPIRED_ERROR: "Error loading expired tokens",
+        DATA_LOADING_ERROR: "Error loading data",
+        REVOKING: "Revoking...",
+        RETRY: "Retry"
+    },
     TIME_UNITS: {
         DAY: 86400,
         HOUR: 3600,
@@ -41,6 +68,11 @@ const CONFIG = {
 
 let currentTokenToRevoke = null;
 
+// Apply translations from server configuration
+if (window.PACS_CONFIG && window.PACS_CONFIG.MESSAGES) {
+    Object.assign(CONFIG.MESSAGES, window.PACS_CONFIG.MESSAGES);
+}
+
 // Debug logging
 if (CONFIG.DEBUG_MODE) {
     console.log('Token Manager loaded with config:', CONFIG);
@@ -59,7 +91,7 @@ function formatDate(timestamp) {
 
 // Format duration to readable string
 function formatDuration(seconds) {
-    if (seconds < 0) return `<span class="badge ${CONFIG.CSS_CLASSES.DANGER}">Expiré</span>`;
+    if (seconds < 0) return `<span class="badge ${CONFIG.CSS_CLASSES.DANGER}">${CONFIG.MESSAGES.EXPIRED}</span>`;
     
     const days = Math.floor(seconds / CONFIG.TIME_UNITS.DAY);
     const hours = Math.floor((seconds % CONFIG.TIME_UNITS.DAY) / CONFIG.TIME_UNITS.HOUR);
@@ -78,7 +110,7 @@ function formatDuration(seconds) {
 
 // Get resource description
 function getResourceDescription(resources) {
-    if (!resources || resources.length === 0) return 'Aucune ressource';
+    if (!resources || resources.length === 0) return CONFIG.MESSAGES.NO_RESOURCE;
     const resource = resources[0];
     const level = resource.Level || 'study';
     const id = resource.DicomUid || resource.OrthancId || 'N/A';
@@ -99,12 +131,12 @@ function isSuspiciousUsage(token) {
 // Get expiration reason
 function getExpirationReason(token) {
     if (token.current_uses >= token.max_uses) {
-        return `<span class="badge ${CONFIG.CSS_CLASSES.WARNING}">Limite atteinte</span>`;
+        return `<span class="badge ${CONFIG.CSS_CLASSES.WARNING}">${CONFIG.MESSAGES.LIMIT_REACHED}</span>`;
     }
     if (token.remaining_seconds <= 0) {
-        return `<span class="badge ${CONFIG.CSS_CLASSES.INFO}">Temps écoulé</span>`;
+        return `<span class="badge ${CONFIG.CSS_CLASSES.INFO}">${CONFIG.MESSAGES.TIME_ELAPSED}</span>`;
     }
-    return `<span class="badge ${CONFIG.CSS_CLASSES.DANGER}">Révoqué</span>`;
+    return `<span class="badge ${CONFIG.CSS_CLASSES.DANGER}">${CONFIG.MESSAGES.REVOKED}</span>`;
 }
 
 // Generic API call function
@@ -166,7 +198,7 @@ async function revokeToken(tokenId) {
 }
 
 // Show success toast
-function showSuccessToast(message = 'Token révoqué avec succès') {
+function showSuccessToast(message = CONFIG.MESSAGES.TOKEN_REVOKED_SUCCESS) {
     const toast = document.getElementById('successToast');
     const toastBody = toast.querySelector('.toast-body');
     toastBody.textContent = message;
@@ -191,7 +223,7 @@ function createTokensTableHTML(tokens) {
         return `
             <div class="text-center p-4">
                 <i class="${CONFIG.ICONS.INFO} fa-2x mb-3 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>
-                <p class="${CONFIG.CSS_CLASSES.TEXT_MUTED}">Aucun token actif trouvé.</p>
+                <p class="${CONFIG.CSS_CLASSES.TEXT_MUTED}">${CONFIG.MESSAGES.NO_ACTIVE_TOKENS}</p>
             </div>
         `;
     }
@@ -202,9 +234,9 @@ function createTokensTableHTML(tokens) {
                 <thead>
                     <tr>
                         <th><i class="fas fa-tag me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Type</th>
-                        <th><i class="fas fa-file-medical me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Ressource</th>
-                        <th><i class="fas fa-calendar me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Créé le</th>
-                        <th><i class="fas fa-clock me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Expire dans</th>
+                        <th><i class="fas fa-file-medical me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.RESOURCE}</th>
+                        <th><i class="fas fa-calendar me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.CREATED_ON}</th>
+                        <th><i class="fas fa-clock me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.EXPIRES_IN}</th>
                         <th><i class="fas fa-chart-bar me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Utilisation</th>
                         <th><i class="fas fa-cog me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Actions</th>
                     </tr>
@@ -227,7 +259,7 @@ function createTokensTableHTML(tokens) {
                     <span class="badge ${typeClass}">
                         ${token.token_type === 'ohif-viewer-publication' ? 'OHIF' : 'Instant'}
                     </span>
-                    ${isSuspicious ? `<i class="fas fa-exclamation-triangle ${CONFIG.CSS_CLASSES.TEXT_DANGER} ms-1" title="Usage suspect"></i>` : ''}
+                    ${isSuspicious ? `<i class="fas fa-exclamation-triangle ${CONFIG.CSS_CLASSES.TEXT_DANGER} ms-1" title="${CONFIG.MESSAGES.SUSPICIOUS_USAGE}"></i>` : ''}
                 </td>
                 <td>${getResourceDescription(token.resources)}</td>
                 <td><small>${formatDate(token.created_at)}</small></td>
@@ -264,7 +296,7 @@ function createExpiredTokensTableHTML(tokens) {
         return `
             <div class="text-center p-4">
                 <i class="fas fa-clock ${CONFIG.CSS_CLASSES.TEXT_MUTED} fa-2x mb-3"></i>
-                <p class="${CONFIG.CSS_CLASSES.TEXT_MUTED}">Aucun token expiré récent.</p>
+                <p class="${CONFIG.CSS_CLASSES.TEXT_MUTED}">${CONFIG.MESSAGES.NO_EXPIRED_TOKENS}</p>
             </div>
         `;
     }
@@ -275,11 +307,11 @@ function createExpiredTokensTableHTML(tokens) {
                 <thead>
                     <tr>
                         <th><i class="fas fa-tag me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Type</th>
-                        <th><i class="fas fa-file-medical me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Ressource</th>
-                        <th><i class="fas fa-calendar me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Créé le</th>
-                        <th><i class="fas fa-clock me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Expiré le</th>
-                        <th><i class="fas fa-chart-bar me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Utilisation</th>
-                        <th><i class="fas fa-info-circle me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Raison</th>
+                        <th><i class="fas fa-file-medical me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.RESOURCE}</th>
+                        <th><i class="fas fa-calendar me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.CREATED_ON}</th>
+                        <th><i class="fas fa-clock me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.EXPIRED_ON}</th>
+                        <th><i class="fas fa-chart-bar me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.USAGE}</th>
+                        <th><i class="fas fa-info-circle me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.REASON}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -300,7 +332,7 @@ function createExpiredTokensTableHTML(tokens) {
                     <span class="badge ${typeClass}">
                         ${token.token_type === 'ohif-viewer-publication' ? 'OHIF' : 'Instant'}
                     </span>
-                    ${isSuspicious ? `<i class="fas fa-exclamation-triangle ${CONFIG.CSS_CLASSES.TEXT_DANGER} ms-1" title="Usage suspect détecté"></i>` : ''}
+                    ${isSuspicious ? `<i class="fas fa-exclamation-triangle ${CONFIG.CSS_CLASSES.TEXT_DANGER} ms-1" title="${CONFIG.MESSAGES.SUSPICIOUS_USAGE_DETECTED}"></i>` : ''}
                 </td>
                 <td>${getResourceDescription(token.resources)}</td>
                 <td><small>${formatDate(token.created_at)}</small></td>
@@ -359,7 +391,7 @@ document.getElementById('confirmRevokeBtn').addEventListener('click', async func
     
     try {
         // Show loading state
-        button.innerHTML = `<i class="${CONFIG.ICONS.SPINNER} me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Révocation...`;
+        button.innerHTML = `<i class="${CONFIG.ICONS.SPINNER} me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.REVOKING}`;
         button.disabled = true;
         
         await revokeToken(currentTokenToRevoke);
@@ -375,7 +407,7 @@ document.getElementById('confirmRevokeBtn').addEventListener('click', async func
         await loadData();
         
     } catch (error) {
-        showErrorToast('Erreur lors de la révocation: ' + error.message);
+        showErrorToast(CONFIG.MESSAGES.REVOCATION_ERROR + error.message);
     } finally {
         // Reset button
         button.innerHTML = originalHTML;
@@ -394,14 +426,14 @@ async function loadData() {
         container.innerHTML = `
             <div class="loading">
                 <i class="${CONFIG.ICONS.SPINNER} fa-2x mb-3 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>
-                <p>Chargement des tokens...</p>
+                <p>${CONFIG.MESSAGES.LOADING_TOKENS}</p>
             </div>
         `;
         
         expiredContainer.innerHTML = `
             <div class="loading">
                 <i class="${CONFIG.ICONS.SPINNER} fa-2x mb-3 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>
-                <p>Chargement des tokens expirés...</p>
+                <p>${CONFIG.MESSAGES.LOADING_EXPIRED_TOKENS}</p>
             </div>
         `;
         
@@ -424,9 +456,9 @@ async function loadData() {
         container.innerHTML = `
             <div class="text-center p-4">
                 <i class="${CONFIG.ICONS.ERROR} fa-2x mb-3 ${CONFIG.CSS_CLASSES.TEXT_DANGER}"></i>
-                <p class="${CONFIG.CSS_CLASSES.TEXT_DANGER}">Erreur lors du chargement: ${error.message}</p>
+                <p class="${CONFIG.CSS_CLASSES.TEXT_DANGER}">${CONFIG.MESSAGES.LOADING_ERROR}${error.message}</p>
                 <button class="btn btn-outline-primary" onclick="loadData()">
-                    <i class="${CONFIG.ICONS.RETRY} me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Réessayer
+                    <i class="${CONFIG.ICONS.RETRY} me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.RETRY}
                 </button>
             </div>
         `;
@@ -434,11 +466,11 @@ async function loadData() {
         expiredContainer.innerHTML = `
             <div class="text-center p-4">
                 <i class="${CONFIG.ICONS.ERROR} fa-2x mb-3 ${CONFIG.CSS_CLASSES.TEXT_DANGER}"></i>
-                <p class="${CONFIG.CSS_CLASSES.TEXT_DANGER}">Erreur lors du chargement des tokens expirés</p>
+                <p class="${CONFIG.CSS_CLASSES.TEXT_DANGER}">${CONFIG.MESSAGES.LOADING_EXPIRED_ERROR}</p>
             </div>
         `;
         
-        showErrorToast('Erreur lors du chargement des données');
+        showErrorToast(CONFIG.MESSAGES.DATA_LOADING_ERROR);
     }
 }
 

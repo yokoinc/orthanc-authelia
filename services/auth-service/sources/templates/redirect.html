@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Redirection vers OHIF</title>
+    <title>{redirect_title}</title>
     <meta http-equiv="refresh" content="0; url={ohif_url}">
     <link href="{font_awesome_cdn}" rel="stylesheet">
     <style>
@@ -36,8 +36,8 @@
     </style>
 </head>
 <body>
-    <h1><i class="fas fa-spinner fa-pulse icon"></i>Redirection...</h1>
-    <p>Redirection vers l'étude...</p>
-    <p><a href="{ohif_url}">Cliquer ici si la redirection ne fonctionne pas</a></p>
+    <h1><i class="fas fa-spinner fa-pulse icon"></i>{redirecting}</h1>
+    <p>{redirect_message}</p>
+    <p><a href="{ohif_url}">{redirect_click_here}</a></p>
 </body>
 </html>

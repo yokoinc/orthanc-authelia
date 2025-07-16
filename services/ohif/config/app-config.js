@@ -1,5 +1,5 @@
 // =============================================================================
-// OHIF VIEWER CONFIGURATION FOR PACS INTEGRATION
+// OHIF VIEWER CONFIGURATION FOR ORTHANC-AUTHELIA
 // =============================================================================
 // Configuration for OHIF v3.10.2 medical imaging viewer
 // Optimized for Orthanc PACS integration with French localization
@@ -64,7 +64,7 @@ window.config = {
         // =============================================================================
         // ORTHANC SERVER INTEGRATION
         // =============================================================================
-        friendlyName: 'Pax-Orthanc',          // Display name for the PACS server
+        friendlyName: 'ORTHANC-AUTHELIA',     // Display name for the PACS server
         name: 'Orthanc',                      // Internal server name
         
         // =============================================================================
