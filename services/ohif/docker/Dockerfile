@@ -28,7 +28,7 @@ ENV NODE_ENV=production
 ENV QUICK_BUILD=false
 ENV GENERATE_SOURCEMAP=false
 ARG APP_CONFIG=config/default.js
-ARG PUBLIC_URL=/
+ARG PUBLIC_URL=/ohif/
 ENV PUBLIC_URL=${PUBLIC_URL}
 
 RUN bun run show:config
@@ -46,7 +46,7 @@ RUN cd /usr/src/app && ./compressDist.sh
 FROM nginxinc/nginx-unprivileged:1.26-alpine as final
 #RUN apk add --no-cache bash
 
-ARG PUBLIC_URL=/
+ARG PUBLIC_URL=/ohif/
 ENV PUBLIC_URL=${PUBLIC_URL}
 ARG PORT=8080
 ENV PORT=${PORT}
