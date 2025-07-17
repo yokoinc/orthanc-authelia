@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Internal Server Error - ORTHANC-AUTHELIA</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+    <style>
+        body{font-family:Avenir,Helvetica,Arial,sans-serif;background:#1e242a;color:#ffffff;margin:0;padding:0;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;height:100vh;display:flex;flex-direction:column}
+        .logo-header{text-align:center;padding:20px 0}
+        .logo{width:120px;height:auto}
+        .content{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:0 50px;transform:translateY(-20%)}
+        .error-code{font-size:4em;color:#ffffff;margin-bottom:15px}
+        h1{color:#6ea0c8;margin-bottom:15px;font-size:1.5em}
+        p{color:#ffffff;margin-bottom:20px;font-size:1em}
+        a{color:#ffffff;text-decoration:none;padding:8px 16px;border:2px solid #ffffff;border-radius:5px;display:inline-block;margin:8px;transition:all 0.3s ease;font-size:0.9em}
+        a:hover{background:#ffffff;color:#1e242a}
+        .icon{font-size:1em;margin-right:6px}
+        .container{max-width:600px;margin:0 auto}
+    </style>
+</head>
+<body>
+    <div class="logo-header">
+        <img src="/orthanc-logo.png" alt="Orthanc Logo" class="logo">
+    </div>
+    <div class="content">
+        <div class="container">
+            <div class="error-code">500</div>
+            <h1><i class="fas fa-exclamation-triangle icon"></i>Internal Server Error</h1>
+            <p>An internal server error has occurred.</p>
+            <p>Please try again later.</p>
+            <a href="/"><i class="fas fa-home icon"></i>Home</a>
+        </div>
+    </div>
+</body>
+</html>
