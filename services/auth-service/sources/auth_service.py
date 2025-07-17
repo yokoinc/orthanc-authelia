@@ -182,7 +182,17 @@ def render_template(template_name: str, **kwargs) -> str:
     try:
         with open(template_path, "r", encoding="utf-8") as f:
             template_content = f.read()
-        return template_content.format(font_awesome_cdn=FONT_AWESOME_CDN, **kwargs)
+        
+        # Add font_awesome_cdn to kwargs
+        kwargs["font_awesome_cdn"] = FONT_AWESOME_CDN
+        
+        # Replace placeholders safely by avoiding CSS braces
+        for key, value in kwargs.items():
+            placeholder = "{" + key + "}"
+            if placeholder in template_content:
+                template_content = template_content.replace(placeholder, str(value))
+        
+        return template_content
     except FileNotFoundError:
         logger.error(f"Template not found: {template_path}")
         return f"<html><body><h1>Template Error</h1><p>Template not found: {template_name}</p></body></html>"
