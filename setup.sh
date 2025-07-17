@@ -3,7 +3,7 @@
 # ORTHANC-AUTHELIA SETUP SCRIPT
 # =============================================================================
 # Interactive setup script for ORTHANC-AUTHELIA deployment
-# Generates configuration files from templates using envsubst
+# Generates .env file and user database configuration
 # =============================================================================
 
 set -e
@@ -101,7 +101,6 @@ echo "================================="
 
 # Collect basic configuration
 DOMAIN=$(prompt_input "Enter your PACS domain" "pacs.example.com")
-PORT=$(prompt_input "Enter external HTTP port" "30080")
 
 # Database configuration
 echo
@@ -109,17 +108,17 @@ echo "Database Configuration:"
 DB_MODE=$(prompt_input "Database mode (external/internal)" "internal")
 
 if [[ "$DB_MODE" == "internal" ]]; then
-    POSTGRES_HOST="postgres"
+    echo "Using internal PostgreSQL 15 Alpine container with local data directory"
     
-    # Check for existing PostgreSQL volume
-    if docker volume ls --format '{{.Name}}' | grep -q "postgres_data\|orthanc-authelia_postgres_data\|pacs-orthanc-authelia_postgres_data"; then
+    # Check for existing data directory
+    if [[ -d "./data/postgres" ]] && [[ -n "$(ls -A ./data/postgres 2>/dev/null)" ]]; then
         echo
-        echo "WARNING: Existing PostgreSQL volume detected!"
-        echo "This volume may contain an existing database with different credentials."
+        echo "WARNING: Existing PostgreSQL data directory detected!"
+        echo "Directory ./data/postgres contains existing database files."
         echo
         echo "Options:"
         echo "1) Keep existing database (you must know the existing credentials)"
-        echo "2) Create new database (existing data will be lost)"
+        echo "2) Create new database (existing data will be moved to backup)"
         echo
         read -p "Your choice (1/2): " db_choice
         
@@ -131,27 +130,77 @@ if [[ "$DB_MODE" == "internal" ]]; then
             POSTGRES_PASSWORD=$(prompt_password "Existing database password")
         else
             echo
-            echo "The existing PostgreSQL volume will be removed when you run:"
-            echo "docker-compose down && docker volume rm <volume_name>"
+            echo "The existing data will be moved to ./data/postgres.backup.$(date +%Y%m%d_%H%M%S)"
             echo
             echo "Enter NEW database credentials:"
             POSTGRES_DB=$(prompt_input "New database name" "orthanc")
             POSTGRES_USER=$(prompt_input "New database username" "orthanc")
             POSTGRES_PASSWORD=$(prompt_password "New database password")
-            echo
-            echo "IMPORTANT: Remember to remove the old volume before starting services!"
+            
+            # Backup existing data
+            if [[ -d "./data/postgres" ]]; then
+                BACKUP_DIR="./data/postgres.backup.$(date +%Y%m%d_%H%M%S)"
+                mv "./data/postgres" "$BACKUP_DIR"
+                echo "Existing data backed up to: $BACKUP_DIR"
+            fi
         fi
     else
+        echo "Creating new PostgreSQL database"
         POSTGRES_DB=$(prompt_input "Database name" "orthanc")
         POSTGRES_USER=$(prompt_input "Database username" "orthanc")
         POSTGRES_PASSWORD=$(prompt_password "Database password")
     fi
+    
+    # Ensure data directory exists
+    mkdir -p ./data/postgres
+    
 else
+    echo "Using external PostgreSQL database"
     POSTGRES_HOST=$(prompt_input "PostgreSQL hostname" "database")
     POSTGRES_DB=$(prompt_input "Database name" "orthanc")
     POSTGRES_USER=$(prompt_input "Database username" "orthanc")
     POSTGRES_PASSWORD=$(prompt_password "Database password")
 fi
+
+# SSL Configuration
+echo
+echo "SSL Certificate Configuration:"
+SSL_MODE=$(prompt_input "SSL mode (letsencrypt/manual/selfsigned/none)" "selfsigned")
+
+case "$SSL_MODE" in
+    "letsencrypt")
+        echo "Let's Encrypt automatic certificate generation"
+        EMAIL=$(prompt_input "Email for Let's Encrypt notifications" "admin@${DOMAIN}")
+        echo "IMPORTANT: Domain $DOMAIN must point to this server for Let's Encrypt validation"
+        ;;
+    "manual")
+        echo "Manual certificate configuration"
+        CERT_PATH=$(prompt_input "Path to certificate file" "./ssl/cert.pem")
+        KEY_PATH=$(prompt_input "Path to private key file" "./ssl/key.pem")
+        
+        # Verify certificate files exist
+        if [[ ! -f "$CERT_PATH" ]]; then
+            echo "WARNING: Certificate file not found: $CERT_PATH"
+            echo "Please ensure the certificate file exists before starting services"
+        fi
+        if [[ ! -f "$KEY_PATH" ]]; then
+            echo "WARNING: Private key file not found: $KEY_PATH"
+            echo "Please ensure the private key file exists before starting services"
+        fi
+        ;;
+    "selfsigned")
+        echo "Self-signed certificate (development only)"
+        echo "WARNING: Self-signed certificates are not trusted by browsers"
+        ;;
+    "none")
+        echo "No SSL - HTTP only (not recommended for production)"
+        echo "WARNING: Traffic will not be encrypted"
+        ;;
+    *)
+        echo "Invalid SSL mode, defaulting to self-signed"
+        SSL_MODE="selfsigned"
+        ;;
+esac
 
 # Authentication configuration
 echo
@@ -199,89 +248,165 @@ cat > .env << EOF
 # =============================================================================
 # ORTHANC-AUTHELIA ENVIRONMENT CONFIGURATION
 # =============================================================================
-# Generated by setup script
+# Generated by setup script on $(date)
 
 # =============================================================================
-# DOMAIN & NETWORK CONFIGURATION
+# DOMAIN CONFIGURATION
 # =============================================================================
-AUTHELIA_DOMAIN=${DOMAIN}
-NGINX_EXTERNAL_PORT=${PORT}
-
-# =============================================================================
-# DATABASE CONFIGURATION
-# =============================================================================
-POSTGRES_HOST=${POSTGRES_HOST}
-POSTGRES_DB=${POSTGRES_DB}
-POSTGRES_USER=${POSTGRES_USER}
-POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-
-# =============================================================================
-# REDIS CONFIGURATION
-# =============================================================================
-REDIS_HOST=redis
-REDIS_PORT=6379
-REDIS_DB=0
+DOMAIN=${DOMAIN}
 
 # =============================================================================
 # AUTHENTICATION CONFIGURATION
 # =============================================================================
+# Auth-service API credentials for Orthanc Authorization plugin
 AUTH_USERNAME=${AUTH_USERNAME}
 AUTH_PASSWORD=${AUTH_PASSWORD}
+
+# Interface language (en/fr)
 LANGUAGE=${LANGUAGE}
 
 # =============================================================================
 # AUTHELIA SECURITY SECRETS
 # =============================================================================
+# Generated secure values - keep these secret!
 AUTHELIA_SESSION_SECRET=${SESSION_SECRET}
 AUTHELIA_STORAGE_ENCRYPTION_KEY=${STORAGE_KEY}
 AUTHELIA_JWT_SECRET=${JWT_SECRET}
-AUTHELIA_LOG_LEVEL=info
 
 # =============================================================================
-# USER ACCOUNTS
+# SSL CONFIGURATION
 # =============================================================================
-AUTHELIA_ADMIN_USERNAME=${ADMIN_EMAIL}
-AUTHELIA_ADMIN_PASSWORD=${ADMIN_PASSWORD}
-AUTHELIA_ADMIN_ROLE=admin
-
-AUTHELIA_DOCTOR_USERNAME=${DOCTOR_EMAIL}
-AUTHELIA_DOCTOR_PASSWORD=${DOCTOR_PASSWORD}
-AUTHELIA_DOCTOR_ROLE=doctor
-
-AUTHELIA_EXTERNAL_USERNAME=${EXTERNAL_EMAIL}
-AUTHELIA_EXTERNAL_PASSWORD=${EXTERNAL_PASSWORD}
-AUTHELIA_EXTERNAL_ROLE=external-viewer
-
-# =============================================================================
-# OPTIONAL OVERRIDES
-# =============================================================================
-TZ=Europe/Paris
-OHIF_PUBLIC_URL=/ohif/
+SSL_MODE=${SSL_MODE}
 EOF
 
-# Export variables for envsubst
-export AUTHELIA_DOMAIN="${DOMAIN}"
-export AUTHELIA_LOG_LEVEL="info"
-export AUTHELIA_SESSION_SECRET="${SESSION_SECRET}"
-export AUTHELIA_STORAGE_ENCRYPTION_KEY="${STORAGE_KEY}"
-export AUTHELIA_JWT_SECRET="${JWT_SECRET}"
-export REDIS_HOST="redis"
-export REDIS_PORT="6379"
-export REDIS_DB="0"
-export POSTGRES_HOST="${POSTGRES_HOST}"
-export POSTGRES_DB="${POSTGRES_DB}"
-export POSTGRES_USER="${POSTGRES_USER}"
-export POSTGRES_PASSWORD="${POSTGRES_PASSWORD}"
-export AUTH_USERNAME="${AUTH_USERNAME}"
-export AUTH_PASSWORD="${AUTH_PASSWORD}"
+# Add SSL-specific variables if needed
+if [[ "$SSL_MODE" == "letsencrypt" ]]; then
+    cat >> .env << EOF
+LETSENCRYPT_EMAIL=${EMAIL}
+EOF
+elif [[ "$SSL_MODE" == "manual" ]]; then
+    cat >> .env << EOF
+SSL_CERT_PATH=${CERT_PATH}
+SSL_KEY_PATH=${KEY_PATH}
+EOF
+fi
 
-# Create configuration files from templates
-echo "Generating Authelia configuration..."
+cat >> .env << EOF
+
+# =============================================================================
+# SYSTEM CONFIGURATION
+# =============================================================================
+# Timezone
+TZ=Europe/Paris
+EOF
+
+# Update Authelia configuration with domain
+echo "Updating Authelia configuration..."
 mkdir -p services/authelia/config
-envsubst < services/authelia/config/configuration.yml.example > services/authelia/config/configuration.yml
+if [[ -f "services/authelia/config/configuration.yml" ]]; then
+    # Update domain in existing configuration
+    sed -i "s/pacs\.example\.com/${DOMAIN}/g" services/authelia/config/configuration.yml
+    echo "Updated domain in Authelia configuration"
+else
+    echo "WARNING: services/authelia/config/configuration.yml not found"
+    echo "Please manually update the domain in the configuration file"
+fi
 
-echo "Generating Orthanc configuration..."
-envsubst < services/orthanc/config/orthanc.json.example > services/orthanc/config/orthanc.json
+# Handle SSL certificate generation/setup
+echo "Setting up SSL certificates..."
+mkdir -p ./ssl
+
+case "$SSL_MODE" in
+    "selfsigned")
+        echo "Generating self-signed certificate..."
+        openssl req -x509 -newkey rsa:4096 -nodes \
+            -keyout ./ssl/key.pem \
+            -out ./ssl/cert.pem \
+            -days 365 \
+            -subj "/CN=${DOMAIN}/O=ORTHANC-AUTHELIA/C=FR" 2>/dev/null
+        echo "Self-signed certificate generated in ./ssl/"
+        ;;
+    "manual")
+        echo "Manual certificate mode selected"
+        if [[ -f "$CERT_PATH" ]] && [[ -f "$KEY_PATH" ]]; then
+            # Copy certificates to ssl directory if they're not already there
+            if [[ "$CERT_PATH" != "./ssl/cert.pem" ]]; then
+                cp "$CERT_PATH" ./ssl/cert.pem
+                echo "Certificate copied to ./ssl/cert.pem"
+            fi
+            if [[ "$KEY_PATH" != "./ssl/key.pem" ]]; then
+                cp "$KEY_PATH" ./ssl/key.pem
+                echo "Private key copied to ./ssl/key.pem"
+            fi
+        else
+            echo "WARNING: Certificate files not found, you'll need to provide them manually"
+        fi
+        ;;
+    "letsencrypt")
+        echo "Let's Encrypt mode selected"
+        echo "Certificates will be generated when you start the services"
+        echo "Make sure domain $DOMAIN points to this server"
+        ;;
+    "none")
+        echo "SSL disabled - HTTP only mode"
+        ;;
+esac
+
+# Function to create Let's Encrypt enabled docker-compose
+create_letsencrypt_compose() {
+    echo "Creating Let's Encrypt docker-compose configuration..."
+    
+    # Copy base example and add certbot service
+    cp docker-compose.example.yml docker-compose.ssl.yml
+    
+    # Add certbot service and SSL volumes
+    cat >> docker-compose.ssl.yml << 'EOF'
+
+  # =============================================================================
+  # SSL CERTIFICATE MANAGEMENT
+  # =============================================================================
+  
+  certbot:
+    image: certbot/certbot:latest
+    container_name: orthanc-certbot
+    volumes:
+      - ./ssl:/etc/letsencrypt
+      - ./data/certbot:/var/www/certbot
+    command: |
+      sh -c "
+        if [ ! -f /etc/letsencrypt/live/${DOMAIN}/fullchain.pem ]; then
+          certbot certonly --webroot --webroot-path=/var/www/certbot \
+            --email ${LETSENCRYPT_EMAIL} --agree-tos --no-eff-email \
+            --keep-until-expiring -d ${DOMAIN}
+        fi
+        # Copy certificates to expected location
+        if [ -f /etc/letsencrypt/live/${DOMAIN}/fullchain.pem ]; then
+          cp /etc/letsencrypt/live/${DOMAIN}/fullchain.pem /etc/letsencrypt/cert.pem
+          cp /etc/letsencrypt/live/${DOMAIN}/privkey.pem /etc/letsencrypt/key.pem
+        fi
+      "
+    networks:
+      - orthanc-network
+    depends_on:
+      - nginx
+
+# =============================================================================
+# ADDITIONAL VOLUMES FOR SSL
+# =============================================================================
+
+volumes:
+  postgres_data:
+    name: orthanc_postgres_data
+  certbot_data:
+    name: orthanc_certbot_data
+EOF
+
+    # Update nginx service to add certbot volumes
+    sed -i '/nginx:/,/networks:/ {
+        /volumes:/a\
+      - ./data/certbot:/var/www/certbot:ro
+    }' docker-compose.ssl.yml
+}
 
 # Function to hash password using Docker
 hash_password() {
@@ -320,15 +445,32 @@ echo
 echo "Step 4: Deployment configuration..."
 echo "=================================="
 
-# Choose deployment mode
+# Choose deployment mode and create appropriate docker-compose file
 if [[ "$DB_MODE" == "external" ]]; then
     COMPOSE_FILE="docker-compose.yml"
     echo "Using external PostgreSQL database"
     echo "Selected compose file: $COMPOSE_FILE"
+    echo
+    echo "IMPORTANT: Make sure your external PostgreSQL database is running"
+    echo "and accessible with the provided credentials."
 else
-    COMPOSE_FILE="docker-compose.standalone.yml"
-    echo "Using internal PostgreSQL 15 database"
-    echo "Selected compose file: $COMPOSE_FILE"
+    COMPOSE_FILE="docker-compose.example.yml"
+    echo "Using internal PostgreSQL 15 Alpine database"
+    
+    # Create SSL-aware docker-compose file
+    if [[ "$SSL_MODE" == "letsencrypt" ]]; then
+        COMPOSE_FILE="docker-compose.ssl.yml"
+        echo "Creating Let's Encrypt enabled docker-compose file: $COMPOSE_FILE"
+        create_letsencrypt_compose
+    else
+        echo "Selected compose file: $COMPOSE_FILE"
+    fi
+    
+    echo
+    echo "IMPORTANT: Database data will be stored in ./data/postgres/"
+    if [[ "$SSL_MODE" != "none" ]]; then
+        echo "IMPORTANT: SSL certificates will be in ./ssl/"
+    fi
 fi
 
 echo
@@ -337,8 +479,13 @@ echo "============================"
 echo
 echo "Configuration Summary:"
 echo "- Domain: $DOMAIN"
-echo "- Port: $PORT"
-echo "- Database: $DB_MODE ($POSTGRES_HOST)"
+echo "- SSL Mode: $SSL_MODE"
+echo "- Database: $DB_MODE"
+if [[ "$DB_MODE" == "internal" ]]; then
+    echo "- Database data: ./data/postgres/"
+else
+    echo "- Database host: $POSTGRES_HOST"
+fi
 echo "- Language: $LANGUAGE"
 echo
 echo "User Accounts:"
@@ -348,18 +495,50 @@ echo "- External: $EXTERNAL_EMAIL"
 echo
 echo "Generated Files:"
 echo "- .env (environment variables)"
-echo "- services/authelia/config/configuration.yml"
 echo "- services/authelia/config/users_database.yml"
-echo "- services/orthanc/config/orthanc.json"
+if [[ "$DB_MODE" == "internal" ]]; then
+    echo "- data/postgres/ (database directory created)"
+fi
+case "$SSL_MODE" in
+    "selfsigned")
+        echo "- ssl/cert.pem, ssl/key.pem (self-signed certificates)"
+        ;;
+    "manual")
+        echo "- ssl/cert.pem, ssl/key.pem (manual certificates)"
+        ;;
+    "letsencrypt")
+        echo "- docker-compose.ssl.yml (Let's Encrypt configuration)"
+        echo "- data/certbot/ (certificate challenges)"
+        ;;
+esac
 echo
 echo "Next Steps:"
-echo "1. Start services: docker-compose -f $COMPOSE_FILE up -d"
-echo "2. Access your PACS at: https://$DOMAIN"
+if [[ "$SSL_MODE" == "letsencrypt" ]]; then
+    echo "1. Ensure domain $DOMAIN points to this server (A record)"
+    echo "2. Open port 80 for Let's Encrypt validation"
+    echo "3. Start services: docker-compose -f $COMPOSE_FILE up -d"
+    echo "4. Wait for certificate generation (check logs: docker-compose logs certbot)"
+    echo "5. Access your PACS at: https://$DOMAIN"
+elif [[ "$SSL_MODE" == "none" ]]; then
+    echo "1. Start services: docker-compose -f $COMPOSE_FILE up -d"
+    echo "2. Access your PACS at: http://$DOMAIN"
+else
+    echo "1. Start services: docker-compose -f $COMPOSE_FILE up -d"
+    echo "2. Access your PACS at: https://$DOMAIN"
+    if [[ "$SSL_MODE" == "selfsigned" ]]; then
+        echo "   (Accept security warning for self-signed certificate)"
+    fi
+fi
 echo "3. Login with any of the created user accounts"
 echo "4. Admin token management: https://$DOMAIN/auth/tokens/manage"
 echo
-echo "IMPORTANT:"
+echo "IMPORTANT NOTES:"
 echo "- Keep your .env file secure (contains passwords and secrets)"
-echo "- Change default passwords in production"
+echo "- Database credentials are hardcoded in Orthanc configuration files"
+echo "- Update services/orthanc/config/orthanc.json with your database password"
+if [[ "$DB_MODE" == "internal" ]]; then
+    echo "- PostgreSQL credentials: ${POSTGRES_USER}/${POSTGRES_PASSWORD}"
+fi
 echo "- Configure SSL certificates for production use"
+echo "- Admin token management: https://$DOMAIN/auth/tokens/manage"
 echo

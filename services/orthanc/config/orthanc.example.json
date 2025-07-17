@@ -1,0 +1,204 @@
+{
+  // =============================================================================
+  // ORTHANC PACS SERVER CONFIGURATION
+  // =============================================================================
+  // Complete configuration for Orthanc PACS with PostgreSQL, plugins, and viewers
+  // Optimized for medical imaging workflow with authentication and multi-viewer support
+
+  // =============================================================================
+  // BASIC SERVER CONFIGURATION
+  // =============================================================================
+  "Name": "Orthanc",                           // PACS server name
+  "HttpPort": 8042,                            // HTTP port for REST API and web UI
+  "HttpServerEnabled": true,                   // Enable HTTP server
+  "DicomPort": 4242,                           // DICOM port for C-STORE, C-FIND operations
+  "DicomServerEnabled": true,                  // Enable DICOM server
+  "DicomAet": "ORTHANC",                       // DICOM Application Entity Title
+  "DicomCheckCalledAet": false,                // Don't validate called AET (flexible)
+  "DicomCheckModalityHost": false,             // Don't validate modality host (flexible)
+  "RemoteAccessAllowed": true,                 // Allow remote connections
+  "AuthenticationEnabled": false,              // Authentication handled by Authelia/nginx
+
+  // =============================================================================
+  // NETWORK & TIMEOUT CONFIGURATION
+  // =============================================================================
+  "DicomTlsEnabled": false,                    // TLS handled by reverse proxy
+  "HttpTimeout": 60,                           // HTTP timeout in seconds
+  "HttpRequestTimeout": 30,                    // HTTP request timeout in seconds
+
+  // =============================================================================
+  // STORAGE CONFIGURATION
+  // =============================================================================
+  "MaximumStorageSize": 0,                     // No storage limit (0 = unlimited)
+  "MaximumPatientCount": 0,                    // No patient limit (0 = unlimited)
+  "StorageCompression": false,                 // Disable DICOM compression for better performance
+
+  // =============================================================================
+  // POSTGRESQL DATABASE CONFIGURATION
+  // =============================================================================
+  // Use PostgreSQL for better performance and scalability in production
+  "PostgreSQL": {
+    "EnableIndex": true,                       // Use PostgreSQL for DICOM index
+    "EnableStorage": true,                     // Use PostgreSQL for DICOM storage
+    "Host": "postgres",                        // PostgreSQL container hostname
+    "Port": 5432,                              // PostgreSQL port
+    "Database": "orthanc",                     // Database name
+    "Username": "orthanc",                     // Database username
+    "Password": "change_this_password"         // Database password
+  },
+
+  // =============================================================================
+  // ORTHANC PLUGINS CONFIGURATION
+  // =============================================================================
+  // Load essential plugins for PACS functionality and medical viewers
+  "Plugins": [
+    "/usr/local/share/orthanc/plugins/libOrthancPostgreSQLIndex.so",    // PostgreSQL index plugin
+    "/usr/local/share/orthanc/plugins/libOrthancPostgreSQLStorage.so",  // PostgreSQL storage plugin
+    "/usr/local/share/orthanc/plugins/libOrthancDicomWeb.so",           // DICOMweb standard support
+    "/usr/local/share/orthanc/plugins/libOrthancGdcm.so",               // Enhanced DICOM codec support
+    "/usr/local/share/orthanc/plugins/libOrthancWebViewer.so",          // Basic web viewer
+    "/usr/local/share/orthanc/plugins/libStoneWebViewer.so",            // High-performance Stone viewer
+    "/usr/local/share/orthanc/plugins/libHousekeeper.so",               // Database maintenance
+    "/usr/local/share/orthanc/plugins/libOrthancVolView.so",            // 3D volumetric viewer
+    "/usr/local/share/orthanc/plugins/libOrthancExplorer2.so",          // Modern web interface
+    "/usr/local/share/orthanc/plugins/libOrthancAuthorization.so"       // Authorization plugin
+  ],
+
+  // =============================================================================
+  // DICOMWEB PLUGIN CONFIGURATION
+  // =============================================================================
+  // Enable DICOMweb standard for modern web viewers like OHIF
+  "DicomWeb": {
+    "Enable": true,                            // Enable DICOMweb endpoints
+    "PublicRoot": "/dicom-web/"                // DICOMweb API root path
+  },
+
+  // =============================================================================
+  // HOUSEKEEPER PLUGIN CONFIGURATION
+  // =============================================================================
+  // Automatic database maintenance and optimization
+  "Housekeeper": {
+    "Enable": true,                            // Enable automatic maintenance
+    "GlobalPropertyId": 1024,                  // Property ID for tracking
+    "Force": false,                            // Don't force immediate execution
+    "ThrottleDelay": 100,                      // Delay between operations (ms)
+    "Triggers": {
+      "StorageCompressionChange": true,        // Recompress when settings change
+      "MainDicomTagsChange": true,             // Update tags when needed
+      "UnnecessaryDicomAsJsonFiles": true,     // Clean up unnecessary JSON files
+      "DicomWebCache": true                    // Maintain DICOMweb cache
+    }
+  },
+
+  // =============================================================================
+  // ORTHANC EXPLORER 2 - MODERN WEB INTERFACE
+  // =============================================================================
+  // Enhanced web interface with multiple viewer integration
+  "OrthancExplorer2": {
+    "Enable": true,                            // Enable modern web interface
+    "IsDefaultOrthancUI": true,                // Use as default UI
+    "Theme": "dark",                           // Dark theme for medical environment
+    "UiOptions": {
+      "ShowOrthancName": true,                 // Display server name in UI
+      "EnableViewerQuickButton": true,         // Quick access to viewers
+      "ViewersOrdering": [                     // Viewer priority order
+        "ohif",                                // OHIF viewer
+        "stone-webviewer",                     // Stone Web Viewer
+        "volview"                              // VolView 3D viewer
+      ],
+      
+      // Viewer integration URLs
+      "OhifViewer3PublicRoot": "/ohif/",       // OHIF viewer URL
+      "StoneWebViewerPublicRoot": "/stone-webviewer/",  // Stone Web Viewer URL
+      "VolViewPublicRoot": "/volview/",         // VolView 3D viewer URL
+      
+      // Enable viewer integrations
+      "EnableOpenInOhifViewer3": true,         // Enable OHIF integration
+      "EnableOpenInStoneWebViewer": true,      // Enable Stone Web Viewer integration
+      "EnableOpenInVolView": true,             // Enable VolView integration
+      
+      // External sharing configuration
+      "EnableShares": true,                     // Enable external sharing functionality
+      "DefaultShareDuration": 15,               // Default duration for share links (15 days)
+      "ShareDurations": [0, 7, 15, 30, 90, 365] // Available share durations in days
+    },
+    
+    // Reports integration with OHIF
+    "EnableReportQuickButton": true,         // Quick access to reports in study view
+    
+    // Tokens configuration
+    "Tokens": {
+      "InstantLinksValidity": 200,
+      "ShareType": "volview-viewer-publication"
+    },
+    
+    // Study list configuration for medical workflow
+    "StudyListColumns": [
+        "PatientID",                           // Patient identifier
+        "PatientName",                         // Patient name
+        "StudyDate",                           // Study date
+        "StudyDescription",                    // Study description
+        "AccessionNumber",                     // Accession number
+        "InstitutionName",                     // Institution name
+        "Modality"                             // Imaging modality (CT, MR, etc.)
+      ],
+    
+    // Custom buttons for token management
+    "CustomButtons": {
+      "studies-list": [
+        {
+          "HttpMethod": "GET",
+          "Id": "manage-tokens",
+          "Tooltip": "Gérer les tokens de partage (Admin)",
+          "Icon": "fas fa-key",
+          "Url": "/auth/tokens/manage",
+          "Target": "_blank"
+        }
+      ],
+      "study": [],
+      "series": [],
+      "instance": []
+    }
+  },
+
+  // =============================================================================
+  // AUTHORIZATION PLUGIN CONFIGURATION
+  // =============================================================================
+  // Integration with custom authentication service
+  "Authorization": {
+    "CheckedLevel": "studies",                                        // Authorization level
+    "UncheckedFolders": [
+      "/ui",                                                         // Allow access to Orthanc Explorer 2 (auth handled by nginx)
+      "/favicon.ico"                                                 // Allow favicon access
+    ],
+    "TokenHttpHeaders": ["X-Auth-User", "Remote-User", "auth-token"], // Headers containing user info from nginx
+    "TokenGetParameters": ["token"],                                 // URL parameters containing tokens
+    "WebServiceRootUrl": "http://auth-service:8000",                 // Root URL for auth-service
+    "WebServiceTokenValidationUrl": "http://auth-service:8000/tokens/validate",  // Token validation
+    "WebServiceUserProfileUrl": "http://auth-service:8000/user/get-profile",      // User profile
+    "WebServiceTokenCreationBaseUrl": "http://auth-service:8000/tokens/",        // Token creation
+    "WebServiceUsername": "share-user",                              // Service username
+    "WebServicePassword": "change_this_password",                     // Service password
+    "StandardConfigurations": [
+      "orthanc-explorer-2",
+      "ohif",
+      "stone-webviewer",
+      "volview"
+    ]
+  },
+
+  // =============================================================================
+  // LOGGING & DEBUGGING CONFIGURATION
+  // =============================================================================
+  "LogLevel": "default",                       // Normal logging level
+  "LogFile": "",                               // Log to stdout (Docker logs)
+  "HttpVerbose": false,                        // Disable verbose HTTP logging
+  "DicomVerbose": false,                       // Disable verbose DICOM logging (reduce noise)
+
+  // =============================================================================
+  // SSL/TLS CONFIGURATION
+  // =============================================================================
+  // SSL handled by nginx reverse proxy
+  "HttpsVerifyPeers": false,                   // Don't verify SSL peers (internal network)
+  "HttpsCACertificates": ""                    // No CA certificates needed
+}
