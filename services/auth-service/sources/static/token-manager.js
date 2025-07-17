@@ -250,14 +250,18 @@ function createTokensTableHTML(tokens) {
                           usagePercent > 50 ? CONFIG.CSS_CLASSES.WARNING : 
                           CONFIG.CSS_CLASSES.SUCCESS;
         
-        const typeClass = token.token_type === 'ohif-viewer-publication' ? CONFIG.CSS_CLASSES.PRIMARY : CONFIG.CSS_CLASSES.INFO;
+        const isShareToken = token.token_type === 'ohif-viewer-publication' || 
+                              token.token_type === 'stone-viewer-publication' || 
+                              token.token_type === 'volview-viewer-publication';
+        const typeClass = isShareToken ? CONFIG.CSS_CLASSES.PRIMARY : CONFIG.CSS_CLASSES.INFO;
+        const typeLabel = isShareToken ? 'Share' : 'Instant-view';
         const isSuspicious = isSuspiciousUsage(token);
         
         html += `
             <tr ${isSuspicious ? 'class="fraud-indicator"' : ''}>
                 <td>
                     <span class="badge ${typeClass}">
-                        ${token.token_type === 'ohif-viewer-publication' ? 'OHIF' : 'Instant'}
+                        ${typeLabel}
                     </span>
                     ${isSuspicious ? `<i class="fas fa-exclamation-triangle ${CONFIG.CSS_CLASSES.TEXT_DANGER} ms-1" title="${CONFIG.MESSAGES.SUSPICIOUS_USAGE}"></i>` : ''}
                 </td>
@@ -323,14 +327,18 @@ function createExpiredTokensTableHTML(tokens) {
                           usagePercent > 50 ? CONFIG.CSS_CLASSES.WARNING : 
                           CONFIG.CSS_CLASSES.SUCCESS;
         
-        const typeClass = token.token_type === 'ohif-viewer-publication' ? CONFIG.CSS_CLASSES.PRIMARY : CONFIG.CSS_CLASSES.INFO;
+        const isShareToken = token.token_type === 'ohif-viewer-publication' || 
+                              token.token_type === 'stone-viewer-publication' || 
+                              token.token_type === 'volview-viewer-publication';
+        const typeClass = isShareToken ? CONFIG.CSS_CLASSES.PRIMARY : CONFIG.CSS_CLASSES.INFO;
+        const typeLabel = isShareToken ? 'Share' : 'Instant-view';
         const isSuspicious = isSuspiciousUsage(token);
         
         html += `
             <tr class="expired-token ${isSuspicious ? 'fraud-indicator' : ''}">
                 <td>
                     <span class="badge ${typeClass}">
-                        ${token.token_type === 'ohif-viewer-publication' ? 'OHIF' : 'Instant'}
+                        ${typeLabel}
                     </span>
                     ${isSuspicious ? `<i class="fas fa-exclamation-triangle ${CONFIG.CSS_CLASSES.TEXT_DANGER} ms-1" title="${CONFIG.MESSAGES.SUSPICIOUS_USAGE_DETECTED}"></i>` : ''}
                 </td>
@@ -371,7 +379,8 @@ function updateStatistics(stats) {
 function confirmRevoke(tokenId, tokenType) {
     currentTokenToRevoke = tokenId;
     
-    const typeClass = tokenType === 'ohif-viewer-publication' ? CONFIG.CSS_CLASSES.PRIMARY : CONFIG.CSS_CLASSES.INFO;
+    const isShareToken = tokenType === 'ohif-viewer-publication' || tokenType === 'stone-viewer-publication' || tokenType === 'volview-viewer-publication';
+    const typeClass = isShareToken ? CONFIG.CSS_CLASSES.PRIMARY : CONFIG.CSS_CLASSES.INFO;
     
     document.getElementById('tokenDetails').innerHTML = `
         <strong>Token ID:</strong> <code class="token-id">${tokenId}</code><br>

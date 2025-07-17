@@ -766,13 +766,24 @@ async def share_redirect(request: Request):
     if not increment_token_usage(token):
         return render_error_template(TRANSLATIONS["ui"]["link_expired"], UI_MESSAGES["USAGE_LIMIT"], "fas fa-clock", 410)
     
-    # Redirect to OHIF with study and token for Authorization Plugin
+    # Redirect to appropriate viewer based on token type
     base_url = get_base_url(request)
     # Add cache-busting parameter to force config reload
     cache_bust = int(time.time())
     # URL encode the study UID to handle any special characters
     study_uid_encoded = urllib.parse.quote(study_uid, safe='')
-    ohif_url = f"{base_url}/ohif/viewer?StudyInstanceUIDs={study_uid_encoded}&token={token}&_cb={cache_bust}"
+    
+    # Determine viewer URL based on token type
+    token_type = token_data.get("token_type", "")
+    if token_type == "stone-viewer-publication":
+        # Stone Web Viewer
+        viewer_url = f"{base_url}/stone-webviewer/index.html?study={study_uid_encoded}&token={token}&_cb={cache_bust}"
+    elif token_type == "volview-viewer-publication":
+        # VolView 3D Viewer
+        viewer_url = f"{base_url}/volview/?StudyInstanceUIDs={study_uid_encoded}&token={token}&_cb={cache_bust}"
+    else:
+        # Default to OHIF for ohif-viewer-publication and unknown types
+        viewer_url = f"{base_url}/ohif/viewer?StudyInstanceUIDs={study_uid_encoded}&token={token}&_cb={cache_bust}"
     
     # Use redirect template with translations
     content = render_template("redirect.html",
@@ -780,7 +791,7 @@ async def share_redirect(request: Request):
                              redirecting=TRANSLATIONS["ui"]["redirecting"],
                              redirect_message=TRANSLATIONS["ui"]["redirect_message"],
                              redirect_click_here=TRANSLATIONS["ui"]["redirect_click_here"],
-                             ohif_url=ohif_url)
+                             ohif_url=viewer_url)
     
     return HTMLResponse(content=content)
 

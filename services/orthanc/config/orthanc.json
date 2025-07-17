@@ -128,6 +128,8 @@
     
     // Tokens configuration
     "Tokens": {
+      "InstantLinksValidity": 200,
+      "ShareType": "volview-viewer-publication"
     },
     
     // Study list configuration for medical workflow
@@ -178,10 +180,10 @@
     "WebServiceUsername": "share-user",                              // Service username
     "WebServicePassword": "firenze7344",                              // Service password
     "StandardConfigurations": [
+      "orthanc-explorer-2",
       "ohif",
       "stone-webviewer",
-      "volview",
-      "orthanc-explorer-2"
+      "volview"
     ]
   },
 
