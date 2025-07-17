@@ -192,6 +192,9 @@ def render_template(template_name: str, **kwargs) -> str:
             if placeholder in template_content:
                 template_content = template_content.replace(placeholder, str(value))
         
+        # Replace double braces with single braces for CSS
+        template_content = template_content.replace("{{", "{").replace("}}", "}")
+        
         return template_content
     except FileNotFoundError:
         logger.error(f"Template not found: {template_path}")
@@ -258,7 +261,9 @@ def get_settings_roles(username: str = Depends(verify_basic_auth)):
             "volview-viewer-publication",
             "viewer-instant-link"
         ],
-        "default-viewer": "ohif-viewer-publication"
+        "default-viewer": "ohif-viewer-publication",
+        "share-durations": [0, 7, 15, 30, 90, 365],
+        "default-share-duration": 15
     }
 
 @app.post("/tokens/validate")

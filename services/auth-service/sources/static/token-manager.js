@@ -237,7 +237,7 @@ function createTokensTableHTML(tokens) {
                         <th><i class="fas fa-file-medical me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.RESOURCE}</th>
                         <th><i class="fas fa-calendar me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.CREATED_ON}</th>
                         <th><i class="fas fa-clock me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.EXPIRES_IN}</th>
-                        <th><i class="fas fa-chart-bar me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Utilisation</th>
+                        <th><i class="fas fa-chart-bar me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.USAGE}</th>
                         <th><i class="fas fa-cog me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Actions</th>
                     </tr>
                 </thead>

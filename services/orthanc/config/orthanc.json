@@ -118,15 +118,13 @@
       "EnableOpenInVolView": true,             // Enable VolView integration
       
       // External sharing configuration
-      "EnableShares": true                     // Enable external sharing functionality
+      "EnableShares": true,                     // Enable external sharing functionality
+      "DefaultShareDuration": 15,               // Default duration for share links (15 days)
+      "ShareDurations": [0, 7, 15, 30, 90, 365] // Available share durations in days
     },
     
     // Reports integration with OHIF
     "EnableReportQuickButton": true,         // Quick access to reports in study view
-    
-    // Share link configuration
-    "ShareDurations": [7, 15, 30, 90],       // Available share durations in days
-    "DefaultShareDuration": 7,               // Default duration: 7 days
     
     // Tokens configuration
     "Tokens": {
