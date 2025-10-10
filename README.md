@@ -260,10 +260,16 @@ cd orthanc-authelia
 
 2. **Copy example files**:
 ```bash
+# Core configuration files
 cp .env.example .env
 cp docker-compose.yml.example docker-compose.yml
-cp services/authelia/config/users_database.yml.example services/authelia/config/users_database.yml
-cp services/orthanc/config/orthanc.json.example services/orthanc/config/orthanc.json
+
+# Authelia configuration
+cp authelia-configuration.yml.example services/authelia/config/configuration.yml
+cp authelia-users.yml.example services/authelia/config/users_database.yml
+
+# Orthanc configuration
+cp orthanc.json.example services/orthanc/config/orthanc.json
 ```
 
 3. **Configure environment variables** (`.env`):
@@ -420,16 +426,24 @@ The service is called by:
    - Volume mounts
    - Network configuration
 
-3. **`services/authelia/config/users_database.yml`** - User accounts:
+3. **`services/authelia/config/configuration.yml`** - Authelia main config:
+   - Access control rules
+   - Session configuration
+   - Redis settings
+   - Copy from `authelia-configuration.yml.example`
+
+4. **`services/authelia/config/users_database.yml`** - User accounts:
    - User emails and hashed passwords
    - Group memberships (admin, doctor, external, user)
    - Display names
+   - Copy from `authelia-users.yml.example`
 
-4. **`services/orthanc/config/orthanc.json`** - Orthanc PACS configuration:
+5. **`services/orthanc/config/orthanc.json`** - Orthanc PACS configuration:
    - PostgreSQL database credentials
    - Auth-Service API credentials (must match .env)
    - Plugin configuration
    - Viewer integration settings
+   - Copy from `orthanc.json.example`
 
 ### Important: Credential Synchronization
 
