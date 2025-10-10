@@ -38,7 +38,7 @@ services:
   # =============================================================================
   
   auth-service:
-    image: registry.yokoinc.ovh/orthanc-auth-service:1.0.7
+    image: registry.yokoinc.ovh/orthanc-auth-service:1.0.8
     container_name: orthanc-auth-service
     restart: unless-stopped
     environment:
@@ -111,7 +111,7 @@ services:
   # =============================================================================
   
   ohif:
-    image: registry.yokoinc.ovh/orthanc-ohif:3.10.2
+    image: registry.yokoinc.ovh/orthanc-ohif:3.11.0
     container_name: orthanc-ohif
     restart: unless-stopped
     volumes:
