@@ -38,7 +38,7 @@ services:
   # =============================================================================
   
   auth-service:
-    image: registry.yokoinc.ovh/orthanc-auth-service:1.0.3
+    image: registry.yokoinc.ovh/orthanc-auth-service:1.0.8
     container_name: orthanc-auth-service
     restart: unless-stopped
     environment:
@@ -62,7 +62,7 @@ services:
       - orthanc-network
 
   authelia:
-    image: authelia/authelia:4.39.5 
+    image: authelia/authelia:4.39.5
     container_name: orthanc-authelia
     restart: unless-stopped
     depends_on:
@@ -75,8 +75,7 @@ services:
       - TZ=${TZ}
       - AUTHELIA_SESSION_SECRET=${AUTHELIA_SESSION_SECRET}
       - AUTHELIA_STORAGE_ENCRYPTION_KEY=${AUTHELIA_STORAGE_ENCRYPTION_KEY}
-      - AUTHELIA_JWT_SECRET=${AUTHELIA_JWT_SECRET}
-      - AUTHELIA_DOMAIN=${AUTHELIA_DOMAIN:-pacs.example.com}
+      - AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET=${AUTHELIA_JWT_SECRET}
       - AUTHELIA_LOG_LEVEL=${AUTHELIA_LOG_LEVEL:-info}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -112,11 +111,9 @@ services:
   # =============================================================================
   
   ohif:
-    image: registry.yokoinc.ovh/orthanc-ohif:3.10.2
+    image: registry.yokoinc.ovh/orthanc-ohif:3.11.0
     container_name: orthanc-ohif
     restart: unless-stopped
-    environment:
-      - PUBLIC_URL=${OHIF_PUBLIC_URL}
     volumes:
       - ./services/ohif/config/app-config.js:/usr/share/nginx/html/ohif/app-config.js:ro
     depends_on:
@@ -129,20 +126,18 @@ services:
   # =============================================================================
   
   nginx:
-    image: nginx:1.28.0-alpine
+    image: registry.yokoinc.ovh/orthanc-nginx:1.0.1
     container_name: orthanc-nginx
     restart: unless-stopped
     ports:
       - "${NGINX_EXTERNAL_PORT:-30080}:80"
-      - "${NGINX_HTTPS_PORT:-}:443"
+      - "30443:443"
     volumes:
-      - ./services/reverse-proxy/${NGINX_CONFIG:-nginx.conf}:/etc/nginx/nginx.conf:ro
-      - ./services/reverse-proxy/conf.d:/etc/nginx/conf.d:ro
-      - ./services/reverse-proxy/html:/usr/share/nginx/html:ro
-      - ${SSL_CERT_PATH:-/dev/null}:/etc/nginx/ssl/cert.pem:ro
-      - ${SSL_KEY_PATH:-/dev/null}:/etc/nginx/ssl/key.pem:ro
+      - ./ssl/pacs.crt:/etc/nginx/ssl/cert.pem:ro
+      - ./ssl/pacs.key:/etc/nginx/ssl/key.pem:ro
     environment:
       - SSL_ENABLED=${SSL_ENABLED:-false}
+      - DOMAIN=${DOMAIN}
     depends_on:
       - authelia
       - orthanc

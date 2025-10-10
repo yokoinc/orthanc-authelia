@@ -254,6 +254,7 @@ cat > .env << EOF
 # DOMAIN CONFIGURATION
 # =============================================================================
 DOMAIN=${DOMAIN}
+SSL_ENABLED=${SSL_ENABLED:-false}
 
 # =============================================================================
 # AUTHENTICATION CONFIGURATION
@@ -283,11 +284,15 @@ EOF
 if [[ "$SSL_MODE" == "letsencrypt" ]]; then
     cat >> .env << EOF
 LETSENCRYPT_EMAIL=${EMAIL}
+SSL_ENABLED=true
 EOF
-elif [[ "$SSL_MODE" == "manual" ]]; then
+elif [[ "$SSL_MODE" == "manual" ]] || [[ "$SSL_MODE" == "selfsigned" ]]; then
     cat >> .env << EOF
-SSL_CERT_PATH=${CERT_PATH}
-SSL_KEY_PATH=${KEY_PATH}
+SSL_ENABLED=true
+EOF
+elif [[ "$SSL_MODE" == "none" ]]; then
+    cat >> .env << EOF
+SSL_ENABLED=false
 EOF
 fi
 
@@ -320,26 +325,26 @@ case "$SSL_MODE" in
     "selfsigned")
         echo "Generating self-signed certificate..."
         openssl req -x509 -newkey rsa:4096 -nodes \
-            -keyout ./ssl/key.pem \
-            -out ./ssl/cert.pem \
+            -keyout ./ssl/pacs.key \
+            -out ./ssl/pacs.crt \
             -days 365 \
             -subj "/CN=${DOMAIN}/O=ORTHANC-AUTHELIA/C=FR" 2>/dev/null
         echo "Self-signed certificate generated in ./ssl/"
+        echo "  - Certificate: ./ssl/pacs.crt"
+        echo "  - Private key: ./ssl/pacs.key"
         ;;
     "manual")
         echo "Manual certificate mode selected"
         if [[ -f "$CERT_PATH" ]] && [[ -f "$KEY_PATH" ]]; then
-            # Copy certificates to ssl directory if they're not already there
-            if [[ "$CERT_PATH" != "./ssl/cert.pem" ]]; then
-                cp "$CERT_PATH" ./ssl/cert.pem
-                echo "Certificate copied to ./ssl/cert.pem"
-            fi
-            if [[ "$KEY_PATH" != "./ssl/key.pem" ]]; then
-                cp "$KEY_PATH" ./ssl/key.pem
-                echo "Private key copied to ./ssl/key.pem"
-            fi
+            # Copy certificates to ssl directory with correct names
+            cp "$CERT_PATH" ./ssl/pacs.crt
+            cp "$KEY_PATH" ./ssl/pacs.key
+            echo "Certificates copied to ./ssl/"
+            echo "  - Certificate: ./ssl/pacs.crt"
+            echo "  - Private key: ./ssl/pacs.key"
         else
             echo "WARNING: Certificate files not found, you'll need to provide them manually"
+            echo "Expected files: ./ssl/pacs.crt and ./ssl/pacs.key"
         fi
         ;;
     "letsencrypt")
@@ -501,10 +506,10 @@ if [[ "$DB_MODE" == "internal" ]]; then
 fi
 case "$SSL_MODE" in
     "selfsigned")
-        echo "- ssl/cert.pem, ssl/key.pem (self-signed certificates)"
+        echo "- ssl/pacs.crt, ssl/pacs.key (self-signed certificates)"
         ;;
     "manual")
-        echo "- ssl/cert.pem, ssl/key.pem (manual certificates)"
+        echo "- ssl/pacs.crt, ssl/pacs.key (manual certificates)"
         ;;
     "letsencrypt")
         echo "- docker-compose.ssl.yml (Let's Encrypt configuration)"
