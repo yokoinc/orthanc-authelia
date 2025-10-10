@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y build-essential python3 git
 
 # Clone OHIF Viewer repository
 WORKDIR /usr/src
-RUN git clone --depth 1 --branch v3.10.2 https://github.com/OHIF/Viewers.git app
+RUN git clone --depth 1 --branch v3.11.0 https://github.com/OHIF/Viewers.git app
 
 WORKDIR /usr/src/app
 RUN npm install -g bun
