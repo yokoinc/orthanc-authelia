@@ -459,18 +459,19 @@ if [[ "$DB_MODE" == "external" ]]; then
     echo "IMPORTANT: Make sure your external PostgreSQL database is running"
     echo "and accessible with the provided credentials."
 else
-    COMPOSE_FILE="docker-compose.example.yml"
     echo "Using internal PostgreSQL 15 Alpine database"
-    
+
     # Create SSL-aware docker-compose file
     if [[ "$SSL_MODE" == "letsencrypt" ]]; then
         COMPOSE_FILE="docker-compose.ssl.yml"
         echo "Creating Let's Encrypt enabled docker-compose file: $COMPOSE_FILE"
         create_letsencrypt_compose
     else
-        echo "Selected compose file: $COMPOSE_FILE"
+        COMPOSE_FILE="docker-compose.yml"
+        echo "Creating docker-compose.yml from template..."
+        cp docker-compose.example.yml docker-compose.yml
     fi
-    
+
     echo
     echo "IMPORTANT: Database data will be stored in ./data/postgres/"
     if [[ "$SSL_MODE" != "none" ]]; then
