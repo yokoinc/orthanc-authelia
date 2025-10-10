@@ -1,30 +1,11 @@
 # ORTHANC-AUTHELIA STANDALONE - Complete medical imaging solution
-# Includes PostgreSQL 15 database, Redis, Orthanc, OHIF, Authelia, and Nginx
-# Self-contained deployment with all services in internal network
+# Uses external PostgreSQL database container
+# Includes Redis, Orthanc, OHIF, Authelia, and Nginx
 
 services:
   # =============================================================================
   # DATABASE SERVICES
   # =============================================================================
-  
-  postgres:
-    image: postgres:15
-    container_name: orthanc-postgres
-    restart: unless-stopped
-    environment:
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - PGDATA=/var/lib/postgresql/data/pgdata
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - orthanc-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   redis:
     image: redis:8.0-alpine
@@ -36,7 +17,7 @@ services:
   # =============================================================================
   # AUTHENTICATION SERVICES
   # =============================================================================
-  
+
   auth-service:
     image: registry.yokoinc.ovh/orthanc-auth-service:1.0.8
     container_name: orthanc-auth-service
@@ -84,32 +65,31 @@ services:
   # =============================================================================
   # PACS CORE SERVICES
   # =============================================================================
-  
+
   orthanc:
     image: jodogne/orthanc-plugins:latest
     container_name: orthanc-server
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
       auth-service:
         condition: service_started
     volumes:
       - ./services/orthanc/config/orthanc.json:/etc/orthanc/orthanc.json:ro
-      - orthanc_data:/var/lib/orthanc/db
     networks:
       - orthanc-network
+      - database
     environment:
-      - POSTGRES_HOST=postgres
+      # Update these to match your external PostgreSQL container
+      - POSTGRES_HOST=database
       - POSTGRES_PORT=5432
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=orthanc
+      - POSTGRES_USER=your-postgres-user
+      - POSTGRES_PASSWORD=your-postgres-password
 
   # =============================================================================
   # MEDICAL IMAGING VIEWERS
   # =============================================================================
-  
+
   ohif:
     image: registry.yokoinc.ovh/orthanc-ohif:3.11.0
     container_name: orthanc-ohif
@@ -124,20 +104,19 @@ services:
   # =============================================================================
   # REVERSE PROXY & LOAD BALANCER
   # =============================================================================
-  
+
   nginx:
-    image: registry.yokoinc.ovh/orthanc-nginx:1.0.1
+    image: registry.yokoinc.ovh/orthanc-nginx:1.0.2
     container_name: orthanc-nginx
     restart: unless-stopped
     ports:
-      - "${NGINX_EXTERNAL_PORT:-30080}:80"
+      - "30080:80"
       - "30443:443"
     volumes:
-      - ./ssl/pacs.crt:/etc/nginx/ssl/cert.pem:ro
-      - ./ssl/pacs.key:/etc/nginx/ssl/key.pem:ro
+      - nginx-ssl:/etc/nginx/ssl
     environment:
-      - SSL_ENABLED=${SSL_ENABLED:-false}
       - DOMAIN=${DOMAIN}
+      - SSL_MODE=selfsigned
     depends_on:
       - authelia
       - orthanc
@@ -151,12 +130,8 @@ services:
 # =============================================================================
 
 volumes:
-  postgres_data:
-    name: orthanc-postgres-data
-    driver: local
-  orthanc_data:
-    name: orthanc-dicom-data
-    driver: local
+  nginx-ssl:
+    name: orthanc_nginx_ssl
 
 # =============================================================================
 # NETWORK CONFIGURATION
@@ -166,3 +141,6 @@ networks:
   orthanc-network:
     name: orthanc-network
     driver: bridge
+  database:
+    external: true
+    name: database

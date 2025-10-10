@@ -1,4 +1,4 @@
-# PAX-MA-STACK - .gitignore
+# ORTHANC-AUTHELIA - .gitignore
 
 # ===============================================
 # Environment and Configuration
@@ -76,6 +76,7 @@ orthanc.log
 # Authelia database and config with secrets
 services/authelia/config/db.sqlite3
 services/authelia/config/notification.txt
+services/authelia/config/users_database.yml
 
 # SSH keys
 id_rsa
@@ -176,10 +177,10 @@ Dockerfile.local
 *.hdr
 
 # OHIF build artifacts
-services/ohif/docker/3.10.2-fr/platform/app/dist/
-services/ohif/docker/3.10.2-fr/platform/app/node_modules/
-services/ohif/docker/3.10.2-fr/platform/app/.next/
-services/ohif/docker/3.10.2-fr/platform/app/build/
+services/ohif/docker/*/platform/app/dist/
+services/ohif/docker/*/platform/app/node_modules/
+services/ohif/docker/*/platform/app/.next/
+services/ohif/docker/*/platform/app/build/
 
 # ===============================================
 # Documentation and Reports
@@ -288,9 +289,9 @@ Desktop.ini
 # Project Specific Exclusions
 # ===============================================
 
-# Exclude sensitive configuration files
-services/authelia/config/users_database.yml.backup
-services/orthanc/config/orthanc.json.backup
+# Exclude sensitive configuration files (real config, not examples)
+services/orthanc/config/orthanc.json
+services/authelia/config/configuration.yml
 
 # Exclude runtime data
 runtime/
@@ -309,5 +310,5 @@ demo_data/
 # Local Docker registry data
 registry/
 
-# Custom deployment files
-pacs-yokoinc.yml
+# Generated deployment files
+docker-compose.yml

@@ -1,0 +1,37 @@
+---
+# =============================================================================
+# AUTHELIA USER DATABASE
+# =============================================================================
+# This file defines users, passwords (hashed), and their group memberships
+# Generate with: ./manage-users.sh
+#
+# Password hashing:
+# docker run --rm authelia/authelia:latest authelia crypto hash generate argon2 --password "your-password"
+#
+# Groups determine permissions (see configuration.yml for access control):
+# - admin: Full system access, token management, all viewers
+# - doctor: Medical data access, all viewers, limited admin functions
+# - external: Read-only access, limited viewers
+# - user: Basic authenticated access
+
+users:
+  admin@example.com:
+    displayname: "PACS Administrator"
+    password: "$argon2id$v=19$m=65536,t=3,p=4$EXAMPLE_HASH_REPLACE_THIS"
+    email: admin@example.com
+    groups:
+      - admin
+
+  doctor@example.com:
+    displayname: "Medical Doctor"
+    password: "$argon2id$v=19$m=65536,t=3,p=4$EXAMPLE_HASH_REPLACE_THIS"
+    email: doctor@example.com
+    groups:
+      - doctor
+
+  external@example.com:
+    displayname: "External User"
+    password: "$argon2id$v=19$m=65536,t=3,p=4$EXAMPLE_HASH_REPLACE_THIS"
+    email: external@example.com
+    groups:
+      - external

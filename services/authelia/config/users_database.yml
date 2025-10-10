@@ -1,22 +1,22 @@
 ---
 users:
-  admin@example.com:
+  cuffel.gregory@gmail.com:
     displayname: "PACS Administrator"
-    password: "$argon2id$v=19$m=65536,t=3,p=4$cV4zooAU6KZ0ekOPvt3Vaw$ucm+1skyO16+X6mLhzhabvrDjLf26r6dGKLow01aqPQ"
-    email: admin@example.com
+    password: "$argon2id$v=19$m=65536,t=3,p=4$rJnIL1OY2KT7dAXq9axIMQ$rbuYdMp35Zu9qJ4kra/MAu6RZ4iNqYF4vNAeJOEPgXM"
+    email: cuffel.gregory@gmail.com
     groups:
       - admin
       
-  doctor@example.com:
+  docteur@yokoinc.ovh:
     displayname: "Medical Doctor"
-    password: "$argon2id$v=19$m=65536,t=3,p=4$5s3dADvwo2/774m/e+Odqg$0Ac+u23mUeroCYI489wc7oW4f0yA4s1gGWmaSCqPoZI"
-    email: doctor@example.com
+    password: "$argon2id$v=19$m=65536,t=3,p=4$YsjeDE9tUfvm0lrKeodVWQ$DlYhHulJEMIOjLwHDZZzkqui4wUacVDkShlEb1voccM"
+    email: docteur@yokoinc.ovh
     groups:
       - doctor
       
-  external@example.com:
+  externe@yokoinc.ovh:
     displayname: "External User"
-    password: "$argon2id$v=19$m=65536,t=3,p=4$PVSjXvKO2cR/XgVcu1aKQw$AKFOE0jOMcEksdkhslxaMl9sWmTouM/C7g0WbJis+hM"
-    email: external@example.com
+    password: "$argon2id$v=19$m=65536,t=3,p=4$Lg1eLUzoYAPspvkd4mVNEw$zj2bo2xg9oeRYKaCr+MyWUJN9+YjN7zmLdcRn0YsdF0"
+    email: externe@yokoinc.ovh
     groups:
       - external

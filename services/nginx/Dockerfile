@@ -1,7 +1,7 @@
 FROM nginx:1.28.0-alpine
 
-# Install gettext for envsubst
-RUN apk add --no-cache gettext
+# Install gettext for envsubst and openssl for certificate generation
+RUN apk add --no-cache gettext openssl
 
 # Create directories for configuration templates
 RUN mkdir -p /etc/nginx/templates /etc/nginx/conf.d.templates

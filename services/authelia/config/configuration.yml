@@ -73,7 +73,7 @@ access_control:
   
   rules:
     # Authelia authentication pages - bypass authentication (must be accessible)
-    - domain: pacs.example.com
+    - domain: pacs.yokoinc.ovh
       policy: bypass                # Allow without authentication
       resources:
         - "^/auth/.*$"              # Authelia login pages
@@ -84,7 +84,7 @@ access_control:
         - "^/favicon.ico$"          # Favicon
     
     # Share links with tokens - bypass authentication for specific paths
-    - domain: pacs.example.com
+    - domain: pacs.yokoinc.ovh
       policy: bypass                # Allow without authentication
       resources:
         - "^/dicom-web.*token=.*$"  # DICOM-Web API with token
@@ -92,17 +92,17 @@ access_control:
         - "^/ohif.*token=.*$"       # OHIF with token
       
     # Administrators - Full access to all PACS functions
-    - domain: pacs.example.com
+    - domain: pacs.yokoinc.ovh
       policy: one_factor            # Require authentication (1FA)
       subject: "group:admin"
       
     # Medical doctors - Standard medical access
-    - domain: pacs.example.com
+    - domain: pacs.yokoinc.ovh
       policy: one_factor
       subject: "group:doctor"
       
     # External users - Limited read-only access
-    - domain: pacs.example.com
+    - domain: pacs.yokoinc.ovh
       policy: one_factor
       subject: "group:external"
 
@@ -119,9 +119,9 @@ session:
   secret: W+wyPvvqGl7AHzfgaouwbw4G4ifo4CsLdedQ/+/K5ebqEvdui4V0PSfZ4KSZEMgy  # Session secret from .env
   
   cookies:
-    - domain: pacs.example.com   # Domain for session cookies
-      authelia_url: https://pacs.example.com/auth  # Authelia login URL
-      default_redirection_url: https://pacs.example.com/ui/app/  # Default redirect after login
+    - domain: pacs.yokoinc.ovh   # Domain for session cookies
+      authelia_url: https://pacs.yokoinc.ovh/auth  # Authelia login URL
+      default_redirection_url: https://pacs.yokoinc.ovh/ui/app/  # Default redirect after login
       same_site: lax               # Cookie same-site policy
   
   # Redis backend for session storage (scales better than file storage)
@@ -151,10 +151,10 @@ storage:
 # =============================================================================
 # IDENTITY VALIDATION
 # =============================================================================
-# Configuration for password reset and account verification
-identity_validation:
-  reset_password:
-    jwt_secret: ds5ZppDtMfe/xj7qgYJkIAVl0RizOFEdGOSmMOHoV8T6qUlr4zVfEY4OJuQQWdXP  # JWT secret from .env
+# Configuration for password reset and account verification - DISABLED
+# identity_validation:
+#   reset_password:
+#     jwt_secret: ds5ZppDtMfe/xj7qgYJkIAVl0RizOFEdGOSmMOHoV8T6qUlr4zVfEY4OJuQQWdXP  # JWT secret from .env
 
 # =============================================================================
 # NOTIFICATION SYSTEM
