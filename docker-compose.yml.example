@@ -17,7 +17,7 @@ services:
   # =============================================================================
   # AUTHENTICATION SERVICES
   # =============================================================================
-
+  
   auth-service:
     image: registry.yokoinc.ovh/orthanc-auth-service:1.0.8
     container_name: orthanc-auth-service
@@ -43,7 +43,7 @@ services:
       - orthanc-network
 
   authelia:
-    image: authelia/authelia:4.39.5
+    image: authelia/authelia:4.39.5 
     container_name: orthanc-authelia
     restart: unless-stopped
     depends_on:
@@ -65,7 +65,7 @@ services:
   # =============================================================================
   # PACS CORE SERVICES
   # =============================================================================
-
+  
   orthanc:
     image: jodogne/orthanc-plugins:latest
     container_name: orthanc-server
@@ -79,17 +79,16 @@ services:
       - orthanc-network
       - database
     environment:
-      # Update these to match your external PostgreSQL container
       - POSTGRES_HOST=database
       - POSTGRES_PORT=5432
       - POSTGRES_DB=orthanc
-      - POSTGRES_USER=your-postgres-user
-      - POSTGRES_PASSWORD=your-postgres-password
+      - POSTGRES_USER=orthanc
+      - POSTGRES_PASSWORD=change_this_password
 
   # =============================================================================
   # MEDICAL IMAGING VIEWERS
   # =============================================================================
-
+  
   ohif:
     image: registry.yokoinc.ovh/orthanc-ohif:3.11.0
     container_name: orthanc-ohif
@@ -104,7 +103,7 @@ services:
   # =============================================================================
   # REVERSE PROXY & LOAD BALANCER
   # =============================================================================
-
+  
   nginx:
     image: registry.yokoinc.ovh/orthanc-nginx:1.0.2
     container_name: orthanc-nginx
