@@ -1,6 +1,29 @@
 # ORTHANC-AUTHELIA STANDALONE - Complete medical imaging solution
 # Uses external PostgreSQL database container
 # Includes Redis, Orthanc, OHIF, Authelia, and Nginx
+#
+# =============================================================================
+# SETUP INSTRUCTIONS
+# =============================================================================
+#
+# 1. Copy this file to docker-compose.yml:
+#    cp docker-compose.yml.example docker-compose.yml
+#
+# 2. Copy and configure example files from the root directory:
+#    cp .env.example .env
+#    cp authelia-configuration.yml.example services/authelia/config/configuration.yml
+#    cp authelia-users.yml.example services/authelia/config/users_database.yml
+#    cp orthanc.json.example services/orthanc/config/orthanc.json
+#
+# 3. Edit the configuration files with your credentials:
+#    - .env: Update all secrets and passwords
+#    - services/authelia/config/configuration.yml: Update domain and secrets
+#    - services/authelia/config/users_database.yml: Generate user passwords
+#    - services/orthanc/config/orthanc.json: Update PostgreSQL credentials
+#
+# 4. See README.md for detailed setup instructions
+#
+# =============================================================================
 
 services:
   # =============================================================================
