@@ -2,16 +2,17 @@
 # AUTHELIA USER DATABASE
 # =============================================================================
 # This file defines users, passwords (hashed), and their group memberships
-# Generate with: ./manage-users.sh
 #
-# Password hashing:
-# docker run --rm authelia/authelia:latest authelia crypto hash generate argon2 --password "your-password"
+# RECOMMENDED: Use the interactive management tool:
+#   ./manage-authelia-users.sh
+#
+# Manual password hashing (if needed):
+#   docker run --rm authelia/authelia:4.39.5 authelia crypto hash generate argon2 --password "your-password"
 #
 # Groups determine permissions (see configuration.yml for access control):
-# - admin: Full system access, token management, all viewers
-# - doctor: Medical data access, all viewers, limited admin functions
-# - external: Read-only access, limited viewers
-# - user: Basic authenticated access
+# - admin: Full PACS administration, token management, all functions
+# - doctor: Medical imaging and patient data access
+# - external: Limited read-only access
 
 users:
   admin@example.com:

@@ -21,12 +21,15 @@ server:
   tls:
     certificate: ""                 # TLS handled by nginx reverse proxy
     key: ""
+  headers:
+    csp_template: ""                # Disable CSP for now
+  asset_path: /config/assets        # Custom assets path for CSS overrides
 
 # =============================================================================
 # LOGGING CONFIGURATION
 # =============================================================================
 log:
-  level: ${AUTHELIA_LOG_LEVEL}      # Log level from .env
+  level: ${AUTHELIA_LOG_LEVEL:-info}      # Log level from .env
 
 # =============================================================================
 # TWO-FACTOR AUTHENTICATION (TOTP)
@@ -69,6 +72,17 @@ access_control:
   default_policy: deny              # Deny access by default (secure)
   
   rules:
+    # Authelia authentication pages - bypass authentication (must be accessible)
+    - domain: ${AUTHELIA_DOMAIN}
+      policy: bypass                # Allow without authentication
+      resources:
+        - "^/auth/.*$"              # Authelia login pages
+        - "^/api/.*$"               # Authelia API endpoints
+        - "^/static/.*$"            # Static assets
+        - "^/locales/.*$"           # Localization files
+        - "^/manifest.json$"        # Web app manifest
+        - "^/favicon.ico$"          # Favicon
+    
     # Share links with tokens - bypass authentication for specific paths
     - domain: ${AUTHELIA_DOMAIN}
       policy: bypass                # Allow without authentication
@@ -107,14 +121,14 @@ session:
   cookies:
     - domain: ${AUTHELIA_DOMAIN}   # Domain for session cookies
       authelia_url: https://${AUTHELIA_DOMAIN}/auth  # Authelia login URL
-      default_redirection_url: https://${AUTHELIA_DOMAIN}/  # Default redirect after login
+      default_redirection_url: https://${AUTHELIA_DOMAIN}/ui/app/  # Default redirect after login
       same_site: lax               # Cookie same-site policy
   
   # Redis backend for session storage (scales better than file storage)
   redis:
-    host: ${REDIS_HOST}            # Redis container hostname
-    port: ${REDIS_PORT}            # Redis port
-    database_index: ${REDIS_DB}    # Redis database number
+    host: ${REDIS_HOST:-redis}            # Redis container hostname
+    port: ${REDIS_PORT:-6379}            # Redis port
+    database_index: ${REDIS_DB:-0}    # Redis database number
 
 # =============================================================================
 # RATE LIMITING & BRUTE FORCE PROTECTION
@@ -137,10 +151,10 @@ storage:
 # =============================================================================
 # IDENTITY VALIDATION
 # =============================================================================
-# Configuration for password reset and account verification
-identity_validation:
-  reset_password:
-    jwt_secret: ${AUTHELIA_JWT_SECRET}  # JWT secret from .env
+# Configuration for password reset and account verification - DISABLED
+# identity_validation:
+#   reset_password:
+#     jwt_secret: ${AUTHELIA_SESSION_SECRET}  # Session secret from .env
 
 # =============================================================================
 # NOTIFICATION SYSTEM

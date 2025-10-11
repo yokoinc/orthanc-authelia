@@ -128,7 +128,7 @@ services:
   # =============================================================================
   
   nginx:
-    image: registry.yokoinc.ovh/orthanc-nginx:1.0.2
+    image: registry.yokoinc.ovh/orthanc-nginx:1.0.3
     container_name: orthanc-nginx
     restart: unless-stopped
     ports:
