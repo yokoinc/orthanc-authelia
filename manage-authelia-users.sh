@@ -30,7 +30,7 @@ AUTHELIA_VERSION="4.39.5"
 print_header() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}       ${BLUE}AUTHELIA USER MANAGEMENT - ORTHANC PACS${NC}           ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}           ${BLUE}AUTHELIA USER MANAGEMENT - ORTHANC PACS${NC}            ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
 }

@@ -1,5 +1,5 @@
 # ORTHANC-AUTHELIA STANDALONE - Complete medical imaging solution
-# Uses external PostgreSQL database container
+# Uses external PostgreSQL database container (or optional local PostgreSQL)
 # Includes Redis, Orthanc, OHIF, Authelia, and Nginx
 #
 # =============================================================================
@@ -36,6 +36,31 @@ services:
     restart: unless-stopped
     networks:
       - orthanc-network
+
+  # ---------------------------------------------------------------------------
+  # OPTIONAL: Local PostgreSQL (uncomment to use instead of external database)
+  # ---------------------------------------------------------------------------
+  # If using local PostgreSQL:
+  # 1. Uncomment the postgres service below
+  # 2. Uncomment the postgres_data volume in the volumes section
+  # 3. Remove the "database" network from orthanc service
+  # 4. Remove the external "database" network definition at the bottom
+  # 5. Update orthanc depends_on to include postgres
+  # 6. Change POSTGRES_HOST to "postgres" in orthanc environment
+  # ---------------------------------------------------------------------------
+
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: orthanc-postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     - POSTGRES_DB=orthanc
+  #     - POSTGRES_USER=orthanc
+  #     - POSTGRES_PASSWORD=change_this_password
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - orthanc-network
 
   # =============================================================================
   # AUTHENTICATION SERVICES
@@ -96,13 +121,15 @@ services:
     depends_on:
       auth-service:
         condition: service_started
+      # postgres:  # Uncomment if using local PostgreSQL
+      #   condition: service_started
     volumes:
       - ./services/orthanc/config/orthanc.json:/etc/orthanc/orthanc.json:ro
     networks:
       - orthanc-network
-      - database
+      - database  # Remove this line if using local PostgreSQL
     environment:
-      - POSTGRES_HOST=database
+      - POSTGRES_HOST=database  # Change to "postgres" if using local PostgreSQL
       - POSTGRES_PORT=5432
       - POSTGRES_DB=orthanc
       - POSTGRES_USER=orthanc
@@ -154,6 +181,8 @@ services:
 volumes:
   nginx-ssl:
     name: orthanc_nginx_ssl
+  # postgres_data:  # Uncomment if using local PostgreSQL
+  #   name: orthanc_postgres_data
 
 # =============================================================================
 # NETWORK CONFIGURATION
@@ -163,6 +192,6 @@ networks:
   orthanc-network:
     name: orthanc-network
     driver: bridge
-  database:
+  database:  # Remove this section if using local PostgreSQL
     external: true
     name: database
