@@ -34,6 +34,12 @@ services:
     image: redis:8.0-alpine
     container_name: orthanc-redis
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks:
       - orthanc-network
 
@@ -86,16 +92,18 @@ services:
       - JS_REFRESH_INTERVAL=${JS_REFRESH_INTERVAL:-30000}
       - JS_DEBUG_MODE=${JS_DEBUG_MODE:-false}
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     networks:
       - orthanc-network
 
   authelia:
-    image: authelia/authelia:4.39.5 
+    image: authelia/authelia:4.39.5
     container_name: orthanc-authelia
     restart: unless-stopped
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     volumes:
       - ./services/authelia/config:/config
     networks:
@@ -165,7 +173,7 @@ services:
       - nginx-ssl:/etc/nginx/ssl
     environment:
       - DOMAIN=${DOMAIN}
-      - SSL_MODE=selfsigned
+      - SSL_MODE=${SSL_MODE:-selfsigned}
     depends_on:
       - authelia
       - orthanc
