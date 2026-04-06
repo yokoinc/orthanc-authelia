@@ -9,8 +9,8 @@ Medical PACS solution based on Orthanc with Authelia authentication (SSO, 2FA, R
 ORTHANC-AUTHELIA is a complete Picture Archiving and Communication System (PACS) for small to medium healthcare structures. It combines:
 - **Orthanc PACS** - Industry-standard DICOM server with PostgreSQL storage
 - **Authelia** - Modern authentication with SSO and 2FA
-- **OHIF Viewer v3.11.0** - Professional medical imaging viewer
-- **Custom Auth-Service** - Token-based external sharing system
+- **OHIF Viewer v3.12.0** - Professional medical imaging viewer
+- **Custom Auth-Service** - Token-based external sharing with OE2-themed management UI
 - **Multiple Viewers** - OHIF, Stone Web Viewer, and VolView for different use cases
 
 ## Why Authelia over KeyCloak?
@@ -59,7 +59,9 @@ ORTHANC-AUTHELIA is a complete Picture Archiving and Communication System (PACS)
 - **Dual Authentication**: Authelia for users + token system for external sharing
 - **Role-Based Access**: Admin, Doctor, External user roles with granular permissions
 - **Three Medical Viewers**: OHIF (primary), Stone Web Viewer (advanced), VolView (3D)
-- **Secure Sharing**: Time-limited, usage-limited tokens for external access
+- **Secure Sharing**: Time-limited, usage-limited tokens with copy-to-clipboard links
+- **Token Manager**: OE2-themed admin dashboard with patient name resolution from DICOM metadata
+- **OE2 Sidebar Integration**: "Partages" button injected directly into Orthanc Explorer 2
 - **PostgreSQL Storage**: High-performance database backend
 - **SSL Auto-Generation**: Self-signed certificates or custom SSL
 - **Easy User Management**: Interactive scripts for user administration
@@ -200,20 +202,24 @@ docker-compose restart authelia
 Custom images hosted at `registry.yokoinc.ovh`:
 
 - `orthanc-nginx:1.0.3` - Nginx with SSL auto-generation
-- `orthanc-ohif:3.11.0` - OHIF viewer with French translation
-- `orthanc-auth-service:1.0.8` - Custom authentication service
+- `orthanc-ohif:3.12.0` - OHIF viewer with French translation
+- `orthanc-auth-service:1.0.9` - Custom authentication service
 
 ### Using Your Own Registry
 
 Build images locally:
 ```bash
+# Auth-Service
+cd services/auth-service/sources
+docker build -t your-registry/orthanc-auth-service:1.0.9 .
+
 # Nginx
 cd services/nginx
 docker build -t your-registry/orthanc-nginx:1.0.3 .
 
-# OHIF
+# OHIF (long build ~15min)
 cd services/ohif/docker
-docker build -t your-registry/orthanc-ohif:3.11.0 .
+docker build -t your-registry/orthanc-ohif:3.12.0 .
 ```
 
 Update `docker-compose.yml` with your registry URLs.
@@ -230,7 +236,6 @@ Detailed guides available in `docs/`:
 - **[Token Sharing Guide](docs/TOKEN_SHARING.md)** - External sharing workflow
 - **[Auth-Service Overview](docs/AUTH_SERVICE.md)** - Authentication service details
 - **[Nginx Configuration](docs/NGINX_CONFIGURATION.md)** - Reverse proxy details
-- **[Development Guide](docs/DEVELOPMENT.md)** - Customization and development
 
 ## Troubleshooting
 
