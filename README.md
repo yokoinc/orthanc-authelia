@@ -209,11 +209,15 @@ Custom images hosted at `registry.yokoinc.ovh`:
 
 Build images locally:
 ```bash
+# Auth-Service
+cd services/auth-service/sources
+docker build -t your-registry/orthanc-auth-service:1.0.9 .
+
 # Nginx
 cd services/nginx
 docker build -t your-registry/orthanc-nginx:1.0.3 .
 
-# OHIF
+# OHIF (long build ~15min)
 cd services/ohif/docker
 docker build -t your-registry/orthanc-ohif:3.12.0 .
 ```
@@ -232,7 +236,6 @@ Detailed guides available in `docs/`:
 - **[Token Sharing Guide](docs/TOKEN_SHARING.md)** - External sharing workflow
 - **[Auth-Service Overview](docs/AUTH_SERVICE.md)** - Authentication service details
 - **[Nginx Configuration](docs/NGINX_CONFIGURATION.md)** - Reverse proxy details
-- **[Development Guide](docs/DEVELOPMENT.md)** - Customization and development
 
 ## Troubleshooting
 
