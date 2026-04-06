@@ -1,14 +1,11 @@
 /**
- * Token Manager JavaScript
+ * Token Manager JavaScript - OE2 Design
  * Interface for managing PACS sharing tokens
  */
 
-// Configuration - Hard-coded working config
 const CONFIG = {
     REFRESH_INTERVAL: 30000,
     DEBUG_MODE: false,
-    API_BASE: "",
-    // UI Messages - Can be overridden by server-side configuration
     MESSAGES: {
         EXPIRED: "Expired",
         NO_RESOURCE: "No resource",
@@ -33,29 +30,16 @@ const CONFIG = {
         LOADING_EXPIRED_ERROR: "Error loading expired tokens",
         DATA_LOADING_ERROR: "Error loading data",
         REVOKING: "Revoking...",
-        RETRY: "Retry"
+        RETRY: "Retry",
+        COPY_LINK: "Copy link",
+        LINK_COPIED: "Link copied to clipboard",
+        LINK_COPY_ERROR: "Could not copy link",
+        REVOKE: "Revoke"
     },
     TIME_UNITS: {
         DAY: 86400,
         HOUR: 3600,
         MINUTE: 60
-    },
-    CSS_CLASSES: {
-        SUCCESS: 'bg-success',
-        WARNING: 'bg-warning', 
-        DANGER: 'bg-danger',
-        PRIMARY: 'bg-primary',
-        INFO: 'bg-info',
-        TEXT_WHITE: 'text-white',
-        TEXT_MUTED: 'text-muted',
-        TEXT_DANGER: 'text-danger'
-    },
-    ICONS: {
-        INFO: 'fas fa-info-circle',
-        ERROR: 'fas fa-exclamation-triangle',
-        SPINNER: 'fas fa-spinner fa-spin',
-        TRASH: 'fas fa-trash',
-        RETRY: 'fas fa-retry'
     },
     API_BASE: window.location.origin,
     ENDPOINTS: {
@@ -73,13 +57,24 @@ if (window.PACS_CONFIG && window.PACS_CONFIG.MESSAGES) {
     Object.assign(CONFIG.MESSAGES, window.PACS_CONFIG.MESSAGES);
 }
 
-// Debug logging
 if (CONFIG.DEBUG_MODE) {
     console.log('Token Manager loaded with config:', CONFIG);
 }
 
-// Format timestamp to readable date
+// Escape HTML to prevent injection
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+// Format timestamp
 function formatDate(timestamp) {
+    if (!timestamp) return 'N/A';
     return new Date(timestamp * 1000).toLocaleString('fr-FR', {
         year: 'numeric',
         month: '2-digit',
@@ -89,57 +84,77 @@ function formatDate(timestamp) {
     });
 }
 
-// Format duration to readable string
+// Format duration to OE2 badge
 function formatDuration(seconds) {
-    if (seconds < 0) return `<span class="badge ${CONFIG.CSS_CLASSES.DANGER}">${CONFIG.MESSAGES.EXPIRED}</span>`;
-    
+    if (seconds < 0 || seconds === null || seconds === undefined) {
+        return `<span class="duration duration-danger">${CONFIG.MESSAGES.EXPIRED}</span>`;
+    }
+
     const days = Math.floor(seconds / CONFIG.TIME_UNITS.DAY);
     const hours = Math.floor((seconds % CONFIG.TIME_UNITS.DAY) / CONFIG.TIME_UNITS.HOUR);
     const minutes = Math.floor((seconds % CONFIG.TIME_UNITS.HOUR) / CONFIG.TIME_UNITS.MINUTE);
-    
+
     let duration = '';
     if (days > 0) duration = `${days}j ${hours}h`;
     else if (hours > 0) duration = `${hours}h ${minutes}m`;
     else duration = `${minutes}m`;
-    
-    const badgeClass = seconds > CONFIG.TIME_UNITS.DAY ? CONFIG.CSS_CLASSES.SUCCESS : 
-                      seconds > CONFIG.TIME_UNITS.HOUR ? CONFIG.CSS_CLASSES.WARNING : 
-                      CONFIG.CSS_CLASSES.DANGER;
-    return `<span class="badge ${badgeClass}">${duration}</span>`;
+
+    const cls = seconds > CONFIG.TIME_UNITS.DAY ? 'duration-success' :
+                seconds > CONFIG.TIME_UNITS.HOUR ? 'duration-warning' :
+                'duration-danger';
+    return `<span class="duration ${cls}">${duration}</span>`;
 }
 
-// Get resource description
+// Resource description
 function getResourceDescription(resources) {
-    if (!resources || resources.length === 0) return CONFIG.MESSAGES.NO_RESOURCE;
+    if (!resources || resources.length === 0) return `<span class="resource-id">${CONFIG.MESSAGES.NO_RESOURCE}</span>`;
     const resource = resources[0];
-    const level = resource.Level || 'study';
+    if (resource.patient_name) {
+        const meta = [];
+        if (resource.modality) meta.push(escapeHtml(resource.modality));
+        if (resource.study_date) meta.push(escapeHtml(resource.study_date));
+        if (resource.study_description) meta.push(escapeHtml(resource.study_description));
+        const metaHtml = meta.length
+            ? `<span class="resource-meta">${meta.join(' · ')}</span>`
+            : '';
+        return `<div class="resource-cell">
+            <span class="patient-name">${escapeHtml(resource.patient_name)}</span>
+            ${metaHtml}
+        </div>`;
+    }
+    const level = (resource.Level || 'study').toUpperCase();
     const id = resource.DicomUid || resource.OrthancId || 'N/A';
-    return `<small class="${CONFIG.CSS_CLASSES.TEXT_MUTED}">${level.toUpperCase()}: ${id.substring(0, 16)}...</small>`;
+    const shortId = id.length > 20 ? id.substring(0, 20) + '...' : id;
+    return `<span class="resource-id">${escapeHtml(level)}: ${escapeHtml(shortId)}</span>`;
 }
 
-// Check if token usage is suspicious (fraud detection)
+// Suspicious usage detection
 function isSuspiciousUsage(token) {
     if (!token.created_at || !token.current_uses) return false;
-    
     const hoursElapsed = (Date.now() / 1000 - token.created_at) / 3600;
     const usageRate = token.current_uses / Math.max(hoursElapsed, 1);
-    
-    // Suspicious if more than 10 uses per hour or 50 uses in less than 4 hours
     return usageRate > 10 || (token.current_uses >= 50 && hoursElapsed < 4);
 }
 
-// Get expiration reason
+// Expiration reason badge
 function getExpirationReason(token) {
     if (token.current_uses >= token.max_uses) {
-        return `<span class="badge ${CONFIG.CSS_CLASSES.WARNING}">${CONFIG.MESSAGES.LIMIT_REACHED}</span>`;
+        return `<span class="badge-oe2 badge-warning">${CONFIG.MESSAGES.LIMIT_REACHED}</span>`;
     }
     if (token.remaining_seconds <= 0) {
-        return `<span class="badge ${CONFIG.CSS_CLASSES.INFO}">${CONFIG.MESSAGES.TIME_ELAPSED}</span>`;
+        return `<span class="badge-oe2 badge-info">${CONFIG.MESSAGES.TIME_ELAPSED}</span>`;
     }
-    return `<span class="badge ${CONFIG.CSS_CLASSES.DANGER}">${CONFIG.MESSAGES.REVOKED}</span>`;
+    return `<span class="badge-oe2 badge-danger">${CONFIG.MESSAGES.REVOKED}</span>`;
 }
 
-// Generic API call function
+// Usage progress color
+function getUsageColor(percent) {
+    if (percent > 75) return '#dc3545';
+    if (percent > 50) return '#d19b3d';
+    return '#28a745';
+}
+
+// API call
 async function apiCall(endpoint, method = 'GET', data = null) {
     try {
         const url = `${CONFIG.API_BASE}${endpoint}`;
@@ -151,18 +166,14 @@ async function apiCall(endpoint, method = 'GET', data = null) {
             },
             credentials: 'include'
         };
-
         if (data) {
             options.headers['Content-Type'] = 'application/json';
             options.body = JSON.stringify(data);
         }
-
         const response = await fetch(url, options);
-
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-
         return await response.json();
     } catch (error) {
         console.error(`API call failed for ${endpoint}:`, error);
@@ -170,13 +181,11 @@ async function apiCall(endpoint, method = 'GET', data = null) {
     }
 }
 
-// Fetch tokens from API
 async function fetchTokens() {
     const data = await apiCall(CONFIG.ENDPOINTS.TOKENS);
     return data.tokens || [];
 }
 
-// Fetch expired tokens from API
 async function fetchExpiredTokens() {
     try {
         const data = await apiCall(CONFIG.ENDPOINTS.EXPIRED_TOKENS);
@@ -187,238 +196,277 @@ async function fetchExpiredTokens() {
     }
 }
 
-// Fetch statistics from API
 async function fetchStatistics() {
     return await apiCall(CONFIG.ENDPOINTS.STATS);
 }
 
-// Revoke a token
 async function revokeToken(tokenId) {
     return await apiCall(`${CONFIG.ENDPOINTS.REVOKE}/${tokenId}`, 'DELETE');
 }
 
-// Show success toast
+// Toasts
 function showSuccessToast(message = CONFIG.MESSAGES.TOKEN_REVOKED_SUCCESS) {
     const toast = document.getElementById('successToast');
-    const toastBody = toast.querySelector('.toast-body');
-    toastBody.textContent = message;
-    
-    const bsToast = new bootstrap.Toast(toast);
-    bsToast.show();
+    toast.querySelector('.toast-body').textContent = message;
+    new bootstrap.Toast(toast).show();
 }
 
-// Show error toast
 function showErrorToast(message = 'Une erreur est survenue') {
     const toast = document.getElementById('errorToast');
-    const errorMessage = document.getElementById('errorMessage');
-    errorMessage.textContent = message;
-    
-    const bsToast = new bootstrap.Toast(toast);
-    bsToast.show();
+    document.getElementById('errorMessage').textContent = message;
+    new bootstrap.Toast(toast).show();
 }
 
-// Create tokens table HTML
+// Share token types (the ones we display in the manager)
+const SHARE_TOKEN_TYPES = [
+    'ohif-viewer-publication',
+    'stone-viewer-publication',
+    'volview-viewer-publication'
+];
+
+function isShareToken(tokenType) {
+    return SHARE_TOKEN_TYPES.indexOf(tokenType) !== -1;
+}
+
+// Determine token type info (only share tokens reach this point after filtering)
+function getTokenTypeInfo(tokenType) {
+    let label = 'Share';
+    if (tokenType === 'ohif-viewer-publication') label = 'OHIF';
+    else if (tokenType === 'stone-viewer-publication') label = 'Stone';
+    else if (tokenType === 'volview-viewer-publication') label = 'VolView';
+    return {
+        badgeClass: 'badge-share',
+        label: label
+    };
+}
+
+// Filter tokens to only keep share tokens (ignore internal instant-view tokens)
+function filterShareTokens(tokens) {
+    if (!tokens) return [];
+    return tokens.filter(t => isShareToken(t.token_type));
+}
+
+// Compute stats from a list of share tokens
+function computeStats(tokens) {
+    let total = tokens.length;
+    let expiringSoon = 0;
+    let highUsage = 0;
+    const ONE_DAY = CONFIG.TIME_UNITS.DAY;
+    tokens.forEach(t => {
+        const remaining = t.remaining_seconds || 0;
+        if (remaining > 0 && remaining < ONE_DAY) expiringSoon++;
+        const maxUses = t.max_uses || 1;
+        const currentUses = t.current_uses || 0;
+        const percent = (currentUses / maxUses) * 100;
+        if (percent >= 66) highUsage++;
+    });
+    return { total, expiringSoon, highUsage };
+}
+
+// Build active tokens table
 function createTokensTableHTML(tokens) {
-    if (tokens.length === 0) {
+    if (!tokens || tokens.length === 0) {
         return `
-            <div class="text-center p-4">
-                <i class="${CONFIG.ICONS.INFO} fa-2x mb-3 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>
-                <p class="${CONFIG.CSS_CLASSES.TEXT_MUTED}">${CONFIG.MESSAGES.NO_ACTIVE_TOKENS}</p>
+            <div class="empty-state">
+                <i class="fa-solid fa-inbox"></i>
+                <p>${CONFIG.MESSAGES.NO_ACTIVE_TOKENS}</p>
             </div>
         `;
     }
 
-    let html = `
-        <div class="table-responsive">
-            <table class="table table-dark table-hover mb-0">
-                <thead>
-                    <tr>
-                        <th><i class="fas fa-tag me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Type</th>
-                        <th><i class="fas fa-file-medical me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.RESOURCE}</th>
-                        <th><i class="fas fa-calendar me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.CREATED_ON}</th>
-                        <th><i class="fas fa-clock me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.EXPIRES_IN}</th>
-                        <th><i class="fas fa-chart-bar me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.USAGE}</th>
-                        <th><i class="fas fa-cog me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-    `;
-
+    let rows = '';
     tokens.forEach(token => {
-        const usagePercent = Math.round((token.current_uses / token.max_uses) * 100);
-        const usageClass = usagePercent > 75 ? CONFIG.CSS_CLASSES.DANGER : 
-                          usagePercent > 50 ? CONFIG.CSS_CLASSES.WARNING : 
-                          CONFIG.CSS_CLASSES.SUCCESS;
-        
-        const isShareToken = token.token_type === 'ohif-viewer-publication' || 
-                              token.token_type === 'stone-viewer-publication' || 
-                              token.token_type === 'volview-viewer-publication';
-        const typeClass = isShareToken ? CONFIG.CSS_CLASSES.PRIMARY : CONFIG.CSS_CLASSES.INFO;
-        const typeLabel = isShareToken ? 'Share' : 'Instant-view';
-        const isSuspicious = isSuspiciousUsage(token);
-        
-        html += `
-            <tr ${isSuspicious ? 'class="fraud-indicator"' : ''}>
-                <td>
-                    <span class="badge ${typeClass}">
-                        ${typeLabel}
-                    </span>
-                    ${isSuspicious ? `<i class="fas fa-exclamation-triangle ${CONFIG.CSS_CLASSES.TEXT_DANGER} ms-1" title="${CONFIG.MESSAGES.SUSPICIOUS_USAGE}"></i>` : ''}
-                </td>
-                <td>${getResourceDescription(token.resources)}</td>
-                <td><small>${formatDate(token.created_at)}</small></td>
-                <td>${formatDuration(token.remaining_seconds)}</td>
-                <td>
-                    <div class="d-flex align-items-center">
-                        <div class="progress me-2" style="width: 80px; height: 8px;">
-                            <div class="progress-bar ${usageClass}" style="width: ${usagePercent}%"></div>
+        try {
+            const maxUses = token.max_uses || 1;
+            const currentUses = token.current_uses || 0;
+            const usagePercent = Math.round((currentUses / maxUses) * 100);
+            const usageColor = getUsageColor(usagePercent);
+            const typeInfo = getTokenTypeInfo(token.token_type);
+            const isSuspicious = isSuspiciousUsage(token);
+
+            rows += `
+                <tr${isSuspicious ? ' class="fraud-indicator"' : ''}>
+                    <td>
+                        <span class="badge-oe2 ${typeInfo.badgeClass}">${typeInfo.label}</span>
+                        ${isSuspicious ? `<i class="fa-solid fa-exclamation-triangle" style="color:#c44;margin-left:4px;font-size:9px;opacity:0.8;" title="${CONFIG.MESSAGES.SUSPICIOUS_USAGE}"></i>` : ''}
+                    </td>
+                    <td>${getResourceDescription(token.resources)}</td>
+                    <td>${formatDate(token.created_at)}</td>
+                    <td>${formatDuration(token.remaining_seconds)}</td>
+                    <td>
+                        <div class="usage-bar">
+                            <div class="progress"><div class="progress-bar" style="width:${usagePercent}%;background:${usageColor};"></div></div>
+                            <span class="usage-text">${currentUses}/${maxUses}</span>
                         </div>
-                        <small class="${CONFIG.CSS_CLASSES.TEXT_MUTED}">${token.current_uses}/${token.max_uses}</small>
-                    </div>
-                </td>
-                <td>
-                    <button class="btn btn-sm btn-outline-danger" onclick="confirmRevoke('${token.id}', '${token.token_type}')">
-                        <i class="${CONFIG.ICONS.TRASH} ${CONFIG.CSS_CLASSES.TEXT_DANGER}"></i>
-                    </button>
-                </td>
-            </tr>
-        `;
+                    </td>
+                    <td>
+                        <div class="actions-cell">
+                            <button class="btn-action" onclick="copyShareLink('${escapeHtml(token.id)}', this)" title="${escapeHtml(CONFIG.MESSAGES.COPY_LINK)}">
+                                <i class="fa-solid fa-link"></i>
+                            </button>
+                            <button class="btn-action btn-action-danger" onclick="confirmRevoke('${escapeHtml(token.id)}', '${escapeHtml(token.token_type || '')}')" title="${escapeHtml(CONFIG.MESSAGES.REVOKE)}">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        } catch (err) {
+            console.error('Error rendering token row:', err, token);
+        }
     });
 
-    html += `
-                </tbody>
-            </table>
-        </div>
+    return `
+        <table class="tokens-table">
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>${CONFIG.MESSAGES.RESOURCE}</th>
+                    <th>${CONFIG.MESSAGES.CREATED_ON}</th>
+                    <th>${CONFIG.MESSAGES.EXPIRES_IN}</th>
+                    <th>${CONFIG.MESSAGES.USAGE}</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
     `;
-
-    return html;
 }
 
-// Create expired tokens table HTML
+// Build expired tokens table
 function createExpiredTokensTableHTML(tokens) {
-    if (tokens.length === 0) {
+    if (!tokens || tokens.length === 0) {
         return `
-            <div class="text-center p-4">
-                <i class="fas fa-clock ${CONFIG.CSS_CLASSES.TEXT_MUTED} fa-2x mb-3"></i>
-                <p class="${CONFIG.CSS_CLASSES.TEXT_MUTED}">${CONFIG.MESSAGES.NO_EXPIRED_TOKENS}</p>
+            <div class="empty-state">
+                <i class="fa-solid fa-clock"></i>
+                <p>${CONFIG.MESSAGES.NO_EXPIRED_TOKENS}</p>
             </div>
         `;
     }
 
-    let html = `
-        <div class="table-responsive">
-            <table class="table table-dark table-hover mb-0">
-                <thead>
-                    <tr>
-                        <th><i class="fas fa-tag me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>Type</th>
-                        <th><i class="fas fa-file-medical me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.RESOURCE}</th>
-                        <th><i class="fas fa-calendar me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.CREATED_ON}</th>
-                        <th><i class="fas fa-clock me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.EXPIRED_ON}</th>
-                        <th><i class="fas fa-chart-bar me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.USAGE}</th>
-                        <th><i class="fas fa-info-circle me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.REASON}</th>
-                    </tr>
-                </thead>
-                <tbody>
-    `;
-
+    let rows = '';
     tokens.forEach(token => {
-        const usagePercent = Math.round((token.current_uses / token.max_uses) * 100);
-        const usageClass = usagePercent > 75 ? CONFIG.CSS_CLASSES.DANGER : 
-                          usagePercent > 50 ? CONFIG.CSS_CLASSES.WARNING : 
-                          CONFIG.CSS_CLASSES.SUCCESS;
-        
-        const isShareToken = token.token_type === 'ohif-viewer-publication' || 
-                              token.token_type === 'stone-viewer-publication' || 
-                              token.token_type === 'volview-viewer-publication';
-        const typeClass = isShareToken ? CONFIG.CSS_CLASSES.PRIMARY : CONFIG.CSS_CLASSES.INFO;
-        const typeLabel = isShareToken ? 'Share' : 'Instant-view';
-        const isSuspicious = isSuspiciousUsage(token);
-        
-        html += `
-            <tr class="expired-token ${isSuspicious ? 'fraud-indicator' : ''}">
-                <td>
-                    <span class="badge ${typeClass}">
-                        ${typeLabel}
-                    </span>
-                    ${isSuspicious ? `<i class="fas fa-exclamation-triangle ${CONFIG.CSS_CLASSES.TEXT_DANGER} ms-1" title="${CONFIG.MESSAGES.SUSPICIOUS_USAGE_DETECTED}"></i>` : ''}
-                </td>
-                <td>${getResourceDescription(token.resources)}</td>
-                <td><small>${formatDate(token.created_at)}</small></td>
-                <td><small>${token.expired_at ? formatDate(token.expired_at) : 'N/A'}</small></td>
-                <td>
-                    <div class="d-flex align-items-center">
-                        <div class="progress me-2" style="width: 80px; height: 8px;">
-                            <div class="progress-bar ${usageClass}" style="width: ${usagePercent}%"></div>
+        try {
+            const maxUses = token.max_uses || 1;
+            const currentUses = token.current_uses || 0;
+            const usagePercent = Math.round((currentUses / maxUses) * 100);
+            const usageColor = getUsageColor(usagePercent);
+            const typeInfo = getTokenTypeInfo(token.token_type);
+            const isSuspicious = isSuspiciousUsage(token);
+
+            rows += `
+                <tr class="expired-token${isSuspicious ? ' fraud-indicator' : ''}">
+                    <td>
+                        <span class="badge-oe2 ${typeInfo.badgeClass}">${typeInfo.label}</span>
+                        ${isSuspicious ? `<i class="fa-solid fa-exclamation-triangle" style="color:#c44;margin-left:4px;font-size:9px;opacity:0.8;" title="${CONFIG.MESSAGES.SUSPICIOUS_USAGE_DETECTED}"></i>` : ''}
+                    </td>
+                    <td>${getResourceDescription(token.resources)}</td>
+                    <td>${formatDate(token.created_at)}</td>
+                    <td>${token.expired_at ? formatDate(token.expired_at) : 'N/A'}</td>
+                    <td>
+                        <div class="usage-bar">
+                            <div class="progress"><div class="progress-bar" style="width:${usagePercent}%;background:${usageColor};"></div></div>
+                            <span class="usage-text">${currentUses}/${maxUses}</span>
                         </div>
-                        <small class="${CONFIG.CSS_CLASSES.TEXT_MUTED}">${token.current_uses}/${token.max_uses}</small>
-                    </div>
-                </td>
-                <td>${getExpirationReason(token)}</td>
-            </tr>
-        `;
+                    </td>
+                    <td>${getExpirationReason(token)}</td>
+                </tr>
+            `;
+        } catch (err) {
+            console.error('Error rendering expired token row:', err, token);
+        }
     });
 
-    html += `
-                </tbody>
-            </table>
-        </div>
+    return `
+        <table class="tokens-table">
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>${CONFIG.MESSAGES.RESOURCE}</th>
+                    <th>${CONFIG.MESSAGES.CREATED_ON}</th>
+                    <th>${CONFIG.MESSAGES.EXPIRED_ON}</th>
+                    <th>${CONFIG.MESSAGES.USAGE}</th>
+                    <th>${CONFIG.MESSAGES.REASON}</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
     `;
-
-    return html;
 }
 
-// Update statistics display
+// Update statistics (computed client-side from share tokens only)
 function updateStatistics(stats) {
-    document.getElementById('totalTokens').textContent = stats.total_active_tokens || 0;
-    document.getElementById('ohifTokens').textContent = stats.tokens_by_type['ohif-viewer-publication'] || 0;
-    document.getElementById('instantTokens').textContent = stats.tokens_by_type['viewer-instant-link'] || 0;
-    document.getElementById('highUsageTokens').textContent = stats.tokens_by_usage['high'] || 0;
+    document.getElementById('totalTokens').textContent = stats.total;
+    document.getElementById('expiringSoonTokens').textContent = stats.expiringSoon;
+    document.getElementById('highUsageTokens').textContent = stats.highUsage;
 }
 
-// Confirm token revocation
+// Copy share link to clipboard
+async function copyShareLink(tokenId, btn) {
+    const shareUrl = `${window.location.origin}/share/?token=${encodeURIComponent(tokenId)}`;
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(shareUrl);
+        } else {
+            const ta = document.createElement('textarea');
+            ta.value = shareUrl;
+            ta.style.position = 'fixed';
+            ta.style.opacity = '0';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+        }
+        showSuccessToast(CONFIG.MESSAGES.LINK_COPIED);
+        if (btn) {
+            const icon = btn.querySelector('i');
+            if (icon) {
+                const originalClass = icon.className;
+                icon.className = 'fa-solid fa-check';
+                btn.classList.add('btn-action-copied');
+                setTimeout(() => {
+                    icon.className = originalClass;
+                    btn.classList.remove('btn-action-copied');
+                }, 1500);
+            }
+        }
+    } catch (err) {
+        console.error('Copy failed:', err);
+        showErrorToast(CONFIG.MESSAGES.LINK_COPY_ERROR);
+    }
+}
+
+// Confirm revoke
 function confirmRevoke(tokenId, tokenType) {
     currentTokenToRevoke = tokenId;
-    
-    const isShareToken = tokenType === 'ohif-viewer-publication' || tokenType === 'stone-viewer-publication' || tokenType === 'volview-viewer-publication';
-    const typeClass = isShareToken ? CONFIG.CSS_CLASSES.PRIMARY : CONFIG.CSS_CLASSES.INFO;
-    
+    const typeInfo = getTokenTypeInfo(tokenType);
+
     document.getElementById('tokenDetails').innerHTML = `
-        <strong>Token ID:</strong> <code class="token-id">${tokenId}</code><br>
-        <strong>Type:</strong> <span class="badge ${typeClass}">${tokenType}</span>
+        <div style="font-size:12px;">
+            <strong>Token ID:</strong> <code class="token-id">${escapeHtml(tokenId)}</code><br>
+            <strong style="margin-top:6px;display:inline-block;">Type:</strong>
+            <span class="badge-oe2 ${typeInfo.badgeClass}">${escapeHtml(tokenType)}</span>
+        </div>
     `;
-    
-    const modal = new bootstrap.Modal(document.getElementById('confirmModal'));
-    modal.show();
+
+    new bootstrap.Modal(document.getElementById('confirmModal')).show();
 }
 
-// Handle confirm revoke button
+// Handle revoke confirmation
 document.getElementById('confirmRevokeBtn').addEventListener('click', async function() {
     if (!currentTokenToRevoke) return;
-    
     const button = this;
     const originalHTML = button.innerHTML;
-    
     try {
-        // Show loading state
-        button.innerHTML = `<i class="${CONFIG.ICONS.SPINNER} me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.REVOKING}`;
+        button.innerHTML = `<i class="fa-solid fa-spinner fa-spin me-1"></i>${CONFIG.MESSAGES.REVOKING}`;
         button.disabled = true;
-        
         await revokeToken(currentTokenToRevoke);
-        
-        // Hide modal
-        const modal = bootstrap.Modal.getInstance(document.getElementById('confirmModal'));
-        modal.hide();
-        
-        // Show success message
+        bootstrap.Modal.getInstance(document.getElementById('confirmModal')).hide();
         showSuccessToast();
-        
-        // Refresh data
         await loadData();
-        
     } catch (error) {
         showErrorToast(CONFIG.MESSAGES.REVOCATION_ERROR + error.message);
     } finally {
-        // Reset button
         button.innerHTML = originalHTML;
         button.disabled = false;
         currentTokenToRevoke = null;
@@ -429,64 +477,54 @@ document.getElementById('confirmRevokeBtn').addEventListener('click', async func
 async function loadData() {
     const container = document.getElementById('tokensContainer');
     const expiredContainer = document.getElementById('expiredTokensContainer');
-    
+
     try {
-        // Show loading state
-        container.innerHTML = `
-            <div class="loading">
-                <i class="${CONFIG.ICONS.SPINNER} fa-2x mb-3 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>
-                <p>${CONFIG.MESSAGES.LOADING_TOKENS}</p>
-            </div>
-        `;
-        
-        expiredContainer.innerHTML = `
-            <div class="loading">
-                <i class="${CONFIG.ICONS.SPINNER} fa-2x mb-3 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>
-                <p>${CONFIG.MESSAGES.LOADING_EXPIRED_TOKENS}</p>
-            </div>
-        `;
-        
-        // Fetch data in parallel
-        const [tokens, expiredTokens, stats] = await Promise.all([
+        container.innerHTML = `<div class="loading-state"><i class="fa-solid fa-spinner fa-spin"></i><p>${CONFIG.MESSAGES.LOADING_TOKENS}</p></div>`;
+        expiredContainer.innerHTML = `<div class="loading-state"><i class="fa-solid fa-spinner fa-spin"></i><p>${CONFIG.MESSAGES.LOADING_EXPIRED_TOKENS}</p></div>`;
+
+        const [rawTokens, rawExpiredTokens] = await Promise.all([
             fetchTokens(),
-            fetchExpiredTokens(),
-            fetchStatistics()
+            fetchExpiredTokens()
         ]);
-        
-        // Update displays
-        updateStatistics(stats);
+
+        // Filter out internal instant-view tokens - keep only share tokens
+        const tokens = filterShareTokens(rawTokens);
+        const expiredTokens = filterShareTokens(rawExpiredTokens);
+
+        if (CONFIG.DEBUG_MODE) {
+            console.log('Raw tokens received:', rawTokens.length, rawTokens);
+            console.log('Share tokens (filtered):', tokens.length, tokens);
+            console.log('Raw expired tokens:', rawExpiredTokens.length);
+            console.log('Expired share tokens (filtered):', expiredTokens.length);
+        }
+
+        updateStatistics(computeStats(tokens));
         container.innerHTML = createTokensTableHTML(tokens);
         expiredContainer.innerHTML = createExpiredTokensTableHTML(expiredTokens);
-        
-        // Update expired tokens count
-        document.getElementById('expiredTokensCount').textContent = expiredTokens.length;
-        
+        document.getElementById('expiredTokensCount').textContent = `(${expiredTokens.length})`;
+
     } catch (error) {
         container.innerHTML = `
-            <div class="text-center p-4">
-                <i class="${CONFIG.ICONS.ERROR} fa-2x mb-3 ${CONFIG.CSS_CLASSES.TEXT_DANGER}"></i>
-                <p class="${CONFIG.CSS_CLASSES.TEXT_DANGER}">${CONFIG.MESSAGES.LOADING_ERROR}${error.message}</p>
-                <button class="btn btn-outline-primary" onclick="loadData()">
-                    <i class="${CONFIG.ICONS.RETRY} me-1 ${CONFIG.CSS_CLASSES.TEXT_WHITE}"></i>${CONFIG.MESSAGES.RETRY}
+            <div class="empty-state">
+                <i class="fa-solid fa-exclamation-triangle" style="color:#dc3545;"></i>
+                <p style="color:#dc3545;">${CONFIG.MESSAGES.LOADING_ERROR}${escapeHtml(error.message)}</p>
+                <button class="btn-refresh" onclick="loadData()" style="margin-top:10px;">
+                    <i class="fa-solid fa-rotate"></i>${CONFIG.MESSAGES.RETRY}
                 </button>
             </div>
         `;
-        
         expiredContainer.innerHTML = `
-            <div class="text-center p-4">
-                <i class="${CONFIG.ICONS.ERROR} fa-2x mb-3 ${CONFIG.CSS_CLASSES.TEXT_DANGER}"></i>
-                <p class="${CONFIG.CSS_CLASSES.TEXT_DANGER}">${CONFIG.MESSAGES.LOADING_EXPIRED_ERROR}</p>
+            <div class="empty-state">
+                <i class="fa-solid fa-exclamation-triangle" style="color:#dc3545;"></i>
+                <p style="color:#dc3545;">${CONFIG.MESSAGES.LOADING_EXPIRED_ERROR}</p>
             </div>
         `;
-        
         showErrorToast(CONFIG.MESSAGES.DATA_LOADING_ERROR);
     }
 }
 
-// Initialize when page loads
+// Initialize
 document.addEventListener('DOMContentLoaded', function() {
     loadData();
-    
-    // Auto-refresh using configured interval
     setInterval(loadData, CONFIG.REFRESH_INTERVAL);
 });

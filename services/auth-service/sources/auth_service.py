@@ -10,6 +10,8 @@ import redis
 import os
 import logging
 import urllib.parse
+import urllib.request
+import urllib.error
 from pathlib import Path
 
 app = FastAPI(title="PACS Auth Service", description="Authentication and token management for PACS")
@@ -46,6 +48,147 @@ logger = logging.getLogger("auth-service")
 
 # Language configuration
 LANGUAGE = os.getenv("LANGUAGE", "en")
+
+# Orthanc API configuration (for patient name resolution)
+ORTHANC_API_URL = os.getenv("ORTHANC_API_URL", "http://orthanc:8042").rstrip("/")
+ORTHANC_API_TIMEOUT = float(os.getenv("ORTHANC_API_TIMEOUT", "3"))
+PATIENT_NAME_CACHE_TTL = int(os.getenv("PATIENT_NAME_CACHE_TTL", "300"))  # 5 minutes
+_resource_info_cache = {}  # {key: (info_dict, timestamp)}
+
+
+def _orthanc_get(path):
+    """GET helper for Orthanc REST API."""
+    url = f"{ORTHANC_API_URL}{path}"
+    try:
+        with urllib.request.urlopen(url, timeout=ORTHANC_API_TIMEOUT) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError) as err:
+        logger.debug(f"Orthanc GET {path} failed: {err}")
+        return None
+
+
+def _orthanc_post(path, body):
+    """POST helper for Orthanc REST API."""
+    url = f"{ORTHANC_API_URL}{path}"
+    try:
+        data = body.encode("utf-8") if isinstance(body, str) else json.dumps(body).encode("utf-8")
+        req = urllib.request.Request(url, data=data, method="POST",
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=ORTHANC_API_TIMEOUT) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError) as err:
+        logger.debug(f"Orthanc POST {path} failed: {err}")
+        return None
+
+
+def _format_patient_name(raw):
+    """Keep DICOM format LAST^FIRST^MIDDLE (trim trailing empty components)."""
+    if not raw or not isinstance(raw, str):
+        return None
+    parts = raw.split("^")
+    while parts and not parts[-1].strip():
+        parts.pop()
+    cleaned = "^".join(p.strip() for p in parts)
+    return cleaned or None
+
+
+def _format_study_date(raw):
+    """DICOM StudyDate is YYYYMMDD. Return YYYY-MM-DD or None."""
+    if not raw or not isinstance(raw, str):
+        return None
+    raw = raw.strip()
+    if len(raw) == 8 and raw.isdigit():
+        return f"{raw[0:4]}-{raw[4:6]}-{raw[6:8]}"
+    return raw or None
+
+
+def _collect_modalities(study_info):
+    """Return a comma-separated list of modalities present in the study."""
+    mods = study_info.get("RequestedTags", {}).get("ModalitiesInStudy")
+    if mods:
+        return mods
+    series_mods = study_info.get("ModalitiesInStudy") or []
+    if isinstance(series_mods, list) and series_mods:
+        return "/".join(sorted(set(series_mods)))
+    return None
+
+
+def resolve_resource_info(resource):
+    """Resolve a token resource to {patient_name, study_date, study_description, modality}."""
+    empty = {"patient_name": None, "study_date": None,
+             "study_description": None, "modality": None}
+    if not isinstance(resource, dict):
+        return empty
+    dicom_uid = resource.get("DicomUid")
+    orthanc_id = resource.get("OrthancId")
+    level = (resource.get("Level") or "study").lower()
+    cache_key = f"{level}:{orthanc_id or dicom_uid}"
+    if not cache_key or cache_key == "study:None":
+        return empty
+    now = time.time()
+    cached = _resource_info_cache.get(cache_key)
+    if cached and (now - cached[1]) < PATIENT_NAME_CACHE_TTL:
+        return cached[0]
+
+    info = dict(empty)
+    try:
+        # Resolve to an Orthanc study id if needed
+        study_id = None
+        if level == "study" and orthanc_id:
+            study_id = orthanc_id
+        elif level == "study" and dicom_uid:
+            lookup = _orthanc_post("/tools/lookup", dicom_uid)
+            if isinstance(lookup, list):
+                for item in lookup:
+                    if item.get("Type") == "Study":
+                        study_id = item.get("ID")
+                        break
+        elif level in ("series", "instance"):
+            target_id = orthanc_id
+            if not target_id and dicom_uid:
+                lookup = _orthanc_post("/tools/lookup", dicom_uid)
+                if isinstance(lookup, list) and lookup:
+                    target_id = lookup[0].get("ID")
+            if target_id:
+                sub = _orthanc_get(f"/{level}s/{target_id}")
+                if sub:
+                    study_id = sub.get("ParentStudy")
+        elif level == "patient":
+            patient_id = orthanc_id
+            if not patient_id and dicom_uid:
+                lookup = _orthanc_post("/tools/lookup", dicom_uid)
+                if isinstance(lookup, list) and lookup:
+                    patient_id = lookup[0].get("ID")
+            if patient_id:
+                pat = _orthanc_get(f"/patients/{patient_id}")
+                if pat:
+                    info["patient_name"] = _format_patient_name(
+                        pat.get("MainDicomTags", {}).get("PatientName"))
+
+        if study_id:
+            study = _orthanc_get(f"/studies/{study_id}")
+            if study:
+                tags = study.get("MainDicomTags", {}) or {}
+                patient_tags = study.get("PatientMainDicomTags", {}) or {}
+                if not info["patient_name"]:
+                    info["patient_name"] = _format_patient_name(
+                        patient_tags.get("PatientName"))
+                info["study_date"] = _format_study_date(tags.get("StudyDate"))
+                info["study_description"] = (tags.get("StudyDescription") or "").strip() or None
+                info["modality"] = _collect_modalities(study)
+    except Exception as err:
+        logger.debug(f"Resource info resolution failed for {cache_key}: {err}")
+
+    _resource_info_cache[cache_key] = (info, now)
+    return info
+
+
+# Backward-compat helper
+def resolve_patient_name(resource):
+    return resolve_resource_info(resource).get("patient_name")
+
+# Asset version for cache-busting static files (auto-updates on each container start)
+ASSET_VERSION = os.getenv("ASSET_VERSION", str(int(time.time())))
 
 # Load translations from JSON files
 def load_translations(language="en"):
@@ -530,6 +673,15 @@ async def list_tokens(request: Request):
                     )
                 except (ValueError, OSError, KeyError):
                     token_data["created_at_formatted"] = "Unknown"
+                # Enrich resources with info from Orthanc
+                for res in token_data.get("resources", []) or []:
+                    try:
+                        info = resolve_resource_info(res)
+                        for k, v in info.items():
+                            if v:
+                                res[k] = v
+                    except Exception:
+                        pass
                 tokens.append(token_data)
         
         if cursor == 0:
@@ -707,6 +859,8 @@ async def token_management_interface(request: Request):
             "SUBTITLE": ui_translations["subtitle"],
             "REFRESH_BUTTON": ui_translations["refresh_button"],
             "TOTAL_TOKENS": ui_translations["total_tokens"],
+            "TOTAL_SHARES": ui_translations.get("total_shares", "Active Shares"),
+            "EXPIRING_SOON": ui_translations.get("expiring_soon", "Expiring Soon"),
             "OHIF_VIEWER": ui_translations["ohif_viewer"],
             "INSTANT_LINKS": ui_translations["instant_links"],
             "HIGH_USAGE": ui_translations["high_usage"],
@@ -723,7 +877,9 @@ async def token_management_interface(request: Request):
             "SUCCESS_TOAST": ui_translations["success_toast"],
             "TOKEN_REVOKED_SUCCESS": ui_translations["token_revoked_success"],
             "ERROR_TOAST": ui_translations["error_toast"],
-            "ERROR_OCCURRED": ui_translations["error_occurred"]
+            "ERROR_OCCURRED": ui_translations["error_occurred"],
+            "BACK_TO_PACS": ui_translations.get("back_to_pacs", "Retour au PACS"),
+            "ASSET_VERSION": ASSET_VERSION
         }
         
         # Render template with variables
