@@ -5,7 +5,7 @@
     "no_study": "Aucune étude associée à ce token.",
     "invalid_study": "Identifiant d'étude manquant.",
     "usage_limit": "Ce lien de partage a atteint sa limite d'utilisation.",
-    "title": "Orthanc Token Manager",
+    "title": "Token Manager",
     "subtitle": "Gérez les tokens de partage actifs pour les études médicales",
     "refresh_button": "Actualiser",
     "total_tokens": "Total Tokens",
