@@ -90,6 +90,13 @@ access_control:
         - "^/dicom-web.*token=.*$"  # DICOM-Web API with token
         - "^/wado.*token=.*$"       # WADO API with token
         - "^/ohif.*token=.*$"       # OHIF with token
+
+    # Programmatic upload endpoint - auth handled by nginx Basic auth
+    # (defense in depth; nginx already doesn't call auth_request for this path)
+    - domain: ${AUTHELIA_DOMAIN}
+      policy: bypass
+      resources:
+        - "^/api-upload/.*$"        # Scripted DICOM uploads (htpasswd + rate limit at nginx)
       
     # Administrators - Full access to all PACS functions
     - domain: ${AUTHELIA_DOMAIN}

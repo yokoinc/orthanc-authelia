@@ -28,6 +28,21 @@ if [ ! -f /etc/nginx/ssl/cert.pem ] || [ ! -f /etc/nginx/ssl/key.pem ]; then
     echo "Self-signed certificates generated."
 fi
 
+# Generate htpasswd for the programmatic upload endpoint (/api-upload/)
+# If UPLOAD_USER and UPLOAD_PASSWORD are unset, the file is not created and
+# nginx will return 500 on /api-upload/* (fail-closed).
+if [ -n "$UPLOAD_USER" ] && [ -n "$UPLOAD_PASSWORD" ]; then
+    echo "Generating /etc/nginx/htpasswd for UPLOAD_USER='$UPLOAD_USER'..."
+    # SHA-256 ($5$) au lieu de MD5-apr1 ($apr1$) : meilleure resistance au brute-force offline.
+    # nginx auth_basic supporte $5$/$6$/$2y$ via crypt(3) sur Linux moderne.
+    HASH=$(printf "%s" "$UPLOAD_PASSWORD" | openssl passwd -5 -stdin)
+    printf "%s:%s\n" "$UPLOAD_USER" "$HASH" > /etc/nginx/htpasswd
+    chmod 600 /etc/nginx/htpasswd
+else
+    echo "UPLOAD_USER/UPLOAD_PASSWORD not set: /api-upload/ endpoint disabled (htpasswd absent)."
+    rm -f /etc/nginx/htpasswd
+fi
+
 # Process main nginx configuration
 echo "Processing nginx.conf template..."
 envsubst '$DOMAIN' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf
