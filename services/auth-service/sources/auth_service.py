@@ -245,8 +245,12 @@ VALID_USERS = {
 
 USER_ROLES = {
     "admin": "admin-role",
-    "doctor": "doctor-role", 
-    "external": "external-role"
+    "doctor": "doctor-role",
+    "external": "external-role",
+    # Programmatic upload role - assigned via nginx proxy_set_header Remote-User "uploader"
+    # for the /api-upload/instances endpoint. Strictly limited to creating instances
+    # (no read, no delete, no modify, no share). See check_permission_for_role().
+    "uploader": "uploader-role"
 }
 
 # Redis connection
@@ -481,7 +485,13 @@ def check_permission_for_role(role: str, level: str, method: str, uri: str) -> b
     elif role == "external-role":
         # External users can only read
         return method == "get" and level in ["patient", "study", "series", "instance"]
-    
+    elif role == "uploader-role":
+        # Programmatic upload service: POST /instances ONLY.
+        # No read, no list, no delete, no modify, no share, no system access.
+        # If the htpasswd of /api-upload/ leaks, the worst an attacker can do
+        # is fill the storage with bogus DICOM - they cannot read or exfiltrate.
+        return method == "post" and level == "instance"
+
     return False
 
 def check_resource_access(token_data: dict, level: str, method: str, orthanc_id: str, dicom_uid: str, uri: str) -> bool:
@@ -534,6 +544,10 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
     elif "doctor" in group:
         user_name = TRANSLATIONS["ui"]["doctor"]
         permissions = ["view", "download", "upload", "share", "send", "edit-labels"]
+    elif "uploader" in group:
+        # Programmatic upload service - upload permission only, no read access
+        user_name = "Upload Service"
+        permissions = ["upload"]
     else:
         user_name = TRANSLATIONS["ui"]["external_user"]
         permissions = ["view", "download"]
