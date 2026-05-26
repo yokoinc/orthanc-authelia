@@ -62,6 +62,7 @@ ORTHANC-AUTHELIA is a complete Picture Archiving and Communication System (PACS)
 - **Secure Sharing**: Time-limited, usage-limited tokens with copy-to-clipboard links
 - **Token Manager**: OE2-themed admin dashboard with patient name resolution from DICOM metadata
 - **OE2 Sidebar Integration**: "Partages" button injected directly into Orthanc Explorer 2
+- **Programmatic Upload Endpoint**: Optional `/api-upload/instances` route for automated DICOM ingestion (scripts, batch imports) — bypasses Authelia SSO, uses HTTP Basic auth + dedicated `uploader` role restricted to POST-only
 - **PostgreSQL Storage**: High-performance database backend
 - **SSL Auto-Generation**: Self-signed certificates or custom SSL
 - **Easy User Management**: Interactive scripts for user administration
@@ -150,6 +151,7 @@ Default ports: `30080` (HTTP) and `30443` (HTTPS)
 - **VolView**: `https://your-domain/volview/` (3D volumetric viewer)
 - **Token Management**: `https://your-domain/auth/tokens/manage` (admin only)
 - **External Shares**: `https://your-domain/share/?token=xxx` (no auth required)
+- **Programmatic Upload**: `POST https://your-domain/api-upload/instances` (HTTP Basic auth, see [Programmatic Upload Endpoint](#programmatic-upload-endpoint))
 
 ## Configuration
 
@@ -196,6 +198,67 @@ After modifying users:
 ```bash
 docker-compose restart authelia
 ```
+
+## Programmatic Upload Endpoint
+
+For automated DICOM ingestion (CD/DVD import scripts, batch jobs, modality integration), the stack exposes an optional `POST /api-upload/instances` route that **bypasses Authelia SSO** and uses HTTP Basic authentication instead. This is necessary because Authelia is designed for interactive browser logins and cannot be authenticated programmatically.
+
+### Threat model and defense in depth
+
+This endpoint is intentionally restricted to **upload only**:
+
+- **Path scope**: only `/api-upload/instances` is exposed — no other Orthanc API
+- **Auth chain**: HTTP Basic (nginx `htpasswd`) + dedicated `uploader` role (Orthanc Authorization plugin)
+- **Role restriction**: the `uploader` role can ONLY `POST /instances`. Any other operation (read, list, delete, modify, share, system access) is denied by the auth-service
+- **Rate limiting**: 2 requests/second sustained, burst of 5
+- **Body size**: capped at 4 GB (large enough for ZIP archives of full DICOM CDs)
+
+**If the htpasswd credentials are ever compromised**, the worst an attacker can do is fill the storage with bogus DICOM files (DoS by disk fill). No existing patient data can be read, listed, exfiltrated, or deleted through this endpoint.
+
+For additional protection, the endpoint can be placed behind a Cloudflare Access Service Token, IP allowlist, or mTLS at the reverse-proxy layer.
+
+### Enabling the endpoint
+
+Set both variables in `.env` (leave empty to disable — nginx will return 500 on `/api-upload/*` requests, fail-closed):
+
+```bash
+UPLOAD_USER=upload-service
+UPLOAD_PASSWORD=$(openssl rand -base64 24)
+```
+
+The nginx entrypoint generates `/etc/nginx/htpasswd` from these values at container start (SHA-256 hashed via `openssl passwd -5`). No manual file management required.
+
+### Client usage
+
+Single DICOM file:
+```bash
+curl -u "$UPLOAD_USER:$UPLOAD_PASSWORD" \
+     --data-binary @image.dcm \
+     -H "Content-Type: application/dicom" \
+     https://your-domain/api-upload/instances
+```
+
+ZIP archive containing multiple DICOM files (Orthanc auto-detects the archive):
+```bash
+curl -u "$UPLOAD_USER:$UPLOAD_PASSWORD" \
+     --data-binary @study.zip \
+     -H "Content-Type: application/zip" \
+     https://your-domain/api-upload/instances
+```
+
+Note: if your reverse proxy or CDN enforces a body size limit smaller than your typical DICOM payload (e.g. Cloudflare Free/Pro caps at 100 MB), upload files individually rather than as a single archive.
+
+### Internals
+
+Request flow for `POST /api-upload/instances`:
+
+1. **nginx** receives the request, matches `location ~ ^/api-upload/(instances)(?:/|$)`
+2. **nginx Basic auth** validates `Authorization: Basic ...` against `/etc/nginx/htpasswd` (no Authelia call)
+3. **nginx rewrites** the URL: `/api-upload/instances` → `/instances`
+4. **nginx injects** `Remote-User: uploader` (and `X-Auth-User: uploader`, `Remote-Groups: uploader`)
+5. **Orthanc Authorization plugin** reads `Remote-User` and POSTs to `auth-service:/tokens/validate`
+6. **auth-service** maps `uploader` → `uploader-role` and grants the request **only if** `method == "post"` and `level == "instance"`
+7. **Orthanc** ingests the DICOM into its standard storage pipeline (PostgreSQL + filesystem)
 
 ## Docker Registry
 
