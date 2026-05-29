@@ -246,11 +246,7 @@ VALID_USERS = {
 USER_ROLES = {
     "admin": "admin-role",
     "doctor": "doctor-role",
-    "external": "external-role",
-    # Programmatic upload role - assigned via nginx proxy_set_header Remote-User "uploader"
-    # for the /api-upload/instances endpoint. Strictly limited to creating instances
-    # (no read, no delete, no modify, no share). See check_permission_for_role().
-    "uploader": "uploader-role"
+    "external": "external-role"
 }
 
 # Redis connection
@@ -485,12 +481,6 @@ def check_permission_for_role(role: str, level: str, method: str, uri: str) -> b
     elif role == "external-role":
         # External users can only read
         return method == "get" and level in ["patient", "study", "series", "instance"]
-    elif role == "uploader-role":
-        # Programmatic upload service: POST /instances ONLY.
-        # No read, no list, no delete, no modify, no share, no system access.
-        # If the htpasswd of /api-upload/ leaks, the worst an attacker can do
-        # is fill the storage with bogus DICOM - they cannot read or exfiltrate.
-        return method == "post" and level == "instance"
 
     return False
 
@@ -530,33 +520,51 @@ def check_resource_access(token_data: dict, level: str, method: str, orthanc_id:
 @app.post("/user/get-profile")
 async def get_user_profile(request: Request, username: str = Depends(verify_basic_auth)):
     body = await request.json()
-    
-    # Get user info from request body (sent by Authorization plugin)
-    token_value = normalize_bearer_token(body.get("token-value", ""))
-    
-    # The token-value contains the group from nginx headers
-    group = token_value
-    
-    # Map Authelia group to user permissions
+
+    # NB: the body also carries "server-id" (the calling Orthanc instance, for
+    # multi-site setups). Single instance here -> we don't need it; body.get()
+    # simply ignores the extra field.
+
+    # token-value = the Authelia group injected by nginx (Remote-Groups), OR
+    # empty/absent for an ANONYMOUS request. Since Authorization plugin v0.10.0,
+    # the plugin calls /user/get-profile even without a token, so we MUST always
+    # return a profile (never 401), including the anonymous case.
+    group = normalize_bearer_token(body.get("token-value", "") or "")
+
+    # --- Anonymous (no token) : upload-only -------------------------------
+    # No user identity -> grant ONLY 'upload'. This is what authorizes the
+    # programmatic DICOM import endpoint (/api-upload/), which is gated upstream
+    # by Cloudflare Access + nginx Basic auth and reaches Orthanc WITHOUT a user
+    # token. The plugin then asks for the anonymous profile and we allow the
+    # upload while denying every read / list / delete / share.
+    if not group:
+        return JSONResponse(content={
+            "name": "Anonymous",
+            "user-id": None,
+            "authorized-labels": [],
+            "permissions": ["upload"],
+            "groups": [],
+            "validity": CACHE_VALIDITY_USER_SESSION
+        })
+
+    # --- Authenticated user : map Authelia group -> permissions ------------
     if "admin" in group:
         user_name = TRANSLATIONS["ui"]["administrator"]
         permissions = ["view", "download", "upload", "delete", "modify", "anonymize", "share", "send", "settings", "edit-labels"]
     elif "doctor" in group:
         user_name = TRANSLATIONS["ui"]["doctor"]
         permissions = ["view", "download", "upload", "share", "send", "edit-labels"]
-    elif "uploader" in group:
-        # Programmatic upload service - upload permission only, no read access
-        user_name = "Upload Service"
-        permissions = ["upload"]
     else:
         user_name = TRANSLATIONS["ui"]["external_user"]
         permissions = ["view", "download"]
-    
+
     return JSONResponse(content={
         "name": user_name,
-        "authorized-labels": ["*"],  # Access to all labels
+        "user-id": group,                 # wire key is 'user-id' (NOT 'id')
+        "authorized-labels": ["*"],       # access to all labels
         "permissions": permissions,
-        "validity": CACHE_VALIDITY_SHARE_TOKEN
+        "groups": [group],
+        "validity": CACHE_VALIDITY_USER_SESSION
     })
 
 @app.post("/tokens/decode")
@@ -596,10 +604,22 @@ async def decode_token(request: Request):
     # Generate redirect URL - always use /share/ route for token handling
     base_url = get_base_url(request)
     redirect_url = f"{base_url}/share/?token={token_value}"
-    
+
+    # Expose the token's resources (plugin >=v0.9.3 uses this to filter
+    # DICOMweb prior-studies in OHIF). Normalized to the wire key names.
+    decoded_resources = [
+        {
+            "dicom-uid": r.get("DicomUid", r.get("dicom-uid", "")),
+            "orthanc-id": r.get("OrthancId", r.get("orthanc-id", "")),
+            "level": r.get("Level", r.get("level", "study"))
+        }
+        for r in resources
+    ]
+
     return JSONResponse(content={
         "token-type": token_type,
-        "redirect-url": redirect_url
+        "redirect-url": redirect_url,
+        "resources": decoded_resources
     })
 
 @app.post("/tokens/{token_type}")
