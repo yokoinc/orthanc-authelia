@@ -10,11 +10,15 @@ RUN mkdir -p /etc/nginx/templates /etc/nginx/conf.d.templates
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
-# Copy nginx configuration templates
-COPY nginx.ssl.conf /etc/nginx/templates/nginx.conf.template
-COPY conf.d/ /etc/nginx/conf.d.templates/
+# Nginx configuration templates are NOT baked into the image anymore — they are
+# bind-mounted at runtime from the host to keep the config in git (the source of
+# truth) and avoid a full image rebuild for every tweak. See docker-compose.yml
+# for the required volume mounts:
+#   ./services/nginx/nginx.ssl.conf -> /etc/nginx/templates/nginx.conf.template
+#   ./services/nginx/conf.d         -> /etc/nginx/conf.d.templates
+# The entrypoint reads from these mount points and runs envsubst -> /etc/nginx/.
 
-# Copy static assets
+# Copy static assets (logo + error pages — rarely change, fine to bake in)
 COPY logo/ /usr/share/nginx/logo/
 COPY error_pages/ /usr/share/nginx/error_pages/
 

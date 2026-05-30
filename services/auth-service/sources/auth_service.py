@@ -245,7 +245,7 @@ VALID_USERS = {
 
 USER_ROLES = {
     "admin": "admin-role",
-    "doctor": "doctor-role", 
+    "doctor": "doctor-role",
     "external": "external-role"
 }
 
@@ -481,7 +481,7 @@ def check_permission_for_role(role: str, level: str, method: str, uri: str) -> b
     elif role == "external-role":
         # External users can only read
         return method == "get" and level in ["patient", "study", "series", "instance"]
-    
+
     return False
 
 def check_resource_access(token_data: dict, level: str, method: str, orthanc_id: str, dicom_uid: str, uri: str) -> bool:
@@ -520,14 +520,43 @@ def check_resource_access(token_data: dict, level: str, method: str, orthanc_id:
 @app.post("/user/get-profile")
 async def get_user_profile(request: Request, username: str = Depends(verify_basic_auth)):
     body = await request.json()
-    
-    # Get user info from request body (sent by Authorization plugin)
-    token_value = normalize_bearer_token(body.get("token-value", ""))
-    
-    # The token-value contains the group from nginx headers
-    group = token_value
-    
-    # Map Authelia group to user permissions
+
+    # NB: the body also carries "server-id" (the calling Orthanc instance, for
+    # multi-site setups). Single instance here -> we don't need it; body.get()
+    # simply ignores the extra field.
+
+    # token-value = the Authelia group injected by nginx (Remote-Groups), OR
+    # empty/absent for an ANONYMOUS request. Since Authorization plugin v0.10.0,
+    # the plugin calls /user/get-profile even without a token, so we MUST always
+    # return a profile (never 401), including the anonymous case.
+    group = normalize_bearer_token(body.get("token-value", "") or "")
+
+    # --- Anonymous (no token) : upload-only -------------------------------
+    # No user identity -> grant ONLY 'upload'. This is what authorizes the
+    # programmatic DICOM import endpoint (/api-upload/), which is gated upstream
+    # by Cloudflare Access + nginx Basic auth and reaches Orthanc WITHOUT a user
+    # token. The plugin then asks for the anonymous profile and we allow the
+    # upload while denying every read / list / delete / share.
+    if not group:
+        # authorized-labels: ["*"] (NOT [] as in the reference). Empirically the
+        # Authorization plugin in orthancteam/orthanc:26.4.x denies POST
+        # /instances for an anonymous profile with an empty labels array, even
+        # though the permission pattern (`post ^/instances$ - all|upload`) is
+        # satisfied by the "upload" permission. With ["*"] (full label scope)
+        # the upload is granted. Safe in practice because (a) the only path
+        # that reaches Orthanc anonymously is /api-upload/ which is gated by
+        # CF Access + nginx Basic auth, and (b) the only permission granted is
+        # "upload" — no read/list/delete/share is possible.
+        return JSONResponse(content={
+            "name": "Anonymous",
+            "user-id": None,
+            "authorized-labels": ["*"],
+            "permissions": ["upload"],
+            "groups": [],
+            "validity": CACHE_VALIDITY_USER_SESSION
+        })
+
+    # --- Authenticated user : map Authelia group -> permissions ------------
     if "admin" in group:
         user_name = TRANSLATIONS["ui"]["administrator"]
         permissions = ["view", "download", "upload", "delete", "modify", "anonymize", "share", "send", "settings", "edit-labels"]
@@ -537,12 +566,14 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
     else:
         user_name = TRANSLATIONS["ui"]["external_user"]
         permissions = ["view", "download"]
-    
+
     return JSONResponse(content={
         "name": user_name,
-        "authorized-labels": ["*"],  # Access to all labels
+        "user-id": group,                 # wire key is 'user-id' (NOT 'id')
+        "authorized-labels": ["*"],       # access to all labels
         "permissions": permissions,
-        "validity": CACHE_VALIDITY_SHARE_TOKEN
+        "groups": [group],
+        "validity": CACHE_VALIDITY_USER_SESSION
     })
 
 @app.post("/tokens/decode")
@@ -582,10 +613,22 @@ async def decode_token(request: Request):
     # Generate redirect URL - always use /share/ route for token handling
     base_url = get_base_url(request)
     redirect_url = f"{base_url}/share/?token={token_value}"
-    
+
+    # Expose the token's resources (plugin >=v0.9.3 uses this to filter
+    # DICOMweb prior-studies in OHIF). Normalized to the wire key names.
+    decoded_resources = [
+        {
+            "dicom-uid": r.get("DicomUid", r.get("dicom-uid", "")),
+            "orthanc-id": r.get("OrthancId", r.get("orthanc-id", "")),
+            "level": r.get("Level", r.get("level", "study"))
+        }
+        for r in resources
+    ]
+
     return JSONResponse(content={
         "token-type": token_type,
-        "redirect-url": redirect_url
+        "redirect-url": redirect_url,
+        "resources": decoded_resources
     })
 
 @app.post("/tokens/{token_type}")
@@ -935,8 +978,10 @@ async def share_redirect(request: Request):
         # Stone Web Viewer
         viewer_url = f"{base_url}/stone-webviewer/index.html?study={study_uid_encoded}&token={token}&_cb={cache_bust}"
     elif token_type == "volview-viewer-publication":
-        # VolView 3D Viewer
-        viewer_url = f"{base_url}/volview/?StudyInstanceUIDs={study_uid_encoded}&token={token}&_cb={cache_bust}"
+        # VolView 3D Viewer. orthancteam/orthanc:26.4.x serves VolView under
+        # /volview/app/ (not /volview/ as in jodogne) — share URLs hitting the
+        # old path got a 404. The trailing '/' on /app/ matters too.
+        viewer_url = f"{base_url}/volview/app/?StudyInstanceUIDs={study_uid_encoded}&token={token}&_cb={cache_bust}"
     else:
         # Default to OHIF for ohif-viewer-publication and unknown types
         viewer_url = f"{base_url}/ohif/viewer?StudyInstanceUIDs={study_uid_encoded}&token={token}&_cb={cache_bust}"

@@ -36,18 +36,12 @@
     "Password": "your-postgres-password"
   },
 
-  "Plugins": [
-    "/usr/local/share/orthanc/plugins/libOrthancPostgreSQLIndex.so",
-    "/usr/local/share/orthanc/plugins/libOrthancPostgreSQLStorage.so",
-    "/usr/local/share/orthanc/plugins/libOrthancDicomWeb.so",
-    "/usr/local/share/orthanc/plugins/libOrthancGdcm.so",
-    "/usr/local/share/orthanc/plugins/libOrthancWebViewer.so",
-    "/usr/local/share/orthanc/plugins/libStoneWebViewer.so",
-    "/usr/local/share/orthanc/plugins/libHousekeeper.so",
-    "/usr/local/share/orthanc/plugins/libOrthancVolView.so",
-    "/usr/local/share/orthanc/plugins/libOrthancExplorer2.so",
-    "/usr/local/share/orthanc/plugins/libOrthancAuthorization.so"
-  ],
+  // No explicit "Plugins" array here: with orthancteam/orthanc, bundled plugins
+  // are auto-discovered from the image's own plugin directory and enabled
+  // either by their env var (AUTHORIZATION_PLUGIN_ENABLED, ...) or by the
+  // presence of their config section below. The hardcoded jodogne paths like
+  // /usr/local/share/orthanc/plugins/lib*.so do NOT exist in orthancteam and
+  // would prevent Orthanc from starting if listed here.
 
   "DicomWeb": {
     "Enable": true,

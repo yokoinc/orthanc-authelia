@@ -28,6 +28,28 @@ if [ ! -f /etc/nginx/ssl/cert.pem ] || [ ! -f /etc/nginx/ssl/key.pem ]; then
     echo "Self-signed certificates generated."
 fi
 
+# Generate htpasswd for the programmatic upload endpoint (/api-upload/)
+# If UPLOAD_USER and UPLOAD_PASSWORD are unset, the file is not created and
+# nginx will return 500 on /api-upload/* (fail-closed).
+if [ -n "$UPLOAD_USER" ] && [ -n "$UPLOAD_PASSWORD" ]; then
+    echo "Generating /etc/nginx/htpasswd for UPLOAD_USER='$UPLOAD_USER'..."
+    # SHA-256 ($5$) au lieu de MD5-apr1 ($apr1$) : meilleure resistance au brute-force offline.
+    # nginx auth_basic supporte $5$/$6$/$2y$ via crypt(3) sur Linux moderne.
+    # Use apr1 (Apache MD5-based) format, NOT SHA-256 ($5$): nginx on Alpine
+    # (musl crypt) cannot verify $5$ hashes -> all Basic auth requests would 401.
+    # apr1 is implemented natively by nginx and works on every libc.
+    HASH=$(printf "%s" "$UPLOAD_PASSWORD" | openssl passwd -apr1 -stdin)
+    printf "%s:%s\n" "$UPLOAD_USER" "$HASH" > /etc/nginx/htpasswd
+    # 644 (NOT 600 root:root): the nginx WORKER processes run as user 'nginx'
+    # and need read access; a 600 root file gives "[crit] open() htpasswd
+    # failed (13: Permission denied)" -> 401. The file contains an apr1 hash,
+    # not a plaintext password, so world-readable inside the container is fine.
+    chmod 644 /etc/nginx/htpasswd
+else
+    echo "UPLOAD_USER/UPLOAD_PASSWORD not set: /api-upload/ endpoint disabled (htpasswd absent)."
+    rm -f /etc/nginx/htpasswd
+fi
+
 # Process main nginx configuration
 echo "Processing nginx.conf template..."
 envsubst '$DOMAIN' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf

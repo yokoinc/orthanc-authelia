@@ -123,7 +123,10 @@ services:
   # =============================================================================
   
   orthanc:
-    image: jodogne/orthanc-plugins:latest
+    # Official Orthanc Team image (replaces jodogne/orthanc-plugins). Pin a specific
+    # tag to know exactly which plugin versions ship; see release notes at
+    # https://github.com/orthanc-server/orthanc-builder/blob/master/release-notes-docker-images.md
+    image: orthancteam/orthanc:26.4.2
     container_name: orthanc-server
     restart: unless-stopped
     depends_on:
@@ -137,11 +140,29 @@ services:
       - orthanc-network
       - database  # Remove this line if using local PostgreSQL
     environment:
+      # PostgreSQL credentials kept for backward compatibility / scripts that may
+      # reference them; the actual PostgreSQL config Orthanc uses comes from
+      # the "PostgreSQL" section of orthanc.json (Host/Port/Database/...).
       - POSTGRES_HOST=database  # Change to "postgres" if using local PostgreSQL
       - POSTGRES_PORT=5432
       - POSTGRES_DB=orthanc
       - POSTGRES_USER=orthanc
       - POSTGRES_PASSWORD=change_this_password
+      # --- Plugin enablement (orthancteam) -----------------------------------
+      # orthancteam/orthanc auto-discovers bundled plugins; an env var (or a
+      # config section) is required to enable each. Plugins whose orthanc.json
+      # section is present (PostgreSQL, DicomWeb, Authorization, Housekeeper,
+      # OrthancExplorer2) auto-enable, but we set the env vars explicitly for
+      # robustness and to enable plugins without a dedicated config section
+      # (Stone, VolView).
+      - AUTHORIZATION_PLUGIN_ENABLED=true
+      - POSTGRESQL_PLUGIN_ENABLED=true
+      - DICOM_WEB_PLUGIN_ENABLED=true
+      - STONE_WEB_VIEWER_PLUGIN_ENABLED=true
+      - HOUSEKEEPER_PLUGIN_ENABLED=true
+      - VOLVIEW_PLUGIN_ENABLED=true
+      - ORTHANC_EXPLORER_2_ENABLED=true
+      - GDCM_PLUGIN_ENABLED=true
 
   # =============================================================================
   # MEDICAL IMAGING VIEWERS
@@ -163,7 +184,10 @@ services:
   # =============================================================================
   
   nginx:
-    image: registry.yokoinc.ovh/orthanc-nginx:1.0.3
+    # Image >= 1.1.0 no longer bakes the nginx config in: the templates are
+    # bind-mounted from the host (see volumes below). Tags before 1.1.0 will
+    # NOT start with these mounts because they expect the templates baked in.
+    image: registry.yokoinc.ovh/orthanc-nginx:1.1.0
     container_name: orthanc-nginx
     restart: unless-stopped
     ports:
@@ -171,9 +195,20 @@ services:
       - "30443:443"
     volumes:
       - nginx-ssl:/etc/nginx/ssl
+      # Bind-mount the nginx config from the host (git = source of truth).
+      # The entrypoint runs envsubst on these and writes the resulting nginx.conf
+      # and conf.d/*.conf to their normal /etc/nginx/ locations. Config tweaks
+      # therefore deploy via:  edit files  ->  docker compose restart nginx
+      # (no rebuild, no image push, no tag bump).
+      - ./services/nginx/nginx.ssl.conf:/etc/nginx/templates/nginx.conf.template:ro
+      - ./services/nginx/conf.d:/etc/nginx/conf.d.templates:ro
     environment:
       - DOMAIN=${DOMAIN}
       - SSL_MODE=${SSL_MODE:-selfsigned}
+      # Optional: enables POST /api-upload/instances for scripted DICOM uploads
+      # (bypasses Authelia SSO, uses HTTP Basic auth instead).
+      - UPLOAD_USER=${UPLOAD_USER:-}
+      - UPLOAD_PASSWORD=${UPLOAD_PASSWORD:-}
     depends_on:
       - authelia
       - orthanc
