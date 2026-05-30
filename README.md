@@ -348,4 +348,4 @@ Built upon excellent open-source projects:
 - **PostgreSQL** - High-performance database
 - **Redis** - In-memory data store
 
-Forked and enhanced by **Dr. Grégory Cuffel** for the open-source medical imaging community.
+Forked and enhanced by **Grégory Cuffel** for the open-source medical imaging community.
