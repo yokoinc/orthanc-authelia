@@ -90,6 +90,8 @@ access_control:
         - "^/dicom-web.*token=.*$"  # DICOM-Web API with token
         - "^/wado.*token=.*$"       # WADO API with token
         - "^/ohif.*token=.*$"       # OHIF with token
+        - "^/volview.*token=.*$"    # VolView (orthancteam serves at /volview/app/) with token
+        - "^/stone-webviewer.*token=.*$"  # Stone Web Viewer with token
 
     # Programmatic upload endpoint - auth handled by nginx Basic auth
     # (defense in depth; nginx already doesn't call auth_request for this path)
