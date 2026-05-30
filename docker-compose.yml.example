@@ -184,7 +184,10 @@ services:
   # =============================================================================
   
   nginx:
-    image: registry.yokoinc.ovh/orthanc-nginx:1.0.3
+    # Image >= 1.1.0 no longer bakes the nginx config in: the templates are
+    # bind-mounted from the host (see volumes below). Tags before 1.1.0 will
+    # NOT start with these mounts because they expect the templates baked in.
+    image: registry.yokoinc.ovh/orthanc-nginx:1.1.0
     container_name: orthanc-nginx
     restart: unless-stopped
     ports:
@@ -192,6 +195,13 @@ services:
       - "30443:443"
     volumes:
       - nginx-ssl:/etc/nginx/ssl
+      # Bind-mount the nginx config from the host (git = source of truth).
+      # The entrypoint runs envsubst on these and writes the resulting nginx.conf
+      # and conf.d/*.conf to their normal /etc/nginx/ locations. Config tweaks
+      # therefore deploy via:  edit files  ->  docker compose restart nginx
+      # (no rebuild, no image push, no tag bump).
+      - ./services/nginx/nginx.ssl.conf:/etc/nginx/templates/nginx.conf.template:ro
+      - ./services/nginx/conf.d:/etc/nginx/conf.d.templates:ro
     environment:
       - DOMAIN=${DOMAIN}
       - SSL_MODE=${SSL_MODE:-selfsigned}
