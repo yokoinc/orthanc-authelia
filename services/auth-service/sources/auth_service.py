@@ -538,10 +538,19 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
     # token. The plugin then asks for the anonymous profile and we allow the
     # upload while denying every read / list / delete / share.
     if not group:
+        # authorized-labels: ["*"] (NOT [] as in the reference). Empirically the
+        # Authorization plugin in orthancteam/orthanc:26.4.x denies POST
+        # /instances for an anonymous profile with an empty labels array, even
+        # though the permission pattern (`post ^/instances$ - all|upload`) is
+        # satisfied by the "upload" permission. With ["*"] (full label scope)
+        # the upload is granted. Safe in practice because (a) the only path
+        # that reaches Orthanc anonymously is /api-upload/ which is gated by
+        # CF Access + nginx Basic auth, and (b) the only permission granted is
+        # "upload" — no read/list/delete/share is possible.
         return JSONResponse(content={
             "name": "Anonymous",
             "user-id": None,
-            "authorized-labels": [],
+            "authorized-labels": ["*"],
             "permissions": ["upload"],
             "groups": [],
             "validity": CACHE_VALIDITY_USER_SESSION
