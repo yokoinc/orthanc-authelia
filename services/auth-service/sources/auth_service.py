@@ -978,10 +978,8 @@ async def share_redirect(request: Request):
         # Stone Web Viewer
         viewer_url = f"{base_url}/stone-webviewer/index.html?study={study_uid_encoded}&token={token}&_cb={cache_bust}"
     elif token_type == "volview-viewer-publication":
-        # VolView 3D Viewer. orthancteam/orthanc:26.4.x serves VolView under
-        # /volview/app/ (not /volview/ as in jodogne) — share URLs hitting the
-        # old path got a 404. The trailing '/' on /app/ matters too.
-        viewer_url = f"{base_url}/volview/app/?StudyInstanceUIDs={study_uid_encoded}&token={token}&_cb={cache_bust}"
+        # VolView 3D Viewer
+        viewer_url = f"{base_url}/volview/?StudyInstanceUIDs={study_uid_encoded}&token={token}&_cb={cache_bust}"
     else:
         # Default to OHIF for ohif-viewer-publication and unknown types
         viewer_url = f"{base_url}/ohif/viewer?StudyInstanceUIDs={study_uid_encoded}&token={token}&_cb={cache_bust}"
