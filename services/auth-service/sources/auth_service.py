@@ -978,8 +978,18 @@ async def share_redirect(request: Request):
         # Stone Web Viewer
         viewer_url = f"{base_url}/stone-webviewer/index.html?study={study_uid_encoded}&token={token}&_cb={cache_bust}"
     elif token_type == "volview-viewer-publication":
-        # VolView 3D Viewer
-        viewer_url = f"{base_url}/volview/?StudyInstanceUIDs={study_uid_encoded}&token={token}&_cb={cache_bust}"
+        # VolView 3D Viewer entry HTML is served at /volview/index.html
+        # (same pattern as Stone Web Viewer's /stone-webviewer/index.html).
+        # Probe results with a valid token in the URL:
+        #   /volview              -> 403  (auth plugin denies bare path)
+        #   /volview/             -> 404  ("Unknown resource")
+        #   /volview/index.html   -> 200  <-- this one
+        #   /volview/main(.html)  -> 404
+        #   /volview/app/(...)    -> 404  ("Unknown VolView resource: app")
+        # The other fix that was strictly needed to make this work was the
+        # Authelia bypass rule ^/volview.*token=.*$ in authelia
+        # configuration.yml -- without it the request 302s to the SSO login.
+        viewer_url = f"{base_url}/volview/index.html?StudyInstanceUIDs={study_uid_encoded}&token={token}&_cb={cache_bust}"
     else:
         # Default to OHIF for ohif-viewer-publication and unknown types
         viewer_url = f"{base_url}/ohif/viewer?StudyInstanceUIDs={study_uid_encoded}&token={token}&_cb={cache_bust}"
