@@ -26,6 +26,8 @@ Component versions as defined in `docker-compose.yml` (keep this table in sync w
 | Nginx | `registry.yokoinc.ovh/orthanc-nginx` | `1.1.1` |
 | Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.0.15` |
 
+> **PostgreSQL** is not part of this stack — Orthanc connects to an **external** PostgreSQL instance over the `database` network (see [Database Setup Guide](docs/DATABASE_SETUP.md)).
+
 ## Why Authelia over KeyCloak?
 
 - **Lightweight**: Minimal resource usage vs KeyCloak's heavy footprint
