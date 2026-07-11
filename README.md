@@ -13,6 +13,19 @@ ORTHANC-AUTHELIA is a complete Picture Archiving and Communication System (PACS)
 - **Custom Auth-Service** - Token-based external sharing with OE2-themed management UI
 - **Multiple Viewers** - OHIF, Stone Web Viewer, and VolView for different use cases
 
+## Stack & Versions
+
+Component versions as defined in `docker-compose.yml` (keep this table in sync when bumping images):
+
+| Component | Image | Version |
+|-----------|-------|---------|
+| Orthanc PACS | `orthancteam/orthanc` | `26.6.1` |
+| Authelia | `authelia/authelia` | `4.39.20` |
+| Redis | `redis` | `8.0-alpine` |
+| OHIF Viewer | `registry.yokoinc.ovh/orthanc-ohif` | `3.12.0` |
+| Nginx | `registry.yokoinc.ovh/orthanc-nginx` | `1.1.1` |
+| Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.0.15` |
+
 ## Why Authelia over KeyCloak?
 
 - **Lightweight**: Minimal resource usage vs KeyCloak's heavy footprint
