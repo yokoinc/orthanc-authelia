@@ -264,9 +264,9 @@ Request flow for `POST /api-upload/instances`:
 
 Custom images hosted at `registry.yokoinc.ovh`:
 
-- `orthanc-nginx:1.0.3` - Nginx with SSL auto-generation
+- `orthanc-nginx:1.1.1` - Nginx with SSL auto-generation
 - `orthanc-ohif:3.12.0` - OHIF viewer with French translation
-- `orthanc-auth-service:1.0.9` - Custom authentication service
+- `orthanc-auth-service:1.0.15` - Custom authentication service
 
 ### Using Your Own Registry
 
@@ -274,11 +274,11 @@ Build images locally:
 ```bash
 # Auth-Service
 cd services/auth-service/sources
-docker build -t your-registry/orthanc-auth-service:1.0.9 .
+docker build -t your-registry/orthanc-auth-service:1.0.15 .
 
 # Nginx
 cd services/nginx
-docker build -t your-registry/orthanc-nginx:1.0.3 .
+docker build -t your-registry/orthanc-nginx:1.1.1 .
 
 # OHIF (long build ~15min)
 cd services/ohif/docker
