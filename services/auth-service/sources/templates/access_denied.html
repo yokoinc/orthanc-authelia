@@ -1,33 +1,32 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
+    <meta charset="UTF-8">
     <title>{access_denied_title}</title>
-    <style>
-        body {{ 
-            font-family: Arial, sans-serif; 
-            text-align: center; 
-            padding: 50px; 
-            background: #1e242a;
-            color: #e0e0e0;
-        }}
-        h1 {{ 
-            color: #6ea0c8; 
-        }}
-        p {{ 
-            color: #b0b0b0; 
-        }}
-        a {{ 
-            color: #6ea0c8; 
-            text-decoration: none; 
-        }}
-        a:hover {{ 
-            text-decoration: underline; 
-        }}
-    </style>
+    <script>
+        (function() {{
+            try {{
+                var t = localStorage.getItem('oe2-theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', t);
+            }} catch (e) {{
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }}
+        }})();
+    </script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+    <link href="/auth/static/oe2-shared.css" rel="stylesheet">
 </head>
 <body>
-    <h1>{access_denied_title}</h1>
-    <p>{message}</p>
-    {back_link}
+    <div class="oe2-centered">
+        <img src="/orthanc-logo.png" alt="Orthanc" class="oe2-centered__logo" onerror="this.style.display='none'">
+        <div class="oe2-centered__card">
+            <div class="oe2-centered__icon oe2-centered__icon--danger">
+                <i class="fa-solid fa-shield-halved"></i>
+            </div>
+            <h1 class="oe2-centered__title">{access_denied_title}</h1>
+            <p class="oe2-centered__message">{message}</p>
+            {back_link}
+        </div>
+    </div>
 </body>
 </html>

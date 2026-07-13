@@ -1,43 +1,36 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
+    <meta charset="UTF-8">
     <title>{redirect_title}</title>
     <meta http-equiv="refresh" content="0; url={ohif_url}">
+    <script>
+        (function() {{
+            try {{
+                var t = localStorage.getItem('oe2-theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', t);
+            }} catch (e) {{
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }}
+        }})();
+    </script>
     <link href="{font_awesome_cdn}" rel="stylesheet">
-    <style>
-        body {{ 
-            font-family: Avenir, Helvetica, Arial, sans-serif; 
-            background: #1e242a; 
-            color: #e0e0e0; 
-            text-align: center; 
-            padding: 50px; 
-            margin: 0;
-            -webkit-font-smoothing: antialiased; 
-            -moz-osx-font-smoothing: grayscale; 
-        }}
-        h1 {{ 
-            color: #6ea0c8; 
-            margin-bottom: 20px; 
-        }}
-        p {{ 
-            color: #b0b0b0; 
-        }}
-        a {{ 
-            color: #6ea0c8; 
-            text-decoration: none; 
-        }}
-        a:hover {{ 
-            text-decoration: underline; 
-        }}
-        .icon {{ 
-            font-size: 1.2em; 
-            margin-right: 8px; 
-        }}
-    </style>
+    <link href="/auth/static/oe2-shared.css" rel="stylesheet">
 </head>
 <body>
-    <h1><i class="fas fa-spinner fa-pulse icon"></i>{redirecting}</h1>
-    <p>{redirect_message}</p>
-    <p><a href="{ohif_url}">{redirect_click_here}</a></p>
+    <div class="oe2-centered">
+        <img src="/orthanc-logo.png" alt="Orthanc" class="oe2-centered__logo" onerror="this.style.display='none'">
+        <div class="oe2-centered__card">
+            <div class="oe2-centered__icon">
+                <i class="fas fa-spinner fa-pulse"></i>
+            </div>
+            <h1 class="oe2-centered__title">{redirecting}</h1>
+            <p class="oe2-centered__message">{redirect_message}</p>
+            <a href="{ohif_url}" class="oe2-centered__link">
+                <i class="fas fa-arrow-right"></i>
+                {redirect_click_here}
+            </a>
+        </div>
+    </div>
 </body>
 </html>
