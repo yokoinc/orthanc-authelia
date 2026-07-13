@@ -113,10 +113,12 @@ body {
 .oe2-sidebar__brand {
     display: flex;
     align-items: center;
-    padding: var(--oe2-space-4) var(--oe2-space-4);
+    justify-content: center;
+    padding: var(--oe2-space-4);
     border-bottom: 1px solid var(--oe2-border-subtle);
     text-decoration: none;
     color: var(--oe2-nav-color);
+    min-height: 60px;
 }
 
 .oe2-sidebar__brand:hover {
@@ -125,15 +127,20 @@ body {
 }
 
 .oe2-sidebar__logo {
-    height: 28px;
+    height: 32px;
     width: auto;
-    margin-right: var(--oe2-space-3);
+    /* Force le logo en blanc quel que soit le PNG source (Orthanc utilise
+       generalement un logo colore; sur fond dark on veut du blanc uniforme
+       comme dans OE2). Fallback si le browser ne supporte pas: le logo
+       reste dans sa couleur native, toujours lisible. */
+    filter: brightness(0) invert(1);
 }
 
 .oe2-sidebar__brand-text {
     font-size: 13px;
     font-weight: var(--oe2-fw-regular);
     letter-spacing: 0.5px;
+    margin-left: var(--oe2-space-3);
 }
 
 .oe2-sidebar__nav {
