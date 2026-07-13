@@ -4,16 +4,6 @@
     <meta charset="UTF-8">
     <title>{redirect_title}</title>
     <meta http-equiv="refresh" content="0; url={ohif_url}">
-    <script>
-        (function() {{
-            try {{
-                var t = localStorage.getItem('oe2-theme') || 'dark';
-                document.documentElement.setAttribute('data-theme', t);
-            }} catch (e) {{
-                document.documentElement.setAttribute('data-theme', 'dark');
-            }}
-        }})();
-    </script>
     <link href="{font_awesome_cdn}" rel="stylesheet">
     <link href="/auth/static/oe2-shared.css" rel="stylesheet">
 </head>

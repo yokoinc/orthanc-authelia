@@ -9,15 +9,14 @@
      - error.html           (page centree, message d'erreur)
      - access_denied.html   (page centree, message d'acces refuse)
 
-   Support light / dark theme via [data-theme] sur <html>. Persist dans
-   localStorage cle "oe2-theme". Par defaut = dark (aligne sur OE2).
+   Dark only (aligne sur OE2 upstream qui n'a pas de light mode natif).
    ============================================================================= */
 
 /* -----------------------------------------------------------------------------
    TOKENS DE DESIGN
    ----------------------------------------------------------------------------- */
 :root {
-    /* DARK theme (defaut, aligne sur OE2) */
+    /* Palette OE2 (dark only, pas de light mode natif chez OE2 upstream) */
     --oe2-study-even-bg: rgb(55, 55, 60);
     --oe2-study-odd-bg: rgb(45, 45, 50);
     --oe2-study-hover: rgb(100, 98, 95);
@@ -29,16 +28,20 @@
     --oe2-nav-bg: rgb(30, 36, 42);
     --oe2-nav-sub-bg: #181c20;
     --oe2-nav-hover-bg: #3e454d;
-    --oe2-accent: #d19b3d;                /* Orange OE2, actif/highlight */
-    --oe2-label-bg: rgb(61, 116, 141);    /* Bleu label */
-    --oe2-link: #6ea0c8;                  /* Bleu link/action secondaire */
+    /* Accent principal = bleu medical (identite OE2), pas l'orange */
+    --oe2-accent: #3d748d;                /* Bleu medical (--label-bg-color d'OE2) */
+    --oe2-accent-strong: #5088a3;          /* Version relevee (bordure active, hover) */
+    --oe2-accent-soft: #7fb3cf;            /* Version claire (icones, texte accent) */
+    --oe2-accent-orange: #d19b3d;          /* Orange OE2 - warnings et states rares seulement */
+    --oe2-label-bg: rgb(61, 116, 141);     /* Alias explicite pour badges "info" */
+    --oe2-link: #6ea0c8;                   /* Liens et actions secondaires */
     --oe2-form-placeholder: #888;
     --oe2-border: #ffffff;
     --oe2-border-subtle: rgba(255, 255, 255, 0.2);
     --oe2-muted: #b0b0b0;
     --oe2-success: #28a745;
     --oe2-danger: #dc3545;
-    --oe2-warning: #d19b3d;
+    --oe2-warning: var(--oe2-accent-orange);
     --oe2-body-bg: var(--oe2-nav-bg);
     --oe2-body-color: var(--oe2-nav-color);
     --oe2-card-bg: var(--oe2-study-details-bg);
@@ -64,32 +67,6 @@
     --oe2-space-5: 20px;
     --oe2-space-6: 24px;
     --oe2-sidebar-w: 220px;
-}
-
-/* LIGHT theme override */
-:root[data-theme="light"] {
-    --oe2-study-even-bg: #ffffff;
-    --oe2-study-odd-bg: #f6f7f8;
-    --oe2-study-hover: #e9ecef;
-    --oe2-study-selected: #e2e6ea;
-    --oe2-study-details-bg: #ffffff;
-    --oe2-table-header-bg: #f0f2f4;
-    --oe2-table-filter-bg: #e9ecef;
-    --oe2-nav-color: #ffffff;
-    --oe2-nav-bg: rgb(30, 36, 42);       /* Sidebar reste dark meme en light */
-    --oe2-nav-sub-bg: #181c20;
-    --oe2-nav-hover-bg: #3e454d;
-    --oe2-accent: #d19b3d;
-    --oe2-label-bg: rgb(61, 116, 141);
-    --oe2-link: #2c6cb0;
-    --oe2-form-placeholder: #999;
-    --oe2-border: #d0d5da;
-    --oe2-border-subtle: rgba(0, 0, 0, 0.08);
-    --oe2-muted: #6c757d;
-    --oe2-body-bg: #f4f5f7;
-    --oe2-body-color: #1e242a;
-    --oe2-card-bg: #ffffff;
-    --oe2-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 /* -----------------------------------------------------------------------------
@@ -183,7 +160,8 @@ body {
 
 .oe2-sidebar__link.active {
     background-color: var(--oe2-nav-sub-bg);
-    border-left-color: var(--oe2-accent);
+    border-left-color: var(--oe2-accent-strong);
+    color: #d0e3ee;
     font-weight: var(--oe2-fw-regular);
 }
 
@@ -199,26 +177,6 @@ body {
     border-top: 1px solid var(--oe2-border-subtle);
     font-size: var(--oe2-fs-small);
     color: var(--oe2-muted);
-}
-
-.oe2-sidebar__theme-toggle {
-    background: none;
-    border: 1px solid var(--oe2-border-subtle);
-    color: var(--oe2-nav-color);
-    font-family: var(--oe2-font-stack);
-    font-size: var(--oe2-fs-small);
-    padding: 6px 10px;
-    border-radius: var(--oe2-radius);
-    cursor: pointer;
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-}
-
-.oe2-sidebar__theme-toggle:hover {
-    background-color: var(--oe2-nav-hover-bg);
 }
 
 .oe2-main {
@@ -277,17 +235,22 @@ body {
     width: 40px;
     height: 40px;
     border-radius: var(--oe2-radius);
-    background-color: var(--oe2-nav-sub-bg);
-    color: var(--oe2-accent);
+    background-color: rgba(61, 116, 141, 0.20);
+    color: var(--oe2-accent-soft);
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 18px;
     flex-shrink: 0;
 }
-
-:root[data-theme="light"] .oe2-kpi-card__icon {
-    background-color: rgba(209, 155, 61, 0.12);
+/* Variantes semantiques (info par defaut, warning et danger explicites) */
+.oe2-kpi-card--warning .oe2-kpi-card__icon {
+    background-color: rgba(209, 155, 61, 0.20);
+    color: var(--oe2-accent-orange);
+}
+.oe2-kpi-card--danger .oe2-kpi-card__icon {
+    background-color: rgba(220, 53, 69, 0.20);
+    color: var(--oe2-danger);
 }
 
 .oe2-kpi-card__value {
@@ -434,11 +397,6 @@ body {
     border-radius: var(--oe2-radius-small);
 }
 
-:root[data-theme="light"] .oe2-token-id {
-    background-color: #eaecef;
-    color: #24292e;
-}
-
 /* -----------------------------------------------------------------------------
    BOUTONS (systeme unifie)
    ----------------------------------------------------------------------------- */
@@ -465,11 +423,11 @@ body {
 .oe2-btn:focus-visible { outline: 2px solid var(--oe2-accent); outline-offset: 1px; }
 
 .oe2-btn--primary {
-    background-color: var(--oe2-accent);
-    border-color: var(--oe2-accent);
+    background-color: var(--oe2-accent-strong);
+    border-color: var(--oe2-accent-strong);
     color: #fff;
 }
-.oe2-btn--primary:hover { background-color: #c08a2f; border-color: #c08a2f; color: #fff; }
+.oe2-btn--primary:hover { background-color: var(--oe2-accent-soft); border-color: var(--oe2-accent-soft); color: #1e242a; }
 
 .oe2-btn--secondary {
     background-color: var(--oe2-table-filter-bg);
@@ -518,7 +476,7 @@ body {
 }
 
 .oe2-state--loading i {
-    color: var(--oe2-accent);
+    color: var(--oe2-accent-soft);
     opacity: 1;
 }
 
@@ -555,11 +513,7 @@ body {
 }
 
 .oe2-modal .btn-close {
-    filter: var(--oe2-close-filter, invert(1) grayscale(100%) brightness(200%));
-}
-
-:root[data-theme="light"] .oe2-modal .btn-close {
-    filter: none;
+    filter: invert(1) grayscale(100%) brightness(200%);
 }
 
 .oe2-alert-warning {
@@ -632,7 +586,7 @@ body {
 
 .oe2-centered__icon {
     font-size: 40px;
-    color: var(--oe2-accent);
+    color: var(--oe2-accent-soft);
     margin-bottom: 16px;
 }
 
@@ -682,7 +636,7 @@ body {
     .oe2-sidebar__brand { border-bottom: none; padding: 8px 12px; }
     .oe2-sidebar__nav { display: flex; padding: 0; flex: 1; }
     .oe2-sidebar__link { border-left: none; border-bottom: 3px solid transparent; padding: 10px 12px; }
-    .oe2-sidebar__link.active { border-bottom-color: var(--oe2-accent); }
+    .oe2-sidebar__link.active { border-bottom-color: var(--oe2-accent-strong); }
     .oe2-sidebar__footer { border-top: none; }
     .oe2-main { padding: 16px; }
     .oe2-main__header { flex-wrap: wrap; gap: 8px; }
@@ -761,7 +715,7 @@ body {
     margin-bottom: 10px;
     display: block;
 }
-.loading-state i { color: var(--oe2-accent); opacity: 1; }
+.loading-state i { color: var(--oe2-accent-soft); opacity: 1; }
 .empty-state p, .loading-state p { margin: 0; }
 
 /* Badges - JS emet <span class="badge-oe2 badge-XXX"> */
@@ -809,10 +763,6 @@ body {
     color: var(--oe2-nav-color);
     padding: 2px 6px;
     border-radius: var(--oe2-radius-small);
-}
-:root[data-theme="light"] .token-id {
-    background-color: #eaecef;
-    color: #24292e;
 }
 
 /* Usage bar */

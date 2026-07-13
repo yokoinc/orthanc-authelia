@@ -3,16 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <title>{access_denied_title}</title>
-    <script>
-        (function() {{
-            try {{
-                var t = localStorage.getItem('oe2-theme') || 'dark';
-                document.documentElement.setAttribute('data-theme', t);
-            }} catch (e) {{
-                document.documentElement.setAttribute('data-theme', 'dark');
-            }}
-        }})();
-    </script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <link href="/auth/static/oe2-shared.css" rel="stylesheet">
 </head>
