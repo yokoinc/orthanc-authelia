@@ -82,6 +82,9 @@ services:
       - AUTH_USERNAME=${AUTH_USERNAME}
       - AUTH_PASSWORD=${AUTH_PASSWORD}
       - REDIS_HOST=redis
+      # Version semantique affichee en pied de page du token manager.
+      # A synchroniser avec le tag de l'image ci-dessus (1.0.16) a chaque bump.
+      - IMAGE_VERSION=1.0.16
       # Optional overrides (uncomment in .env if needed)
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - DEFAULT_TOKEN_MAX_USES=${DEFAULT_TOKEN_MAX_USES:-50}

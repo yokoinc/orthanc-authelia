@@ -166,6 +166,14 @@ body {
     font-weight: var(--oe2-fw-thin);
     border-left: 3px solid var(--oe2-nav-bg);
     transition: background-color 0.15s, border-left-color 0.15s;
+    /* Long label ("Retour a Orthanc Explorer" ex) ne wrap plus, ellipsis
+       si depassement. */
+    white-space: nowrap;
+    overflow: hidden;
+}
+.oe2-sidebar__link > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .oe2-sidebar__link:hover,
 .oe2-sidebar__link.active {

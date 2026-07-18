@@ -190,6 +190,9 @@ def resolve_patient_name(resource):
 
 # Asset version for cache-busting static files (auto-updates on each container start)
 ASSET_VERSION = os.getenv("ASSET_VERSION", str(int(time.time())))
+# Version semantique de l'image (affichee en pied de page). Independante du
+# cache-buster ASSET_VERSION qui est un timestamp Unix.
+IMAGE_VERSION = os.getenv("IMAGE_VERSION", "dev")
 
 # Load translations from JSON files
 def load_translations(language="en"):
@@ -338,6 +341,7 @@ def render_template(template_name: str, **kwargs) -> str:
 
         kwargs["font_awesome_cdn"] = FONT_AWESOME_CDN
         kwargs.setdefault("asset_version", ASSET_VERSION)
+        kwargs.setdefault("image_version", IMAGE_VERSION)
 
         def _sub(match):
             key = match.group(1)
