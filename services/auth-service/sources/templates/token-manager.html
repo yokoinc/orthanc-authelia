@@ -3,678 +3,149 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{TITLE}</title>
+    <title>Orthanc Token Manager</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
-    <style>
-        /* =========================================================
-           ORTHANC EXPLORER 2 - DARK THEME VARIABLES
-           ========================================================= */
-        :root {
-            --study-even-bg-color: rgb(55, 55, 60);
-            --study-odd-bg-color: rgb(45, 45, 50);
-            --study-hover-color: rgb(100, 98, 95);
-            --study-selected-color: rgb(40, 40, 45);
-            --study-details-bg-color: rgb(40, 40, 45);
-            --study-table-header-bg-color: rgb(55, 55, 60);
-            --study-table-filter-bg-color: rgb(60, 60, 59);
-            --nav-side-color: rgb(255, 255, 255);
-            --nav-side-bg-color: rgb(30, 36, 42);
-            --nav-side-sub-bg-color: #181c20;
-            --nav-side-hover-bg-color: #3e454d;
-            --nav-side-active-border-color: #d19b3d;
-            --label-bg-color: rgb(61, 116, 141);
-            --form-placeholder-color: #888;
-            --bs-border-color: #ffffff;
-            --table-filters-is-not-searching-color: rgb(30, 150, 255);
-        }
-
-        * {
-            -webkit-font-smoothing: antialiased;
-            -moz-osx-font-smoothing: grayscale;
-        }
-
-        body {
-            background-color: var(--nav-side-bg-color);
-            color: var(--nav-side-color);
-            font-family: Avenir, Helvetica, Arial, sans-serif;
-            font-size: 14px;
-            font-weight: 200;
-            margin: 0;
-            padding: 0;
-        }
-
-        /* =========================================================
-           PAGE HEADER
-           ========================================================= */
-        .page-header {
-            background-color: var(--nav-side-bg-color);
-            padding: 12px 20px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            border-bottom: 1px solid #ffffff;
-        }
-
-        .page-header .title {
-            font-size: 16px;
-            font-weight: 200 !important;
-            color: var(--nav-side-color);
-            margin: 0;
-            display: flex;
-            align-items: center;
-        }
-
-        .page-header .logo {
-            height: 28px;
-            width: auto;
-            margin-right: 12px;
-        }
-
-        .page-header .brand {
-            display: flex;
-            align-items: center;
-        }
-
-        .page-header .user-info {
-            font-size: 13px;
-            color: #ffffff;
-            font-weight: 200;
-        }
-
-        .page-header .user-info i {
-            margin-right: 6px;
-        }
-
-        .back-link {
-            color: var(--nav-side-color);
-            opacity: 0.7;
-            text-decoration: none;
-            font-size: 13px;
-            margin-right: 20px;
-            font-weight: 200;
-        }
-
-        .back-link:hover {
-            opacity: 1;
-            color: var(--nav-side-color);
-            text-decoration: none;
-        }
-
-        /* =========================================================
-           MAIN CONTAINER
-           ========================================================= */
-        .main-content {
-            padding: 20px;
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-
-        .section-title {
-            font-size: 13px;
-            font-weight: 400;
-            color: #ffffff;
-            text-transform: none;
-            letter-spacing: 0.3px;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            min-height: 26px;
-        }
-
-        .section-title .count {
-            font-size: 12px;
-            color: #ffffff;
-            text-transform: none;
-            letter-spacing: 0;
-        }
-
-        /* =========================================================
-           STATS - compact inline row
-           ========================================================= */
-        .stats-row {
-            display: flex;
-            gap: 2px;
-            margin-bottom: 20px;
-            background-color: #3c3c3b;
-            border-radius: 0;
-            overflow: hidden;
-        }
-
-        .stat-item {
-            flex: 1;
-            padding: 12px 16px;
-            background-color: #3c3c3b;
-            border-right: 1px solid rgba(255, 255, 255, 0.2);
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .stat-item:last-child {
-            border-right: none;
-        }
-
-        .stat-item .stat-icon {
-            width: 32px;
-            height: 32px;
-            border-radius: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 14px;
-            background-color: #3c3c3b;
-            color: #ffffff;
-        }
-
-        .stat-item .stat-value {
-            font-size: 13px;
-            font-weight: 200;
-            line-height: 1;
-            color: #ffffff;
-        }
-
-        .stat-item .stat-label {
-            font-size: 13px;
-            color: #ffffff;
-            font-weight: 200;
-            text-transform: none;
-            letter-spacing: 0.3px;
-            margin-top: 0;
-        }
-
-        .stat-item > div:not(.stat-icon) {
-            display: flex;
-            align-items: baseline;
-            gap: 6px;
-        }
-
-        /* =========================================================
-           REFRESH BUTTON
-           ========================================================= */
-        .btn-refresh {
-            background-color: transparent;
-            border: 1px solid rgba(255, 255, 255, 0.25);
-            color: #ffffff;
-            font-size: 12px;
-            font-weight: 200;
-            padding: 4px 10px;
-            border-radius: 0;
-            cursor: pointer;
-            opacity: 0.8;
-            transition: opacity 0.1s, background-color 0.1s;
-        }
-
-        .btn-refresh:hover {
-            background-color: #3c3c3b;
-            color: #ffffff;
-            opacity: 1;
-        }
-
-        .btn-refresh i {
-            margin-right: 4px;
-        }
-
-        /* =========================================================
-           TABLES - OE2 StudyList style
-           ========================================================= */
-        .tokens-table-wrapper {
-            background-color: var(--study-details-bg-color);
-            border-radius: 0;
-            margin-bottom: 20px;
-            overflow: auto;
-            max-height: 500px;
-        }
-
-        .tokens-table {
-            width: 100%;
-            margin: 0;
-            font-size: 13px;
-            color: var(--nav-side-color);
-            border-collapse: collapse;
-        }
-
-        .tokens-table thead th {
-            background-color: #3c3c3b;
-            border-bottom: 1px solid #ffffff;
-            border-right: 1px solid rgba(255, 255, 255, 0.2);
-            font-weight: 400;
-            padding: 8px;
-            text-align: left;
-            font-size: 12px;
-            color: var(--nav-side-color);
-            position: sticky;
-            top: 0;
-            z-index: 1;
-        }
-
-        .tokens-table thead th:last-child {
-            border-right: none;
-        }
-
-        .tokens-table thead th i {
-            color: var(--form-placeholder-color);
-            margin-right: 6px;
-            font-size: 11px;
-        }
-
-        .tokens-table tbody tr {
-            border-bottom: 1px solid #ffffff;
-            transition: background-color 0.1s;
-        }
-
-        .tokens-table tbody tr:nth-child(odd) td {
-            background-color: var(--study-odd-bg-color);
-        }
-
-        .tokens-table tbody tr:nth-child(even) td {
-            background-color: var(--study-even-bg-color);
-        }
-
-        .tokens-table tbody tr:hover td {
-            background-color: var(--study-hover-color) !important;
-        }
-
-        .tokens-table td {
-            padding: 10px 8px;
-            vertical-align: middle;
-            font-weight: 200;
-        }
-
-        /* Badges */
-        .badge-oe2 {
-            display: inline-block;
-            padding: 2px 8px;
-            font-size: 11px;
-            font-weight: 400;
-            border-radius: 0;
-            color: white;
-            text-transform: none;
-            letter-spacing: 0.2px;
-        }
-
-        .duration {
-            font-size: 12px;
-            font-weight: 400;
-            letter-spacing: 0.2px;
-        }
-        .duration-success { color: #28a745; }
-        .duration-warning { color: #d19b3d; }
-        .duration-danger { color: #dc3545; }
-
-        .badge-share { background-color: var(--table-filters-is-not-searching-color); }
-        .badge-instant { background-color: var(--label-bg-color); }
-        .badge-success { background-color: #28a745; }
-        .badge-warning { background-color: #d19b3d; color: #000; }
-        .badge-danger { background-color: #dc3545; }
-        .badge-info { background-color: var(--label-bg-color); }
-        .badge-secondary { background-color: var(--study-table-filter-bg-color); }
-
-        .resource-id {
-            font-family: 'Courier New', Consolas, monospace;
-            font-size: 11px;
-            color: var(--form-placeholder-color);
-            opacity: 0.8;
-        }
-
-        .patient-name {
-            font-size: 12px;
-            font-weight: 400;
-            color: var(--nav-side-color);
-        }
-
-        .resource-cell {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-
-        .resource-meta {
-            font-size: 10px;
-            color: var(--form-placeholder-color);
-            font-weight: 200;
-        }
-
-        /* Progress bar */
-        .usage-bar {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .usage-bar .progress {
-            flex: 1;
-            max-width: 80px;
-            height: 6px;
-            background-color: var(--nav-side-sub-bg-color);
-            border-radius: 0;
-            overflow: hidden;
-        }
-
-        .usage-bar .progress-bar {
-            height: 100%;
-            transition: width 0.3s;
-        }
-
-        .usage-bar .usage-text {
-            font-size: 11px;
-            color: var(--form-placeholder-color);
-            font-weight: 200;
-            white-space: nowrap;
-        }
-
-        /* Action buttons */
-        .actions-cell {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .btn-action {
-            background: transparent;
-            border: 1px solid transparent;
-            color: var(--form-placeholder-color);
-            opacity: 0.6;
-            padding: 3px 8px;
-            border-radius: 0;
-            cursor: pointer;
-            font-size: 13px;
-            transition: all 0.15s ease;
-        }
-
-        .btn-action:hover {
-            color: #ffffff;
-            border-color: rgba(255,255,255,0.25);
-            background-color: rgba(255,255,255,0.05);
-            opacity: 1;
-        }
-
-        .btn-action.btn-action-danger:hover {
-            color: #dc3545;
-            border-color: #dc3545;
-            background-color: rgba(220, 53, 69, 0.1);
-        }
-
-        .btn-action.btn-action-copied {
-            color: #28a745;
-            border-color: #28a745;
-            background-color: rgba(40, 167, 69, 0.12);
-            opacity: 1;
-        }
-
-        /* Empty / loading state */
-        .empty-state, .loading-state {
-            text-align: center;
-            padding: 40px 20px;
-            color: var(--form-placeholder-color);
-        }
-
-        .empty-state i, .loading-state i {
-            font-size: 32px;
-            color: var(--form-placeholder-color);
-            opacity: 0.5;
-            margin-bottom: 10px;
-        }
-
-        .empty-state p, .loading-state p {
-            font-size: 13px;
-            font-weight: 200;
-            margin: 0;
-        }
-
-        .loading-state i {
-            color: var(--nav-side-active-border-color);
-            opacity: 1;
-        }
-
-        /* Expired tokens */
-        .expired-token td {
-            opacity: 0.65;
-        }
-
-        /* Fraud indicator */
-        .fraud-indicator td {
-            animation: fraud-pulse 2s infinite;
-        }
-
-        @keyframes fraud-pulse {
-            0%, 100% { background-color: rgba(220, 53, 69, 0.08) !important; }
-            50% { background-color: rgba(220, 53, 69, 0.18) !important; }
-        }
-
-        /* =========================================================
-           MODAL - OE2 style overrides
-           ========================================================= */
-        .modal-content {
-            background-color: var(--study-details-bg-color);
-            border: 1px solid var(--bs-border-color);
-            color: var(--nav-side-color);
-            font-family: Avenir, Helvetica, Arial, sans-serif;
-            font-weight: 200;
-        }
-
-        .modal-header {
-            border-bottom: 1px solid var(--bs-border-color);
-            background-color: var(--study-table-header-bg-color);
-            padding: 10px 16px;
-        }
-
-        .modal-header .modal-title {
-            font-size: 14px;
-            font-weight: 400;
-        }
-
-        .modal-body {
-            padding: 16px;
-            font-size: 13px;
-        }
-
-        .modal-footer {
-            border-top: 1px solid var(--bs-border-color);
-            background-color: var(--study-table-filter-bg-color);
-            padding: 10px 16px;
-        }
-
-        .btn-close-white {
-            filter: invert(1) grayscale(100%) brightness(200%);
-        }
-
-        .alert-warning {
-            background-color: rgba(209, 155, 61, 0.1);
-            border: 1px solid #d19b3d;
-            color: #d19b3d;
-            font-size: 12px;
-            padding: 8px 12px;
-            border-radius: 3px;
-        }
-
-        .token-id {
-            font-family: 'Courier New', Consolas, monospace;
-            font-size: 11px;
-            background-color: var(--nav-side-sub-bg-color);
-            padding: 2px 6px;
-            border-radius: 2px;
-            color: var(--nav-side-color);
-        }
-
-        .btn-modal {
-            font-size: 12px;
-            font-weight: 400;
-            padding: 5px 12px;
-            border-radius: 3px;
-            border: 1px solid transparent;
-            cursor: pointer;
-        }
-
-        .btn-modal-cancel {
-            background-color: var(--study-table-filter-bg-color);
-            border-color: var(--bs-border-color);
-            color: var(--nav-side-color);
-        }
-
-        .btn-modal-cancel:hover {
-            background-color: var(--nav-side-hover-bg-color);
-        }
-
-        .btn-modal-danger {
-            background-color: #dc3545;
-            border-color: #dc3545;
-            color: white;
-        }
-
-        .btn-modal-danger:hover {
-            background-color: #c82333;
-        }
-
-        .btn-modal-danger:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        /* =========================================================
-           TOAST - OE2 style overrides
-           ========================================================= */
-        .toast {
-            background-color: var(--study-details-bg-color);
-            border: 1px solid var(--bs-border-color);
-            font-family: Avenir, Helvetica, Arial, sans-serif;
-            font-weight: 200;
-            font-size: 13px;
-        }
-
-        .toast-header {
-            font-size: 12px;
-            font-weight: 400;
-            padding: 6px 10px;
-        }
-
-        .toast-header.bg-success { background-color: #28a745 !important; color: white; }
-        .toast-header.bg-danger { background-color: #dc3545 !important; color: white; }
-
-        .toast-body {
-            background-color: var(--study-details-bg-color) !important;
-            color: var(--nav-side-color) !important;
-            padding: 10px;
-        }
-
-        @media (max-width: 768px) {
-            .page-header { flex-wrap: wrap; gap: 8px; }
-            .stats-row { flex-wrap: wrap; }
-            .stat-item { flex: 1 0 45%; border-right: none; border-bottom: 1px solid rgba(255, 255, 255, 0.2); }
-        }
-    </style>
+    <link href="/auth/static/oe2-shared.css?v={asset_version}" rel="stylesheet">
 </head>
 <body>
 
-    <!-- HEADER -->
-    <div class="page-header">
-        <div class="brand">
-            <img src="/orthanc-logo.png" alt="Orthanc" class="logo">
-            <h1 class="title">{TITLE}</h1>
-        </div>
-        <div class="d-flex align-items-center">
-            <a href="/ui/app/" class="back-link">{BACK_TO_PACS}</a>
-            <span class="user-info">
-                <i class="fa-solid fa-user"></i>{ADMIN_LABEL}
-            </span>
-        </div>
+    <div class="oe2-app">
+
+        <!-- =====================================================================
+             SIDEBAR
+             ===================================================================== -->
+        <aside class="oe2-sidebar">
+            <a href="/ui/app/" class="oe2-sidebar__brand" title="{BACK_TO_PACS}">
+                <!-- Vrai logo Orthanc upstream (recupere de OE2:
+                     WebApplication/src/assets/images/orthanc.png). Bundle
+                     dans nos static assets pour ne pas dependre du
+                     /orthanc-logo.png du user, qui est son branding perso. -->
+                <img src="/auth/static/orthanc-logo-official.png" alt="Orthanc" class="oe2-sidebar__logo">
+            </a>
+            <!-- Nom du serveur avec border-bottom blanc (reprise .orthanc-name d'OE2) -->
+            <div class="oe2-sidebar__brand-name">Orthanc</div>
+
+            <nav class="oe2-sidebar__nav" aria-label="Navigation principale">
+                <a href="/ui/app/" class="oe2-sidebar__link">
+                    <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+                    <span>{BACK_TO_PACS}</span>
+                </a>
+                <!-- <span> au lieu d'<a href="#"> pour eviter le scroll top au clic -->
+                <span class="oe2-sidebar__link active" role="link" aria-current="page">
+                    <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
+                    <span>{TITLE}</span>
+                </span>
+            </nav>
+        </aside>
+
+        <!-- =====================================================================
+             MAIN
+             ===================================================================== -->
+        <main class="oe2-main">
+
+            <header class="oe2-main__header">
+                <h1 class="oe2-main__title">{TITLE}</h1>
+                <div class="oe2-main__user">
+                    <i class="fa-solid fa-user" aria-hidden="true"></i>
+                    <span>{ADMIN_LABEL}</span>
+                </div>
+            </header>
+
+            <!-- STATS: KPI cards retirees de l'UI. Les IDs restent en tant que
+                 <span> caches pour eviter un crash JS a
+                 document.getElementById('totalTokens').textContent = ... -->
+            <div hidden aria-hidden="true">
+                <span id="totalTokens"></span>
+                <span id="expiringSoonTokens"></span>
+                <span id="highUsageTokens"></span>
+            </div>
+
+            <!-- ACTIVE TOKENS -->
+            <div class="section-title">
+                <span>{ACTIVE_TOKENS}</span>
+                <button class="btn-refresh" type="button" onclick="loadData()" aria-label="{REFRESH_BUTTON}">
+                    <i class="fa-solid fa-rotate" aria-hidden="true"></i>{REFRESH_BUTTON}
+                </button>
+            </div>
+            <div class="tokens-table-wrapper">
+                <div id="tokensContainer" class="loading-state" aria-busy="true">
+                    <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                    <p>{LOADING_TOKENS}</p>
+                </div>
+            </div>
+
+            <!-- EXPIRED TOKENS -->
+            <div class="section-title">
+                <span>{EXPIRED_TOKENS} <span class="count" id="expiredTokensCount">(0)</span></span>
+            </div>
+            <div class="tokens-table-wrapper">
+                <div id="expiredTokensContainer" class="loading-state" aria-busy="true">
+                    <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                    <p>{LOADING_EXPIRED_TOKENS}</p>
+                </div>
+            </div>
+
+            <div class="oe2-main__version">auth-service v{asset_version}</div>
+
+        </main>
+
     </div>
 
-    <!-- MAIN CONTENT -->
-    <div class="main-content">
-
-        <!-- STATS -->
-        <div class="stats-row" id="statisticsContainer">
-            <div class="stat-item">
-                <div class="stat-icon"><i class="fa-solid fa-share-alt"></i></div>
-                <div>
-                    <div class="stat-value" id="totalTokens">-</div>
-                    <div class="stat-label">{TOTAL_SHARES}</div>
-                </div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-icon"><i class="fa-solid fa-hourglass-half"></i></div>
-                <div>
-                    <div class="stat-value" id="expiringSoonTokens">-</div>
-                    <div class="stat-label">{EXPIRING_SOON}</div>
-                </div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-icon"><i class="fa-solid fa-exclamation-triangle"></i></div>
-                <div>
-                    <div class="stat-value" id="highUsageTokens">-</div>
-                    <div class="stat-label">{HIGH_USAGE}</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- ACTIVE TOKENS -->
-        <div class="section-title">
-            <span>{ACTIVE_TOKENS}</span>
-            <button class="btn-refresh" onclick="loadData()"><i class="fa-solid fa-rotate"></i>{REFRESH_BUTTON}</button>
-        </div>
-        <div class="tokens-table-wrapper">
-            <div id="tokensContainer" class="loading-state">
-                <i class="fa-solid fa-spinner fa-spin"></i>
-                <p>{LOADING_TOKENS}</p>
-            </div>
-        </div>
-
-        <!-- EXPIRED TOKENS -->
-        <div class="section-title">
-            <span>{EXPIRED_TOKENS} <span class="count" id="expiredTokensCount">(0)</span></span>
-        </div>
-        <div class="tokens-table-wrapper">
-            <div id="expiredTokensContainer" class="loading-state">
-                <i class="fa-solid fa-spinner fa-spin"></i>
-                <p>{LOADING_EXPIRED_TOKENS}</p>
-            </div>
-        </div>
-
-    </div>
-
-    <!-- Confirmation Modal -->
-    <div class="modal fade" id="confirmModal" tabindex="-1">
+    <!-- =========================================================================
+         MODAL de confirmation
+         ========================================================================= -->
+    <div class="modal fade oe2-modal" id="confirmModal" tabindex="-1"
+         aria-labelledby="confirmModalTitle" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">{CONFIRM_REVOKE_TITLE}</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title" id="confirmModalTitle">{CONFIRM_REVOKE_TITLE}</h5>
+                    <button type="button" class="btn-close btn-close-white"
+                            data-bs-dismiss="modal" aria-label="{CANCEL_BUTTON}"></button>
                 </div>
                 <div class="modal-body">
                     <p>{CONFIRM_REVOKE_MESSAGE}</p>
-                    <div class="alert-warning">
-                        <i class="fa-solid fa-exclamation-triangle me-1"></i>
+                    <div class="oe2-alert-warning">
+                        <i class="fa-solid fa-exclamation-triangle me-1" aria-hidden="true"></i>
                         {CONFIRM_REVOKE_WARNING}
                     </div>
                     <div id="tokenDetails" class="mt-3"></div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn-modal btn-modal-cancel" data-bs-dismiss="modal">{CANCEL_BUTTON}</button>
-                    <button type="button" class="btn-modal btn-modal-danger" id="confirmRevokeBtn">
-                        <i class="fa-solid fa-trash me-1"></i>{REVOKE_BUTTON}
+                    <button type="button" class="oe2-btn oe2-btn--secondary" data-bs-dismiss="modal">
+                        {CANCEL_BUTTON}
+                    </button>
+                    <button type="button" class="oe2-btn oe2-btn--danger" id="confirmRevokeBtn">
+                        <i class="fa-solid fa-trash" aria-hidden="true"></i>{REVOKE_BUTTON}
                     </button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Toast Container -->
-    <div class="toast-container position-fixed bottom-0 end-0 p-3">
-        <div id="successToast" class="toast" role="alert">
+    <!-- =========================================================================
+         TOASTS - le container porte aria-live="polite" pour que les toasts
+         successifs soient annonces par les lecteurs d'ecran (les toast eux-memes
+         gardent role="alert").
+         ========================================================================= -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3"
+         aria-live="polite" aria-atomic="true">
+        <div id="successToast" class="toast oe2-toast" role="alert">
             <div class="toast-header bg-success">
-                <i class="fa-solid fa-check-circle me-2"></i>
+                <i class="fa-solid fa-check-circle me-2" aria-hidden="true"></i>
                 <strong class="me-auto">{SUCCESS_TOAST}</strong>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+                <button type="button" class="btn-close btn-close-white"
+                        data-bs-dismiss="toast" aria-label="{CANCEL_BUTTON}"></button>
             </div>
             <div class="toast-body">{TOKEN_REVOKED_SUCCESS}</div>
         </div>
-        <div id="errorToast" class="toast" role="alert">
+        <div id="errorToast" class="toast oe2-toast" role="alert">
             <div class="toast-header bg-danger">
-                <i class="fa-solid fa-exclamation-circle me-2"></i>
+                <i class="fa-solid fa-exclamation-circle me-2" aria-hidden="true"></i>
                 <strong class="me-auto">{ERROR_TOAST}</strong>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+                <button type="button" class="btn-close btn-close-white"
+                        data-bs-dismiss="toast" aria-label="{CANCEL_BUTTON}"></button>
             </div>
             <div class="toast-body" id="errorMessage">{ERROR_OCCURRED}</div>
         </div>
@@ -684,6 +155,6 @@
     window.PACS_CONFIG = {js_config};
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="/auth/static/token-manager.js?v={ASSET_VERSION}"></script>
+    <script src="/auth/static/token-manager.js?v={asset_version}"></script>
 </body>
 </html>

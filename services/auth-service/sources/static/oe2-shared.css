@@ -1,0 +1,827 @@
+/* =============================================================================
+   OE2-SHARED.CSS — Design system partage pour l'auth-service
+   =============================================================================
+   Reprend les patterns visuels d'Orthanc Explorer 2 (sidebar dark, cards KPI,
+   tables a alternance de couleurs, boutons uniformes) et les rend reutilisables
+   par les 4 templates HTML de l'auth-service :
+     - token-manager.html   (page principale, sidebar + main content)
+     - redirect.html        (page centree, spinner)
+     - error.html           (page centree, message d'erreur)
+     - access_denied.html   (page centree, message d'acces refuse)
+
+   Dark only (aligne sur OE2 upstream qui n'a pas de light mode natif).
+   ============================================================================= */
+
+/* -----------------------------------------------------------------------------
+   TOKENS DE DESIGN
+   ----------------------------------------------------------------------------- */
+:root {
+    /* Palette OE2 (dark only, pas de light mode natif chez OE2 upstream) */
+    --oe2-study-even-bg: rgb(55, 55, 60);
+    --oe2-study-odd-bg: rgb(45, 45, 50);
+    --oe2-study-hover: rgb(100, 98, 95);
+    --oe2-study-selected: rgb(40, 40, 45);
+    --oe2-study-details-bg: rgb(40, 40, 45);
+    --oe2-table-header-bg: rgb(55, 55, 60);
+    --oe2-table-filter-bg: rgb(60, 60, 59);
+    --oe2-nav-color: rgb(255, 255, 255);
+    --oe2-nav-bg: rgb(30, 36, 42);
+    --oe2-nav-sub-bg: #181c20;
+    --oe2-nav-hover-bg: #3e454d;
+    /* Accent principal = bleu medical (identite OE2), pas l'orange */
+    --oe2-accent: #3d748d;                /* Bleu medical (--label-bg-color d'OE2) */
+    --oe2-accent-strong: #5088a3;          /* Version relevee (bordure active, hover) */
+    --oe2-accent-soft: #7fb3cf;            /* Version claire (icones, texte accent) */
+    --oe2-accent-orange: #d19b3d;          /* Orange OE2 - warnings et states rares seulement */
+    --oe2-selected-bg: #4f5b69;            /* --nav-side-selected-bg-color d'OE2 upstream */
+    --oe2-label-bg: rgb(61, 116, 141);     /* Alias explicite pour badges "info" */
+    --oe2-link: #6ea0c8;                   /* Liens et actions secondaires */
+    --oe2-form-placeholder: #888;
+    --oe2-border: #ffffff;
+    --oe2-border-subtle: rgba(255, 255, 255, 0.2);
+    --oe2-muted: #b0b0b0;
+    --oe2-success: #28a745;
+    --oe2-danger: #dc3545;
+    --oe2-warning: var(--oe2-accent-orange);
+    --oe2-body-bg: var(--oe2-nav-bg);
+    --oe2-body-color: var(--oe2-nav-color);
+    --oe2-card-bg: var(--oe2-study-details-bg);
+    --oe2-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+    /* Typographie */
+    --oe2-font-stack: Avenir, Helvetica, Arial, sans-serif;
+    --oe2-font-mono: 'Courier New', Consolas, monospace;
+    --oe2-fs-body: 14px;
+    --oe2-fs-small: 12px;
+    --oe2-fs-tiny: 11px;
+    --oe2-fs-title: 16px;
+    --oe2-fw-thin: 200;
+    --oe2-fw-regular: 400;
+
+    /* Spacing / rayons */
+    --oe2-radius: 3px;
+    --oe2-radius-small: 2px;
+    --oe2-space-1: 4px;
+    --oe2-space-2: 8px;
+    --oe2-space-3: 12px;
+    --oe2-space-4: 16px;
+    --oe2-space-5: 20px;
+    --oe2-space-6: 24px;
+    --oe2-sidebar-w: 220px;
+}
+
+/* -----------------------------------------------------------------------------
+   RESET / BASE
+   ----------------------------------------------------------------------------- */
+* {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    box-sizing: border-box;
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: var(--oe2-font-stack);
+    font-size: var(--oe2-fs-body);
+    font-weight: var(--oe2-fw-thin);
+    background-color: var(--oe2-body-bg);
+    color: var(--oe2-body-color);
+    min-height: 100vh;
+    /* Safety mini pour tres petits ecrans (< iPhone SE 375px). Au dela le
+       responsive @media prend le relais. */
+    min-width: 320px;
+}
+
+/* -----------------------------------------------------------------------------
+   LAYOUT - Sidebar + main
+   ----------------------------------------------------------------------------- */
+.oe2-app {
+    display: flex;
+    min-height: 100vh;
+}
+
+.oe2-sidebar {
+    width: var(--oe2-sidebar-w);
+    flex-shrink: 0;
+    background-color: var(--oe2-nav-bg);
+    color: var(--oe2-nav-color);
+    display: flex;
+    flex-direction: column;
+}
+
+.oe2-sidebar__brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px 16px 0;
+    text-decoration: none;
+    color: var(--oe2-nav-color);
+}
+.oe2-sidebar__brand:hover { background-color: transparent; }
+
+.oe2-sidebar__logo {
+    /* Copie du selecteur .orthanc-logo d'OE2 SideBar.vue :
+       filter: brightness(50) + height: 48px. brightness(50) explose les
+       valeurs => silhouette blanche uniforme sur fond dark, preserve
+       la transparence. */
+    height: 48px;
+    width: auto;
+    display: block;
+    filter: brightness(50);
+}
+
+/* Nom du serveur (reprise .orthanc-name d'OE2) - full-width, en dehors du
+   lien brand pour aller edge-to-edge avec son border-bottom blanc. */
+.oe2-sidebar__brand-name {
+    text-align: center;
+    padding: 6px 0;
+    margin: 6px 0 4px;
+    border-bottom: 1px solid var(--oe2-border);
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--oe2-nav-color);
+}
+
+.oe2-sidebar__nav {
+    flex: 1;
+    margin-top: 10px;
+    font-size: 14px;
+}
+
+.oe2-sidebar__link {
+    /* Reprise de .nav-side-menu li dans OE2:
+       - line-height: 35px
+       - border-left: 3px solid var(--nav-side-bg-color) (invisible par defaut)
+       - hover/active: border-left orange 3px + bg selected (#4f5b69) */
+    display: flex;
+    align-items: center;
+    line-height: 35px;
+    padding: 0 6px 0 4px;
+    color: var(--oe2-nav-color);
+    text-decoration: none;
+    font-weight: var(--oe2-fw-thin);
+    border-left: 3px solid var(--oe2-nav-bg);
+    transition: background-color 0.15s, border-left-color 0.15s;
+}
+.oe2-sidebar__link:hover,
+.oe2-sidebar__link.active {
+    border-left-color: var(--oe2-accent-orange);
+    background-color: var(--oe2-selected-bg);
+    color: var(--oe2-nav-color);
+}
+
+.oe2-sidebar__link svg,
+.oe2-sidebar__link i {
+    width: 16px;
+    height: 16px;
+    margin-right: 10px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.oe2-sidebar__link-count {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--oe2-muted);
+    font-weight: var(--oe2-fw-thin);
+}
+
+/* Version auth-service en bas de main content (bas-droite, discret).
+   La sidebar n'a plus de footer -- la version etait dans le chemin regarde
+   par personne, on la met dans le contenu principal a la place. */
+.oe2-main__version {
+    padding: 12px 16px 8px;
+    font-size: 11px;
+    color: var(--oe2-muted);
+    text-align: right;
+    opacity: 0.6;
+}
+
+.oe2-main {
+    /* Pas de padding lateral: le contenu (tables) va flush aux bords
+       sidebar/droit comme dans OE2. Le padding vertical reste pour respirer. */
+    flex: 1;
+    min-width: 0;
+    padding: 16px 0 0;
+    background-color: var(--oe2-body-bg);
+    color: var(--oe2-body-color);
+}
+
+.oe2-main__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--oe2-border);
+}
+
+.oe2-main__title {
+    font-size: 18px;
+    font-weight: var(--oe2-fw-regular);
+    margin: 0;
+}
+
+.oe2-main__user {
+    font-size: 13px;
+    color: var(--oe2-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Les KPI cards ont ete retirees de l'UI (jugees peu utiles par l'utilisateur).
+   Les IDs #totalTokens/#expiringSoonTokens/#highUsageTokens sont conserves en
+   tant que <span> caches dans le template pour eviter un crash JS a
+   document.getElementById('totalTokens').textContent = ... */
+
+/* -----------------------------------------------------------------------------
+   SECTION TITLE
+   ----------------------------------------------------------------------------- */
+.oe2-section {
+    margin-bottom: var(--oe2-space-6);
+}
+
+.oe2-section__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--oe2-space-2) 0 var(--oe2-space-3) 0;
+    margin-bottom: var(--oe2-space-2);
+    border-bottom: 1px solid var(--oe2-border);
+}
+
+.oe2-section__title {
+    font-size: 14px;
+    font-weight: var(--oe2-fw-regular);
+    color: var(--oe2-body-color);
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.oe2-section__count {
+    color: var(--oe2-muted);
+    font-weight: var(--oe2-fw-thin);
+    font-size: var(--oe2-fs-small);
+}
+
+/* -----------------------------------------------------------------------------
+   TABLE — les selecteurs .oe2-table* etaient un doublon des .tokens-table*
+   utilises par le JS. Nettoyes (voir bloc COMPAT LEGACY plus bas).
+   ----------------------------------------------------------------------------- */
+@keyframes oe2-fraud-pulse {
+    0%, 100% { background-color: rgba(220, 53, 69, 0.10) !important; }
+    50%      { background-color: rgba(220, 53, 69, 0.22) !important; }
+}
+
+/* -----------------------------------------------------------------------------
+   BADGES
+   ----------------------------------------------------------------------------- */
+.oe2-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: var(--oe2-radius-small);
+    font-size: var(--oe2-fs-tiny);
+    font-weight: var(--oe2-fw-regular);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    line-height: 1.5;
+}
+
+.oe2-badge--label       { background-color: var(--oe2-label-bg); color: #fff; }
+.oe2-badge--success     { background-color: rgba(40, 167, 69, 0.16); color: var(--oe2-success); border: 1px solid var(--oe2-success); }
+.oe2-badge--danger      { background-color: rgba(220, 53, 69, 0.16); color: var(--oe2-danger); border: 1px solid var(--oe2-danger); }
+.oe2-badge--warning     { background-color: rgba(209, 155, 61, 0.16); color: var(--oe2-warning); border: 1px solid var(--oe2-warning); }
+.oe2-badge--muted       { background-color: rgba(128, 128, 128, 0.16); color: var(--oe2-muted); border: 1px solid var(--oe2-muted); }
+
+.oe2-token-id {
+    font-family: var(--oe2-font-mono);
+    font-size: var(--oe2-fs-tiny);
+    background-color: var(--oe2-nav-sub-bg);
+    color: var(--oe2-nav-color);
+    padding: 2px 6px;
+    border-radius: var(--oe2-radius-small);
+}
+
+/* -----------------------------------------------------------------------------
+   BOUTONS (systeme unifie)
+   ----------------------------------------------------------------------------- */
+.oe2-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-family: var(--oe2-font-stack);
+    font-size: var(--oe2-fs-small);
+    font-weight: var(--oe2-fw-regular);
+    line-height: 1.5;
+    border: 1px solid transparent;
+    border-radius: var(--oe2-radius);
+    background-color: transparent;
+    color: var(--oe2-body-color);
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+.oe2-btn:hover { color: var(--oe2-body-color); }
+.oe2-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.oe2-btn:focus-visible { outline: 2px solid var(--oe2-accent); outline-offset: 1px; }
+
+.oe2-btn--primary {
+    background-color: var(--oe2-accent-strong);
+    border-color: var(--oe2-accent-strong);
+    color: #fff;
+}
+.oe2-btn--primary:hover { background-color: var(--oe2-accent-soft); border-color: var(--oe2-accent-soft); color: #1e242a; }
+
+.oe2-btn--secondary {
+    background-color: var(--oe2-table-filter-bg);
+    border-color: var(--oe2-border-subtle);
+    color: var(--oe2-body-color);
+}
+.oe2-btn--secondary:hover { background-color: var(--oe2-nav-hover-bg); }
+
+.oe2-btn--danger {
+    background-color: var(--oe2-danger);
+    border-color: var(--oe2-danger);
+    color: #fff;
+}
+.oe2-btn--danger:hover { background-color: #c82333; border-color: #c82333; color: #fff; }
+
+.oe2-btn--ghost {
+    background-color: transparent;
+    border-color: var(--oe2-border-subtle);
+    color: var(--oe2-muted);
+}
+.oe2-btn--ghost:hover { background-color: var(--oe2-nav-hover-bg); color: var(--oe2-body-color); }
+
+/* -----------------------------------------------------------------------------
+   ETATS - loading / empty
+   ----------------------------------------------------------------------------- */
+.oe2-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--oe2-muted);
+    font-size: 13px;
+    font-weight: var(--oe2-fw-thin);
+}
+
+.oe2-state i {
+    font-size: 32px;
+    opacity: 0.5;
+    margin-bottom: 10px;
+    display: block;
+}
+
+.oe2-state--loading i {
+    color: var(--oe2-accent-soft);
+    opacity: 1;
+}
+
+/* -----------------------------------------------------------------------------
+   MODAL (surcharge Bootstrap)
+   ----------------------------------------------------------------------------- */
+.oe2-modal .modal-content {
+    background-color: var(--oe2-card-bg);
+    border: 1px solid var(--oe2-border);
+    color: var(--oe2-body-color);
+    font-family: var(--oe2-font-stack);
+    font-weight: var(--oe2-fw-thin);
+    border-radius: var(--oe2-radius);
+}
+
+.oe2-modal .modal-header {
+    background-color: var(--oe2-table-header-bg);
+    border-bottom: 1px solid var(--oe2-border);
+    padding: 12px 16px;
+}
+
+.oe2-modal .modal-title {
+    font-size: 14px;
+    font-weight: var(--oe2-fw-regular);
+}
+
+.oe2-modal .modal-body { padding: 16px; font-size: 13px; }
+
+.oe2-modal .modal-footer {
+    background-color: var(--oe2-table-filter-bg);
+    border-top: 1px solid var(--oe2-border);
+    padding: 12px 16px;
+    gap: 8px;
+}
+
+.oe2-modal .btn-close {
+    filter: invert(1) grayscale(100%) brightness(200%);
+}
+
+.oe2-alert-warning {
+    background-color: rgba(209, 155, 61, 0.12);
+    border: 1px solid var(--oe2-warning);
+    color: var(--oe2-warning);
+    font-size: 12px;
+    padding: 8px 12px;
+    border-radius: var(--oe2-radius);
+}
+
+/* -----------------------------------------------------------------------------
+   TOAST (surcharge Bootstrap)
+   ----------------------------------------------------------------------------- */
+.oe2-toast {
+    background-color: var(--oe2-card-bg);
+    border: 1px solid var(--oe2-border);
+    font-family: var(--oe2-font-stack);
+    font-weight: var(--oe2-fw-thin);
+    font-size: 13px;
+    border-radius: var(--oe2-radius);
+}
+
+.oe2-toast .toast-header {
+    font-size: 12px;
+    font-weight: var(--oe2-fw-regular);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--oe2-border);
+}
+
+.oe2-toast .toast-header.bg-success { background-color: var(--oe2-success) !important; color: #fff; }
+.oe2-toast .toast-header.bg-danger  { background-color: var(--oe2-danger) !important; color: #fff; }
+
+.oe2-toast .toast-body {
+    background-color: var(--oe2-card-bg);
+    color: var(--oe2-body-color);
+    padding: 10px 12px;
+}
+
+/* -----------------------------------------------------------------------------
+   PAGES CENTREES (redirect / error / access_denied)
+   ----------------------------------------------------------------------------- */
+.oe2-centered {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
+    background-color: var(--oe2-body-bg);
+    color: var(--oe2-body-color);
+}
+
+.oe2-centered__logo {
+    /* Wordmark large, on plafonne la largeur (le PNG upstream fait 786x250) */
+    max-width: 200px;
+    height: auto;
+    margin-bottom: 24px;
+    opacity: 0.9;
+}
+
+.oe2-centered__card {
+    max-width: 480px;
+    width: 100%;
+    background-color: var(--oe2-card-bg);
+    border: 1px solid var(--oe2-border);
+    border-radius: var(--oe2-radius);
+    padding: 32px 32px 28px 32px;
+    box-shadow: var(--oe2-card-shadow);
+}
+
+.oe2-centered__icon {
+    font-size: 40px;
+    color: var(--oe2-accent-soft);
+    margin-bottom: 16px;
+}
+
+.oe2-centered__icon--danger  { color: var(--oe2-danger); }
+.oe2-centered__icon--success { color: var(--oe2-success); }
+
+.oe2-centered__title {
+    font-size: 18px;
+    font-weight: var(--oe2-fw-regular);
+    margin: 0 0 12px 0;
+    color: var(--oe2-body-color);
+}
+
+.oe2-centered__message {
+    font-size: 13px;
+    color: var(--oe2-muted);
+    line-height: 1.5;
+    margin: 0 0 20px 0;
+}
+
+.oe2-centered__link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--oe2-link);
+    text-decoration: none;
+    font-size: 13px;
+}
+
+.oe2-centered__link:hover {
+    text-decoration: underline;
+    color: var(--oe2-link);
+}
+
+/* -----------------------------------------------------------------------------
+   RESPONSIVE
+   ----------------------------------------------------------------------------- */
+@media (max-width: 767px) {
+    /* App: on empile sidebar au-dessus de main */
+    .oe2-app { flex-direction: column; }
+
+    /* Sidebar devient un bandeau haut (100% width, colonne interne) */
+    .oe2-sidebar {
+        width: 100%;
+        flex-direction: column;
+    }
+
+    /* Brand tighter en mobile */
+    .oe2-sidebar__brand { padding: 8px 12px 0; }
+    .oe2-sidebar__logo { height: 36px; }
+    .oe2-sidebar__brand-name {
+        padding: 3px 0 5px;
+        margin: 4px 0 0;
+        font-size: 0.9rem;
+    }
+
+    /* Nav en tabs horizontales scrollables */
+    .oe2-sidebar__nav {
+        margin: 0;
+        display: flex;
+        overflow-x: auto;
+        border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    /* Scrollbar cachee (WebKit + Firefox fallback) */
+    .oe2-sidebar__nav { scrollbar-width: none; }
+    .oe2-sidebar__nav::-webkit-scrollbar { height: 0; }
+    .oe2-sidebar__link {
+        border-left: none;
+        border-bottom: 3px solid var(--oe2-nav-bg);
+        line-height: 40px;
+        padding: 0 14px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+    .oe2-sidebar__link:hover,
+    .oe2-sidebar__link.active {
+        border-left-color: transparent;
+        border-bottom-color: var(--oe2-accent-orange);
+    }
+
+    /* Main tightened */
+    .oe2-main { padding-top: 8px; }
+    /* Header reste sur une seule ligne meme en mobile (wrap si vraiment trop
+       etroit, mais horizontal par defaut). */
+    .oe2-main__header {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0 12px 8px;
+    }
+    .oe2-main__title { font-size: 16px; }
+
+    /* Tables: scroll horizontal si trop de colonnes */
+    .oe2-table-wrapper,
+    .tokens-table-wrapper { overflow-x: auto; }
+    .tokens-table { min-width: 560px; }
+
+    /* Section-title empile */
+    .section-title, .oe2-section__header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+    .btn-refresh { align-self: flex-end; }
+}
+
+/* =============================================================================
+   COMPAT LEGACY - selecteurs generees par token-manager.js
+   =============================================================================
+   Le JS construit ses tables/badges/boutons avec des noms de classes historiques
+   (tokens-table, badge-oe2, btn-action, etc.). Plutot que de refactorer 500
+   lignes de JS on style ces classes ici avec les tokens OE2 pour garder le look
+   coherent avec le reste. Si on decide un jour de re-nommer cote JS, on peut
+   supprimer ce bloc.
+   ============================================================================= */
+
+/* Table (utilise par le JS: <table class="tokens-table">) — densite
+   inspiree de .study-table-title d'OE2: padding fin, line-height 1.2-1.3rem,
+   font-size 11-12px pour tenir plus de rows sans scroll. */
+.tokens-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.tokens-table thead th {
+    background-color: var(--oe2-table-header-bg);
+    color: var(--oe2-body-color);
+    font-weight: var(--oe2-fw-regular);
+    text-align: left;
+    padding: 4px 8px;
+    line-height: 1.2rem;
+    border-bottom: 1px solid var(--oe2-border);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+.tokens-table thead th:last-child { text-align: right; }
+
+.tokens-table tbody tr {
+    background-color: var(--oe2-study-odd-bg);
+    transition: background-color 0.1s;
+}
+.tokens-table tbody tr:nth-child(even) { background-color: var(--oe2-study-even-bg); }
+.tokens-table tbody tr:hover { background-color: var(--oe2-study-hover); }
+.tokens-table tbody td {
+    padding: 4px 8px;
+    line-height: 1.3rem;
+    border-bottom: 1px solid var(--oe2-border);
+    vertical-align: middle;
+}
+.tokens-table tbody tr:last-child td { border-bottom: none; }
+.tokens-table .expired-token td { opacity: 0.6; }
+.tokens-table .fraud-indicator td { animation: oe2-fraud-pulse 2s infinite; }
+
+/* Wrapper de la table — bord top+bottom seulement (edge-to-edge lateral) */
+.tokens-table-wrapper {
+    background-color: var(--oe2-card-bg);
+    border-top: 1px solid var(--oe2-border);
+    border-bottom: 1px solid var(--oe2-border);
+    overflow: hidden;
+    box-shadow: var(--oe2-card-shadow);
+    margin-bottom: var(--oe2-space-4);
+}
+
+/* Empty / loading states genere par le JS */
+.empty-state, .loading-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--oe2-muted);
+    font-size: 13px;
+    font-weight: var(--oe2-fw-thin);
+}
+.empty-state i, .loading-state i {
+    font-size: 32px;
+    opacity: 0.5;
+    margin-bottom: 10px;
+    display: block;
+}
+.loading-state i { color: var(--oe2-accent-soft); opacity: 1; }
+.empty-state p, .loading-state p { margin: 0; }
+
+/* Badges - JS emet <span class="badge-oe2 badge-XXX"> */
+.badge-oe2 {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: var(--oe2-radius-small);
+    font-size: var(--oe2-fs-tiny);
+    font-weight: var(--oe2-fw-regular);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    line-height: 1.5;
+    border: none;
+}
+/* JS getTokenTypeInfo() retourne toujours badgeClass: 'badge-share' pour les
+   types de partage (OHIF/Stone/VolView). Sans cette classe le badge etait
+   invisible sur fond dark. */
+.badge-share   { background-color: var(--oe2-label-bg); color: #fff; }
+.badge-info    { background-color: var(--oe2-label-bg); color: #fff; }
+.badge-warning { background-color: rgba(209, 155, 61, 0.20); color: var(--oe2-warning); }
+.badge-danger  { background-color: rgba(220, 53, 69, 0.20); color: var(--oe2-danger); }
+.badge-success { background-color: rgba(40, 167, 69, 0.20); color: var(--oe2-success); }
+.badge-muted   { background-color: rgba(128, 128, 128, 0.20); color: var(--oe2-muted); }
+
+/* Duration - JS emet <span class="duration duration-XXX"> */
+.duration {
+    font-size: var(--oe2-fs-small);
+    color: var(--oe2-muted);
+}
+.duration-danger  { color: var(--oe2-danger); font-weight: var(--oe2-fw-regular); }
+.duration-warning { color: var(--oe2-warning); font-weight: var(--oe2-fw-regular); }
+.duration-success { color: var(--oe2-success); }
+
+/* Resource cell (patient, meta) — densite serree */
+.resource-cell { display: flex; flex-direction: column; gap: 1px; }
+.patient-name { font-weight: var(--oe2-fw-regular); color: var(--oe2-body-color); font-size: 12px; line-height: 1.2; }
+.resource-meta { font-size: 10px; color: var(--oe2-muted); line-height: 1.2; }
+.resource-id {
+    font-family: var(--oe2-font-mono);
+    font-size: var(--oe2-fs-tiny);
+    color: var(--oe2-muted);
+}
+
+/* Token id (inline code) - JS emet <code class="token-id"> */
+.token-id {
+    font-family: var(--oe2-font-mono);
+    font-size: var(--oe2-fs-tiny);
+    background-color: var(--oe2-nav-sub-bg);
+    color: var(--oe2-nav-color);
+    padding: 2px 6px;
+    border-radius: var(--oe2-radius-small);
+}
+
+/* Usage bar */
+.usage-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 100px;
+}
+.usage-bar .progress {
+    flex: 1;
+    height: 6px;
+    background-color: var(--oe2-border-subtle);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 0;
+}
+.usage-bar .progress-bar {
+    height: 100%;
+    transition: width 0.2s;
+}
+.usage-text {
+    font-size: var(--oe2-fs-tiny);
+    color: var(--oe2-muted);
+    white-space: nowrap;
+    min-width: 40px;
+    text-align: right;
+}
+
+/* Actions cell - JS emet <div class="actions-cell"><button class="btn-action"> */
+.actions-cell {
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+}
+
+.btn-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background-color: rgb(75, 79, 84);
+    border: none;
+    color: rgba(255, 255, 255, 0.75);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    transition: background-color 0.15s, color 0.15s;
+}
+.btn-action:hover {
+    background-color: rgb(90, 95, 100);
+    color: #fff;
+}
+.btn-action-danger:hover {
+    background-color: var(--oe2-danger);
+    color: #fff;
+}
+.btn-action-copied {
+    background-color: var(--oe2-success);
+    color: #fff;
+}
+
+/* Refresh button dans les section headers — style bouton Bootstrap arrondi */
+.btn-refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background-color: transparent;
+    border: 1px solid var(--oe2-border);
+    color: var(--oe2-body-color);
+    font-family: var(--oe2-font-stack);
+    font-size: var(--oe2-fs-small);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+}
+.btn-refresh:hover {
+    background-color: var(--oe2-nav-hover-bg);
+}
+
+/* Section-title (bouton Actualiser aligne a droite du titre) */
+.section-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--oe2-space-2) var(--oe2-space-3) var(--oe2-space-3);
+    margin-top: var(--oe2-space-3);
+    font-size: 14px;
+    font-weight: var(--oe2-fw-regular);
+}
+.section-title .count {
+    color: var(--oe2-muted);
+    font-weight: var(--oe2-fw-thin);
+    font-size: var(--oe2-fs-small);
+    margin-left: 4px;
+}

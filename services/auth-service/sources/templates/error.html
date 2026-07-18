@@ -1,42 +1,22 @@
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
+    <meta charset="UTF-8">
     <title>{title}</title>
     <link href="{font_awesome_cdn}" rel="stylesheet">
-    <style>
-        body {{ 
-            font-family: Avenir, Helvetica, Arial, sans-serif; 
-            background: #1e242a; 
-            color: #e0e0e0; 
-            text-align: center; 
-            padding: 50px; 
-            margin: 0;
-            -webkit-font-smoothing: antialiased; 
-            -moz-osx-font-smoothing: grayscale; 
-        }}
-        h1 {{ 
-            color: #6ea0c8; 
-            margin-bottom: 20px; 
-        }}
-        p {{ 
-            color: #b0b0b0; 
-        }}
-        a {{ 
-            color: #6ea0c8; 
-            text-decoration: none; 
-        }}
-        a:hover {{ 
-            text-decoration: underline; 
-        }}
-        .icon {{ 
-            font-size: 1.2em; 
-            margin-right: 8px; 
-        }}
-    </style>
+    <link href="/auth/static/oe2-shared.css?v={asset_version}" rel="stylesheet">
 </head>
 <body>
-    <h1><i class="{icon_class} icon"></i>{title}</h1>
-    <p>{message}</p>
-    {extra_content}
+    <div class="oe2-centered">
+        <img src="/auth/static/orthanc-logo-official.png" alt="Orthanc" class="oe2-centered__logo" onerror="this.style.display='none'">
+        <div class="oe2-centered__card">
+            <div class="oe2-centered__icon oe2-centered__icon--danger">
+                <i class="{icon_class}" aria-hidden="true"></i>
+            </div>
+            <h1 class="oe2-centered__title">{title}</h1>
+            <p class="oe2-centered__message">{message}</p>
+            {extra_content}
+        </div>
+    </div>
 </body>
 </html>

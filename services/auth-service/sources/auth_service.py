@@ -9,6 +9,7 @@ import json
 import redis
 import os
 import logging
+import re
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -319,26 +320,30 @@ def get_base_url(request: Request) -> str:
     scheme = "https" if request.headers.get("X-Forwarded-Proto") == "https" else "http"
     return f"{scheme}://{host}"
 
+_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
 def render_template(template_name: str, **kwargs) -> str:
-    """Render HTML template with provided variables"""
+    """Render HTML template with provided variables.
+
+    Un seul pass regex qui matche `{word}` et le remplace par la valeur du
+    kwarg correspondant. Si aucun kwarg ne matche, le placeholder est laisse
+    tel quel (utile pour les blocs `{js_config}` qui contiennent du JSON).
+    Zero cascade => pas de risque qu'une valeur remplacee contienne un
+    placeholder qui serait re-remplace au tour suivant.
+    """
     template_path = f"/app/templates/{template_name}"
     try:
         with open(template_path, "r", encoding="utf-8") as f:
             template_content = f.read()
-        
-        # Add font_awesome_cdn to kwargs
+
         kwargs["font_awesome_cdn"] = FONT_AWESOME_CDN
-        
-        # Replace placeholders safely by avoiding CSS braces
-        for key, value in kwargs.items():
-            placeholder = "{" + key + "}"
-            if placeholder in template_content:
-                template_content = template_content.replace(placeholder, str(value))
-        
-        # Replace double braces with single braces for CSS
-        template_content = template_content.replace("{{", "{").replace("}}", "}")
-        
-        return template_content
+        kwargs.setdefault("asset_version", ASSET_VERSION)
+
+        def _sub(match):
+            key = match.group(1)
+            return str(kwargs[key]) if key in kwargs else match.group(0)
+
+        return _PLACEHOLDER_RE.sub(_sub, template_content)
     except FileNotFoundError:
         logger.error(f"Template not found: {template_path}")
         return f"<html><body><h1>Template Error</h1><p>Template not found: {template_name}</p></body></html>"
@@ -348,9 +353,9 @@ def render_template(template_name: str, **kwargs) -> str:
 
 def render_error_template(title: str, message: str, icon_class: str, status_code: int = 400) -> HTMLResponse:
     """Render error template using external template"""
-    content = render_template("error.html", 
-                             title=title, 
-                             message=message, 
+    content = render_template("error.html",
+                             title=title,
+                             message=message,
                              icon_class=icon_class,
                              extra_content="")
     return HTMLResponse(content=content, status_code=status_code)
@@ -359,9 +364,9 @@ def render_access_denied_template(message: str = None, back_link: str = "") -> H
     """Render access denied template"""
     if message is None:
         message = TRANSLATIONS["ui"]["access_denied_message"]
-    
-    back_link_html = f'<a href="{back_link}">{TRANSLATIONS["ui"]["back_to_pacs"]}</a>' if back_link else ""
-    content = render_template("access_denied.html", 
+
+    back_link_html = f'<a href="{back_link}" class="oe2-centered__link">{TRANSLATIONS["ui"]["back_to_pacs"]}</a>' if back_link else ""
+    content = render_template("access_denied.html",
                              access_denied_title=TRANSLATIONS["ui"]["access_denied_title"],
                              message=message,
                              back_link=back_link_html)
@@ -895,18 +900,15 @@ async def token_management_interface(request: Request):
         if js_translations:
             js_config["MESSAGES"] = js_translations
         
-        # Prepare template variables from translations
+        # Prepare template variables from translations.
+        # Nettoye : les cles TOTAL_TOKENS/SUBTITLE/OHIF_VIEWER/INSTANT_LINKS
+        # n'ont plus de {PLACEHOLDER} correspondant dans le template (KPI cards
+        # retirees, subtitle deplacee en HTML statique "Orthanc"). ASSET_VERSION
+        # est aussi injecte automatiquement par render_template().
         ui_translations = TRANSLATIONS["ui"]
         template_vars = {
             "TITLE": ui_translations["title"],
-            "SUBTITLE": ui_translations["subtitle"],
             "REFRESH_BUTTON": ui_translations["refresh_button"],
-            "TOTAL_TOKENS": ui_translations["total_tokens"],
-            "TOTAL_SHARES": ui_translations.get("total_shares", "Active Shares"),
-            "EXPIRING_SOON": ui_translations.get("expiring_soon", "Expiring Soon"),
-            "OHIF_VIEWER": ui_translations["ohif_viewer"],
-            "INSTANT_LINKS": ui_translations["instant_links"],
-            "HIGH_USAGE": ui_translations["high_usage"],
             "ACTIVE_TOKENS": ui_translations["active_tokens"],
             "EXPIRED_TOKENS": ui_translations["expired_tokens"],
             "LOADING_TOKENS": ui_translations["loading_tokens"],
@@ -922,7 +924,6 @@ async def token_management_interface(request: Request):
             "ERROR_TOAST": ui_translations["error_toast"],
             "ERROR_OCCURRED": ui_translations["error_occurred"],
             "BACK_TO_PACS": ui_translations.get("back_to_pacs", "Retour au PACS"),
-            "ASSET_VERSION": ASSET_VERSION
         }
         
         # Render template with variables
