@@ -73,7 +73,7 @@ services:
   # =============================================================================
   
   auth-service:
-    image: registry.yokoinc.ovh/orthanc-auth-service:1.0.8
+    image: registry.yokoinc.ovh/orthanc-auth-service:1.0.16
     container_name: orthanc-auth-service
     restart: unless-stopped
     environment:

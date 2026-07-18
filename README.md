@@ -281,7 +281,7 @@ Custom images hosted at `registry.yokoinc.ovh`:
 
 - `orthanc-nginx:1.1.1` - Nginx with SSL auto-generation
 - `orthanc-ohif:3.12.0` - OHIF viewer with French translation
-- `orthanc-auth-service:1.0.15` - Custom authentication service
+- `orthanc-auth-service:1.0.16` - Custom authentication service
 
 ### Using Your Own Registry
 
@@ -289,7 +289,7 @@ Build images locally:
 ```bash
 # Auth-Service
 cd services/auth-service/sources
-docker build -t your-registry/orthanc-auth-service:1.0.15 .
+docker build -t your-registry/orthanc-auth-service:1.0.16 .
 
 # Nginx
 cd services/nginx
