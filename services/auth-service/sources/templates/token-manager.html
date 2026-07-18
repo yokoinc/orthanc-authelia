@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{TITLE}</title>
+    <title>Orthanc Token Manager</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
-    <link href="/auth/static/oe2-shared.css?v={ASSET_VERSION}" rel="stylesheet">
+    <link href="/auth/static/oe2-shared.css?v={asset_version}" rel="stylesheet">
 </head>
 <body>
 
@@ -17,21 +17,26 @@
              ===================================================================== -->
         <aside class="oe2-sidebar">
             <a href="/ui/app/" class="oe2-sidebar__brand" title="{BACK_TO_PACS}">
-                <img src="/orthanc-logo.png" alt="Orthanc" class="oe2-sidebar__logo">
+                <!-- Vrai logo Orthanc upstream (recupere de OE2:
+                     WebApplication/src/assets/images/orthanc.png). Bundle
+                     dans nos static assets pour ne pas dependre du
+                     /orthanc-logo.png du user, qui est son branding perso. -->
+                <img src="/auth/static/orthanc-logo-official.png" alt="Orthanc" class="oe2-sidebar__logo">
             </a>
-            <nav class="oe2-sidebar__nav">
+            <!-- Nom du serveur avec border-bottom blanc (reprise .orthanc-name d'OE2) -->
+            <div class="oe2-sidebar__brand-name">Orthanc</div>
+
+            <nav class="oe2-sidebar__nav" aria-label="Navigation principale">
                 <a href="/ui/app/" class="oe2-sidebar__link">
-                    <i class="fa-solid fa-arrow-left"></i>
+                    <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
                     <span>{BACK_TO_PACS}</span>
                 </a>
-                <a href="#" class="oe2-sidebar__link active">
-                    <i class="fa-solid fa-share-nodes"></i>
+                <!-- <span> au lieu d'<a href="#"> pour eviter le scroll top au clic -->
+                <span class="oe2-sidebar__link active" role="link" aria-current="page">
+                    <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
                     <span>{TITLE}</span>
-                </a>
+                </span>
             </nav>
-            <div class="oe2-sidebar__footer">
-                auth-service v{ASSET_VERSION}
-            </div>
         </aside>
 
         <!-- =====================================================================
@@ -42,46 +47,30 @@
             <header class="oe2-main__header">
                 <h1 class="oe2-main__title">{TITLE}</h1>
                 <div class="oe2-main__user">
-                    <i class="fa-solid fa-user"></i>
+                    <i class="fa-solid fa-user" aria-hidden="true"></i>
                     <span>{ADMIN_LABEL}</span>
                 </div>
             </header>
 
-            <!-- STATS = KPI cards -->
-            <section class="oe2-kpi-grid" id="statisticsContainer">
-                <div class="oe2-kpi-card">
-                    <div class="oe2-kpi-card__icon"><i class="fa-solid fa-share-alt"></i></div>
-                    <div>
-                        <div class="oe2-kpi-card__value" id="totalTokens">-</div>
-                        <div class="oe2-kpi-card__label">{TOTAL_SHARES}</div>
-                    </div>
-                </div>
-                <div class="oe2-kpi-card oe2-kpi-card--warning">
-                    <div class="oe2-kpi-card__icon"><i class="fa-solid fa-hourglass-half"></i></div>
-                    <div>
-                        <div class="oe2-kpi-card__value" id="expiringSoonTokens">-</div>
-                        <div class="oe2-kpi-card__label">{EXPIRING_SOON}</div>
-                    </div>
-                </div>
-                <div class="oe2-kpi-card oe2-kpi-card--danger">
-                    <div class="oe2-kpi-card__icon"><i class="fa-solid fa-exclamation-triangle"></i></div>
-                    <div>
-                        <div class="oe2-kpi-card__value" id="highUsageTokens">-</div>
-                        <div class="oe2-kpi-card__label">{HIGH_USAGE}</div>
-                    </div>
-                </div>
-            </section>
+            <!-- STATS: KPI cards retirees de l'UI. Les IDs restent en tant que
+                 <span> caches pour eviter un crash JS a
+                 document.getElementById('totalTokens').textContent = ... -->
+            <div hidden aria-hidden="true">
+                <span id="totalTokens"></span>
+                <span id="expiringSoonTokens"></span>
+                <span id="highUsageTokens"></span>
+            </div>
 
             <!-- ACTIVE TOKENS -->
             <div class="section-title">
                 <span>{ACTIVE_TOKENS}</span>
-                <button class="btn-refresh" onclick="loadData()" type="button">
-                    <i class="fa-solid fa-rotate"></i>{REFRESH_BUTTON}
+                <button class="btn-refresh" type="button" onclick="loadData()" aria-label="{REFRESH_BUTTON}">
+                    <i class="fa-solid fa-rotate" aria-hidden="true"></i>{REFRESH_BUTTON}
                 </button>
             </div>
             <div class="tokens-table-wrapper">
-                <div id="tokensContainer" class="loading-state">
-                    <i class="fa-solid fa-spinner fa-spin"></i>
+                <div id="tokensContainer" class="loading-state" aria-busy="true">
+                    <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
                     <p>{LOADING_TOKENS}</p>
                 </div>
             </div>
@@ -91,11 +80,13 @@
                 <span>{EXPIRED_TOKENS} <span class="count" id="expiredTokensCount">(0)</span></span>
             </div>
             <div class="tokens-table-wrapper">
-                <div id="expiredTokensContainer" class="loading-state">
-                    <i class="fa-solid fa-spinner fa-spin"></i>
+                <div id="expiredTokensContainer" class="loading-state" aria-busy="true">
+                    <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
                     <p>{LOADING_EXPIRED_TOKENS}</p>
                 </div>
             </div>
+
+            <div class="oe2-main__version">auth-service v{asset_version}</div>
 
         </main>
 
@@ -104,17 +95,19 @@
     <!-- =========================================================================
          MODAL de confirmation
          ========================================================================= -->
-    <div class="modal fade oe2-modal" id="confirmModal" tabindex="-1">
+    <div class="modal fade oe2-modal" id="confirmModal" tabindex="-1"
+         aria-labelledby="confirmModalTitle" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">{CONFIRM_REVOKE_TITLE}</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    <h5 class="modal-title" id="confirmModalTitle">{CONFIRM_REVOKE_TITLE}</h5>
+                    <button type="button" class="btn-close btn-close-white"
+                            data-bs-dismiss="modal" aria-label="{CANCEL_BUTTON}"></button>
                 </div>
                 <div class="modal-body">
                     <p>{CONFIRM_REVOKE_MESSAGE}</p>
                     <div class="oe2-alert-warning">
-                        <i class="fa-solid fa-exclamation-triangle me-1"></i>
+                        <i class="fa-solid fa-exclamation-triangle me-1" aria-hidden="true"></i>
                         {CONFIRM_REVOKE_WARNING}
                     </div>
                     <div id="tokenDetails" class="mt-3"></div>
@@ -124,7 +117,7 @@
                         {CANCEL_BUTTON}
                     </button>
                     <button type="button" class="oe2-btn oe2-btn--danger" id="confirmRevokeBtn">
-                        <i class="fa-solid fa-trash"></i>{REVOKE_BUTTON}
+                        <i class="fa-solid fa-trash" aria-hidden="true"></i>{REVOKE_BUTTON}
                     </button>
                 </div>
             </div>
@@ -132,22 +125,27 @@
     </div>
 
     <!-- =========================================================================
-         TOASTS
+         TOASTS - le container porte aria-live="polite" pour que les toasts
+         successifs soient annonces par les lecteurs d'ecran (les toast eux-memes
+         gardent role="alert").
          ========================================================================= -->
-    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div class="toast-container position-fixed bottom-0 end-0 p-3"
+         aria-live="polite" aria-atomic="true">
         <div id="successToast" class="toast oe2-toast" role="alert">
             <div class="toast-header bg-success">
-                <i class="fa-solid fa-check-circle me-2"></i>
+                <i class="fa-solid fa-check-circle me-2" aria-hidden="true"></i>
                 <strong class="me-auto">{SUCCESS_TOAST}</strong>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+                <button type="button" class="btn-close btn-close-white"
+                        data-bs-dismiss="toast" aria-label="{CANCEL_BUTTON}"></button>
             </div>
             <div class="toast-body">{TOKEN_REVOKED_SUCCESS}</div>
         </div>
         <div id="errorToast" class="toast oe2-toast" role="alert">
             <div class="toast-header bg-danger">
-                <i class="fa-solid fa-exclamation-circle me-2"></i>
+                <i class="fa-solid fa-exclamation-circle me-2" aria-hidden="true"></i>
                 <strong class="me-auto">{ERROR_TOAST}</strong>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
+                <button type="button" class="btn-close btn-close-white"
+                        data-bs-dismiss="toast" aria-label="{CANCEL_BUTTON}"></button>
             </div>
             <div class="toast-body" id="errorMessage">{ERROR_OCCURRED}</div>
         </div>
@@ -157,6 +155,6 @@
     window.PACS_CONFIG = {js_config};
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="/auth/static/token-manager.js?v={ASSET_VERSION}"></script>
+    <script src="/auth/static/token-manager.js?v={asset_version}"></script>
 </body>
 </html>

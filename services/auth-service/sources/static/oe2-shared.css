@@ -33,6 +33,7 @@
     --oe2-accent-strong: #5088a3;          /* Version relevee (bordure active, hover) */
     --oe2-accent-soft: #7fb3cf;            /* Version claire (icones, texte accent) */
     --oe2-accent-orange: #d19b3d;          /* Orange OE2 - warnings et states rares seulement */
+    --oe2-selected-bg: #4f5b69;            /* --nav-side-selected-bg-color d'OE2 upstream */
     --oe2-label-bg: rgb(61, 116, 141);     /* Alias explicite pour badges "info" */
     --oe2-link: #6ea0c8;                   /* Liens et actions secondaires */
     --oe2-form-placeholder: #888;
@@ -90,6 +91,9 @@ body {
     background-color: var(--oe2-body-bg);
     color: var(--oe2-body-color);
     min-height: 100vh;
+    /* Safety mini pour tres petits ecrans (< iPhone SE 375px). Au dela le
+       responsive @media prend le relais. */
+    min-width: 320px;
 }
 
 /* -----------------------------------------------------------------------------
@@ -107,89 +111,102 @@ body {
     color: var(--oe2-nav-color);
     display: flex;
     flex-direction: column;
-    border-right: 1px solid var(--oe2-border-subtle);
 }
 
 .oe2-sidebar__brand {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    padding: var(--oe2-space-4);
-    border-bottom: 1px solid var(--oe2-border-subtle);
+    padding: 12px 16px 0;
     text-decoration: none;
     color: var(--oe2-nav-color);
-    min-height: 60px;
 }
-
-.oe2-sidebar__brand:hover {
-    color: var(--oe2-nav-color);
-    background-color: var(--oe2-nav-hover-bg);
-}
+.oe2-sidebar__brand:hover { background-color: transparent; }
 
 .oe2-sidebar__logo {
-    height: 32px;
+    /* Copie du selecteur .orthanc-logo d'OE2 SideBar.vue :
+       filter: brightness(50) + height: 48px. brightness(50) explose les
+       valeurs => silhouette blanche uniforme sur fond dark, preserve
+       la transparence. */
+    height: 48px;
     width: auto;
-    /* Force le logo en blanc quel que soit le PNG source (Orthanc utilise
-       generalement un logo colore; sur fond dark on veut du blanc uniforme
-       comme dans OE2). Fallback si le browser ne supporte pas: le logo
-       reste dans sa couleur native, toujours lisible. */
-    filter: brightness(0) invert(1);
+    display: block;
+    filter: brightness(50);
 }
 
-.oe2-sidebar__brand-text {
-    font-size: 13px;
-    font-weight: var(--oe2-fw-regular);
-    letter-spacing: 0.5px;
-    margin-left: var(--oe2-space-3);
+/* Nom du serveur (reprise .orthanc-name d'OE2) - full-width, en dehors du
+   lien brand pour aller edge-to-edge avec son border-bottom blanc. */
+.oe2-sidebar__brand-name {
+    text-align: center;
+    padding: 6px 0;
+    margin: 6px 0 4px;
+    border-bottom: 1px solid var(--oe2-border);
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--oe2-nav-color);
 }
 
 .oe2-sidebar__nav {
     flex: 1;
-    padding: var(--oe2-space-2) 0;
-}
-
-.oe2-sidebar__link {
-    display: flex;
-    align-items: center;
-    padding: 10px var(--oe2-space-4);
-    color: var(--oe2-nav-color);
-    text-decoration: none;
-    font-size: 13px;
-    font-weight: var(--oe2-fw-thin);
-    border-left: 3px solid transparent;
-    transition: background-color 0.15s;
-}
-
-.oe2-sidebar__link:hover {
-    background-color: var(--oe2-nav-hover-bg);
-    color: var(--oe2-nav-color);
-}
-
-.oe2-sidebar__link.active {
-    background-color: var(--oe2-nav-sub-bg);
-    border-left-color: var(--oe2-accent-strong);
-    color: #d0e3ee;
-    font-weight: var(--oe2-fw-regular);
-}
-
-.oe2-sidebar__link i {
-    width: 20px;
-    text-align: center;
-    margin-right: 10px;
+    margin-top: 10px;
     font-size: 14px;
 }
 
-.oe2-sidebar__footer {
-    padding: var(--oe2-space-3) var(--oe2-space-4);
-    border-top: 1px solid var(--oe2-border-subtle);
-    font-size: var(--oe2-fs-small);
+.oe2-sidebar__link {
+    /* Reprise de .nav-side-menu li dans OE2:
+       - line-height: 35px
+       - border-left: 3px solid var(--nav-side-bg-color) (invisible par defaut)
+       - hover/active: border-left orange 3px + bg selected (#4f5b69) */
+    display: flex;
+    align-items: center;
+    line-height: 35px;
+    padding: 0 6px 0 4px;
+    color: var(--oe2-nav-color);
+    text-decoration: none;
+    font-weight: var(--oe2-fw-thin);
+    border-left: 3px solid var(--oe2-nav-bg);
+    transition: background-color 0.15s, border-left-color 0.15s;
+}
+.oe2-sidebar__link:hover,
+.oe2-sidebar__link.active {
+    border-left-color: var(--oe2-accent-orange);
+    background-color: var(--oe2-selected-bg);
+    color: var(--oe2-nav-color);
+}
+
+.oe2-sidebar__link svg,
+.oe2-sidebar__link i {
+    width: 16px;
+    height: 16px;
+    margin-right: 10px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.oe2-sidebar__link-count {
+    margin-left: auto;
+    font-size: 12px;
     color: var(--oe2-muted);
+    font-weight: var(--oe2-fw-thin);
+}
+
+/* Version auth-service en bas de main content (bas-droite, discret).
+   La sidebar n'a plus de footer -- la version etait dans le chemin regarde
+   par personne, on la met dans le contenu principal a la place. */
+.oe2-main__version {
+    padding: 12px 16px 8px;
+    font-size: 11px;
+    color: var(--oe2-muted);
+    text-align: right;
+    opacity: 0.6;
 }
 
 .oe2-main {
+    /* Pas de padding lateral: le contenu (tables) va flush aux bords
+       sidebar/droit comme dans OE2. Le padding vertical reste pour respirer. */
     flex: 1;
-    min-width: 0;                          /* evite overflow flex */
-    padding: var(--oe2-space-5) var(--oe2-space-6);
+    min-width: 0;
+    padding: 16px 0 0;
     background-color: var(--oe2-body-bg);
     color: var(--oe2-body-color);
 }
@@ -198,9 +215,9 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding-bottom: var(--oe2-space-4);
-    margin-bottom: var(--oe2-space-5);
-    border-bottom: 1px solid var(--oe2-border-subtle);
+    padding: 0 12px 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--oe2-border);
 }
 
 .oe2-main__title {
@@ -217,63 +234,10 @@ body {
     gap: 6px;
 }
 
-/* -----------------------------------------------------------------------------
-   KPI CARDS GRID
-   ----------------------------------------------------------------------------- */
-.oe2-kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: var(--oe2-space-4);
-    margin-bottom: var(--oe2-space-6);
-}
-
-.oe2-kpi-card {
-    background-color: var(--oe2-card-bg);
-    border: 1px solid var(--oe2-border-subtle);
-    border-radius: var(--oe2-radius);
-    padding: var(--oe2-space-4);
-    display: flex;
-    align-items: center;
-    gap: var(--oe2-space-4);
-    box-shadow: var(--oe2-card-shadow);
-}
-
-.oe2-kpi-card__icon {
-    width: 40px;
-    height: 40px;
-    border-radius: var(--oe2-radius);
-    background-color: rgba(61, 116, 141, 0.20);
-    color: var(--oe2-accent-soft);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    flex-shrink: 0;
-}
-/* Variantes semantiques (info par defaut, warning et danger explicites) */
-.oe2-kpi-card--warning .oe2-kpi-card__icon {
-    background-color: rgba(209, 155, 61, 0.20);
-    color: var(--oe2-accent-orange);
-}
-.oe2-kpi-card--danger .oe2-kpi-card__icon {
-    background-color: rgba(220, 53, 69, 0.20);
-    color: var(--oe2-danger);
-}
-
-.oe2-kpi-card__value {
-    font-size: 24px;
-    font-weight: var(--oe2-fw-regular);
-    line-height: 1;
-    margin-bottom: 4px;
-    color: var(--oe2-body-color);
-}
-
-.oe2-kpi-card__label {
-    font-size: var(--oe2-fs-small);
-    color: var(--oe2-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}
+/* Les KPI cards ont ete retirees de l'UI (jugees peu utiles par l'utilisateur).
+   Les IDs #totalTokens/#expiringSoonTokens/#highUsageTokens sont conserves en
+   tant que <span> caches dans le template pour eviter un crash JS a
+   document.getElementById('totalTokens').textContent = ... */
 
 /* -----------------------------------------------------------------------------
    SECTION TITLE
@@ -288,7 +252,7 @@ body {
     justify-content: space-between;
     padding: var(--oe2-space-2) 0 var(--oe2-space-3) 0;
     margin-bottom: var(--oe2-space-2);
-    border-bottom: 1px solid var(--oe2-border-subtle);
+    border-bottom: 1px solid var(--oe2-border);
 }
 
 .oe2-section__title {
@@ -308,68 +272,9 @@ body {
 }
 
 /* -----------------------------------------------------------------------------
-   TABLE
+   TABLE — les selecteurs .oe2-table* etaient un doublon des .tokens-table*
+   utilises par le JS. Nettoyes (voir bloc COMPAT LEGACY plus bas).
    ----------------------------------------------------------------------------- */
-.oe2-table-wrapper {
-    background-color: var(--oe2-card-bg);
-    border: 1px solid var(--oe2-border-subtle);
-    border-radius: var(--oe2-radius);
-    overflow: hidden;
-    box-shadow: var(--oe2-card-shadow);
-}
-
-.oe2-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-}
-
-.oe2-table thead th {
-    background-color: var(--oe2-table-header-bg);
-    color: var(--oe2-body-color);
-    font-weight: var(--oe2-fw-regular);
-    text-align: left;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--oe2-border-subtle);
-    position: sticky;
-    top: 0;
-    z-index: 1;
-    font-size: var(--oe2-fs-small);
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-}
-
-.oe2-table tbody tr {
-    background-color: var(--oe2-study-odd-bg);
-    transition: background-color 0.1s;
-}
-
-.oe2-table tbody tr:nth-child(even) {
-    background-color: var(--oe2-study-even-bg);
-}
-
-.oe2-table tbody tr:hover {
-    background-color: var(--oe2-study-hover);
-}
-
-.oe2-table tbody td {
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--oe2-border-subtle);
-    vertical-align: middle;
-}
-
-.oe2-table tbody tr:last-child td {
-    border-bottom: none;
-}
-
-.oe2-table .oe2-row-expired td {
-    opacity: 0.6;
-}
-
-.oe2-table .oe2-row-fraud td {
-    animation: oe2-fraud-pulse 2s infinite;
-}
-
 @keyframes oe2-fraud-pulse {
     0%, 100% { background-color: rgba(220, 53, 69, 0.10) !important; }
     50%      { background-color: rgba(220, 53, 69, 0.22) !important; }
@@ -457,13 +362,6 @@ body {
 }
 .oe2-btn--ghost:hover { background-color: var(--oe2-nav-hover-bg); color: var(--oe2-body-color); }
 
-.oe2-btn--icon-only {
-    padding: 6px;
-    width: 30px;
-    height: 30px;
-    justify-content: center;
-}
-
 /* -----------------------------------------------------------------------------
    ETATS - loading / empty
    ----------------------------------------------------------------------------- */
@@ -492,7 +390,7 @@ body {
    ----------------------------------------------------------------------------- */
 .oe2-modal .modal-content {
     background-color: var(--oe2-card-bg);
-    border: 1px solid var(--oe2-border-subtle);
+    border: 1px solid var(--oe2-border);
     color: var(--oe2-body-color);
     font-family: var(--oe2-font-stack);
     font-weight: var(--oe2-fw-thin);
@@ -501,7 +399,7 @@ body {
 
 .oe2-modal .modal-header {
     background-color: var(--oe2-table-header-bg);
-    border-bottom: 1px solid var(--oe2-border-subtle);
+    border-bottom: 1px solid var(--oe2-border);
     padding: 12px 16px;
 }
 
@@ -514,7 +412,7 @@ body {
 
 .oe2-modal .modal-footer {
     background-color: var(--oe2-table-filter-bg);
-    border-top: 1px solid var(--oe2-border-subtle);
+    border-top: 1px solid var(--oe2-border);
     padding: 12px 16px;
     gap: 8px;
 }
@@ -537,7 +435,7 @@ body {
    ----------------------------------------------------------------------------- */
 .oe2-toast {
     background-color: var(--oe2-card-bg);
-    border: 1px solid var(--oe2-border-subtle);
+    border: 1px solid var(--oe2-border);
     font-family: var(--oe2-font-stack);
     font-weight: var(--oe2-fw-thin);
     font-size: 13px;
@@ -548,7 +446,7 @@ body {
     font-size: 12px;
     font-weight: var(--oe2-fw-regular);
     padding: 8px 12px;
-    border-bottom: 1px solid var(--oe2-border-subtle);
+    border-bottom: 1px solid var(--oe2-border);
 }
 
 .oe2-toast .toast-header.bg-success { background-color: var(--oe2-success) !important; color: #fff; }
@@ -576,7 +474,9 @@ body {
 }
 
 .oe2-centered__logo {
-    height: 40px;
+    /* Wordmark large, on plafonne la largeur (le PNG upstream fait 786x250) */
+    max-width: 200px;
+    height: auto;
     margin-bottom: 24px;
     opacity: 0.9;
 }
@@ -585,7 +485,7 @@ body {
     max-width: 480px;
     width: 100%;
     background-color: var(--oe2-card-bg);
-    border: 1px solid var(--oe2-border-subtle);
+    border: 1px solid var(--oe2-border);
     border-radius: var(--oe2-radius);
     padding: 32px 32px 28px 32px;
     box-shadow: var(--oe2-card-shadow);
@@ -631,24 +531,72 @@ body {
 /* -----------------------------------------------------------------------------
    RESPONSIVE
    ----------------------------------------------------------------------------- */
-@media (max-width: 768px) {
+@media (max-width: 767px) {
+    /* App: on empile sidebar au-dessus de main */
     .oe2-app { flex-direction: column; }
+
+    /* Sidebar devient un bandeau haut (100% width, colonne interne) */
     .oe2-sidebar {
         width: 100%;
-        flex-direction: row;
-        align-items: center;
-        border-right: none;
-        border-bottom: 1px solid var(--oe2-border-subtle);
+        flex-direction: column;
     }
-    .oe2-sidebar__brand { border-bottom: none; padding: 8px 12px; }
-    .oe2-sidebar__nav { display: flex; padding: 0; flex: 1; }
-    .oe2-sidebar__link { border-left: none; border-bottom: 3px solid transparent; padding: 10px 12px; }
-    .oe2-sidebar__link.active { border-bottom-color: var(--oe2-accent-strong); }
-    .oe2-sidebar__footer { border-top: none; }
-    .oe2-main { padding: 16px; }
-    .oe2-main__header { flex-wrap: wrap; gap: 8px; }
-    .oe2-kpi-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
-    .oe2-kpi-card__value { font-size: 20px; }
+
+    /* Brand tighter en mobile */
+    .oe2-sidebar__brand { padding: 8px 12px 0; }
+    .oe2-sidebar__logo { height: 36px; }
+    .oe2-sidebar__brand-name {
+        padding: 3px 0 5px;
+        margin: 4px 0 0;
+        font-size: 0.9rem;
+    }
+
+    /* Nav en tabs horizontales scrollables */
+    .oe2-sidebar__nav {
+        margin: 0;
+        display: flex;
+        overflow-x: auto;
+        border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    /* Scrollbar cachee (WebKit + Firefox fallback) */
+    .oe2-sidebar__nav { scrollbar-width: none; }
+    .oe2-sidebar__nav::-webkit-scrollbar { height: 0; }
+    .oe2-sidebar__link {
+        border-left: none;
+        border-bottom: 3px solid var(--oe2-nav-bg);
+        line-height: 40px;
+        padding: 0 14px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+    .oe2-sidebar__link:hover,
+    .oe2-sidebar__link.active {
+        border-left-color: transparent;
+        border-bottom-color: var(--oe2-accent-orange);
+    }
+
+    /* Main tightened */
+    .oe2-main { padding-top: 8px; }
+    /* Header reste sur une seule ligne meme en mobile (wrap si vraiment trop
+       etroit, mais horizontal par defaut). */
+    .oe2-main__header {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0 12px 8px;
+    }
+    .oe2-main__title { font-size: 16px; }
+
+    /* Tables: scroll horizontal si trop de colonnes */
+    .oe2-table-wrapper,
+    .tokens-table-wrapper { overflow-x: auto; }
+    .tokens-table { min-width: 560px; }
+
+    /* Section-title empile */
+    .section-title, .oe2-section__header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+    .btn-refresh { align-self: flex-end; }
 }
 
 /* =============================================================================
@@ -661,11 +609,14 @@ body {
    supprimer ce bloc.
    ============================================================================= */
 
-/* Table (utilise par le JS: <table class="tokens-table">) */
+/* Table (utilise par le JS: <table class="tokens-table">) — densite
+   inspiree de .study-table-title d'OE2: padding fin, line-height 1.2-1.3rem,
+   font-size 11-12px pour tenir plus de rows sans scroll. */
 .tokens-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 13px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
 }
 
 .tokens-table thead th {
@@ -673,15 +624,14 @@ body {
     color: var(--oe2-body-color);
     font-weight: var(--oe2-fw-regular);
     text-align: left;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--oe2-border-subtle);
-    font-size: var(--oe2-fs-small);
+    padding: 4px 8px;
+    line-height: 1.2rem;
+    border-bottom: 1px solid var(--oe2-border);
+    font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.3px;
-    position: sticky;
-    top: 0;
-    z-index: 1;
 }
+.tokens-table thead th:last-child { text-align: right; }
 
 .tokens-table tbody tr {
     background-color: var(--oe2-study-odd-bg);
@@ -690,19 +640,20 @@ body {
 .tokens-table tbody tr:nth-child(even) { background-color: var(--oe2-study-even-bg); }
 .tokens-table tbody tr:hover { background-color: var(--oe2-study-hover); }
 .tokens-table tbody td {
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--oe2-border-subtle);
+    padding: 4px 8px;
+    line-height: 1.3rem;
+    border-bottom: 1px solid var(--oe2-border);
     vertical-align: middle;
 }
 .tokens-table tbody tr:last-child td { border-bottom: none; }
 .tokens-table .expired-token td { opacity: 0.6; }
 .tokens-table .fraud-indicator td { animation: oe2-fraud-pulse 2s infinite; }
 
-/* Wrapper de la table (JS n'en cree pas mais template si) */
+/* Wrapper de la table — bord top+bottom seulement (edge-to-edge lateral) */
 .tokens-table-wrapper {
     background-color: var(--oe2-card-bg);
-    border: 1px solid var(--oe2-border-subtle);
-    border-radius: var(--oe2-radius);
+    border-top: 1px solid var(--oe2-border);
+    border-bottom: 1px solid var(--oe2-border);
     overflow: hidden;
     box-shadow: var(--oe2-card-shadow);
     margin-bottom: var(--oe2-space-4);
@@ -735,13 +686,17 @@ body {
     text-transform: uppercase;
     letter-spacing: 0.3px;
     line-height: 1.5;
-    border: 1px solid transparent;
+    border: none;
 }
-.badge-info    { background-color: var(--oe2-label-bg); color: #fff; border-color: var(--oe2-label-bg); }
-.badge-warning { background-color: rgba(209, 155, 61, 0.16); color: var(--oe2-warning); border-color: var(--oe2-warning); }
-.badge-danger  { background-color: rgba(220, 53, 69, 0.16); color: var(--oe2-danger); border-color: var(--oe2-danger); }
-.badge-success { background-color: rgba(40, 167, 69, 0.16); color: var(--oe2-success); border-color: var(--oe2-success); }
-.badge-muted   { background-color: rgba(128, 128, 128, 0.16); color: var(--oe2-muted); border-color: var(--oe2-muted); }
+/* JS getTokenTypeInfo() retourne toujours badgeClass: 'badge-share' pour les
+   types de partage (OHIF/Stone/VolView). Sans cette classe le badge etait
+   invisible sur fond dark. */
+.badge-share   { background-color: var(--oe2-label-bg); color: #fff; }
+.badge-info    { background-color: var(--oe2-label-bg); color: #fff; }
+.badge-warning { background-color: rgba(209, 155, 61, 0.20); color: var(--oe2-warning); }
+.badge-danger  { background-color: rgba(220, 53, 69, 0.20); color: var(--oe2-danger); }
+.badge-success { background-color: rgba(40, 167, 69, 0.20); color: var(--oe2-success); }
+.badge-muted   { background-color: rgba(128, 128, 128, 0.20); color: var(--oe2-muted); }
 
 /* Duration - JS emet <span class="duration duration-XXX"> */
 .duration {
@@ -752,10 +707,10 @@ body {
 .duration-warning { color: var(--oe2-warning); font-weight: var(--oe2-fw-regular); }
 .duration-success { color: var(--oe2-success); }
 
-/* Resource cell (patient, meta) */
-.resource-cell { display: flex; flex-direction: column; gap: 2px; }
-.patient-name { font-weight: var(--oe2-fw-regular); color: var(--oe2-body-color); font-size: 13px; }
-.resource-meta { font-size: var(--oe2-fs-tiny); color: var(--oe2-muted); }
+/* Resource cell (patient, meta) — densite serree */
+.resource-cell { display: flex; flex-direction: column; gap: 1px; }
+.patient-name { font-weight: var(--oe2-fw-regular); color: var(--oe2-body-color); font-size: 12px; line-height: 1.2; }
+.resource-meta { font-size: 10px; color: var(--oe2-muted); line-height: 1.2; }
 .resource-id {
     font-family: var(--oe2-font-mono);
     font-size: var(--oe2-fs-tiny);
@@ -810,45 +765,43 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     padding: 0;
-    background-color: transparent;
-    border: 1px solid var(--oe2-border-subtle);
-    color: var(--oe2-muted);
-    border-radius: var(--oe2-radius);
+    background-color: rgb(75, 79, 84);
+    border: none;
+    color: rgba(255, 255, 255, 0.75);
+    border-radius: 4px;
     cursor: pointer;
     font-size: 12px;
-    transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+    line-height: 1;
+    transition: background-color 0.15s, color 0.15s;
 }
 .btn-action:hover {
-    background-color: var(--oe2-nav-hover-bg);
-    color: var(--oe2-body-color);
-    border-color: var(--oe2-body-color);
+    background-color: rgb(90, 95, 100);
+    color: #fff;
 }
 .btn-action-danger:hover {
     background-color: var(--oe2-danger);
     color: #fff;
-    border-color: var(--oe2-danger);
 }
 .btn-action-copied {
     background-color: var(--oe2-success);
     color: #fff;
-    border-color: var(--oe2-success);
 }
 
-/* Refresh button dans les section headers */
+/* Refresh button dans les section headers — style bouton Bootstrap arrondi */
 .btn-refresh {
     display: inline-flex;
     align-items: center;
     gap: 6px;
     padding: 4px 10px;
     background-color: transparent;
-    border: 1px solid var(--oe2-border-subtle);
+    border: 1px solid var(--oe2-border);
     color: var(--oe2-body-color);
     font-family: var(--oe2-font-stack);
     font-size: var(--oe2-fs-small);
-    border-radius: var(--oe2-radius);
+    border-radius: 4px;
     cursor: pointer;
     transition: background-color 0.15s;
 }
@@ -856,15 +809,13 @@ body {
     background-color: var(--oe2-nav-hover-bg);
 }
 
-/* Section-title utilise dans le template (transition vers .oe2-section__header) */
+/* Section-title (bouton Actualiser aligne a droite du titre) */
 .section-title {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: var(--oe2-space-2) 0 var(--oe2-space-3) 0;
-    margin-top: var(--oe2-space-5);
-    margin-bottom: var(--oe2-space-2);
-    border-bottom: 1px solid var(--oe2-border-subtle);
+    padding: var(--oe2-space-2) var(--oe2-space-3) var(--oe2-space-3);
+    margin-top: var(--oe2-space-3);
     font-size: 14px;
     font-weight: var(--oe2-fw-regular);
 }

@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <title>{access_denied_title}</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
-    <link href="/auth/static/oe2-shared.css" rel="stylesheet">
+    <link href="{font_awesome_cdn}" rel="stylesheet">
+    <link href="/auth/static/oe2-shared.css?v={asset_version}" rel="stylesheet">
 </head>
 <body>
     <div class="oe2-centered">
-        <img src="/orthanc-logo.png" alt="Orthanc" class="oe2-centered__logo" onerror="this.style.display='none'">
+        <img src="/auth/static/orthanc-logo-official.png" alt="Orthanc" class="oe2-centered__logo" onerror="this.style.display='none'">
         <div class="oe2-centered__card">
             <div class="oe2-centered__icon oe2-centered__icon--danger">
-                <i class="fa-solid fa-shield-halved"></i>
+                <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
             </div>
             <h1 class="oe2-centered__title">{access_denied_title}</h1>
             <p class="oe2-centered__message">{message}</p>
