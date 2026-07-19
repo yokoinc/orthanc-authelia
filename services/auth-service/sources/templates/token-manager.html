@@ -69,9 +69,16 @@
                 </button>
             </div>
             <div class="tokens-table-wrapper">
-                <div id="tokensContainer" class="loading-state" aria-busy="true">
-                    <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-                    <p>{LOADING_TOKENS}</p>
+                <!-- Container bare: le JS y injecte directement <table> ou
+                     <div class="empty-state">. Le loading-state est nested
+                     pour que sa classe (avec padding 40px) disparaisse quand
+                     JS remplace l'innerHTML, sinon la table s'affichait avec
+                     40px de vide autour = "double tableau" apparent. -->
+                <div id="tokensContainer">
+                    <div class="loading-state" aria-busy="true">
+                        <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                        <p>{LOADING_TOKENS}</p>
+                    </div>
                 </div>
             </div>
 
@@ -80,9 +87,11 @@
                 <span>{EXPIRED_TOKENS} <span class="count" id="expiredTokensCount">(0)</span></span>
             </div>
             <div class="tokens-table-wrapper">
-                <div id="expiredTokensContainer" class="loading-state" aria-busy="true">
-                    <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
-                    <p>{LOADING_EXPIRED_TOKENS}</p>
+                <div id="expiredTokensContainer">
+                    <div class="loading-state" aria-busy="true">
+                        <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
+                        <p>{LOADING_EXPIRED_TOKENS}</p>
+                    </div>
                 </div>
             </div>
 
