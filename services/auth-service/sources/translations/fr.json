@@ -34,7 +34,7 @@
     "redirect_message": "Redirection vers l'étude...",
     "redirect_click_here": "Cliquer ici si la redirection ne fonctionne pas",
     "redirecting": "Redirection...",
-    "back_to_pacs": "← Retour à Orthanc Explorer",
+    "back_to_pacs": "Retour à Orthanc Explorer",
     "invalid_link": "Lien invalide",
     "expired_link": "Lien expiré",
     "no_study": "Aucune étude",

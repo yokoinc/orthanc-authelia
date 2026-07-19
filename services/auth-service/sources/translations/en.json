@@ -34,7 +34,7 @@
     "redirect_message": "Redirecting to study...",
     "redirect_click_here": "Click here if redirect doesn't work",
     "redirecting": "Redirecting...",
-    "back_to_pacs": "← Back to Orthanc Explorer",
+    "back_to_pacs": "Back to Orthanc Explorer",
     "invalid_link": "Invalid Link",
     "expired_link": "Expired Link",
     "no_study": "No Study",
