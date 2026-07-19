@@ -1,0 +1,71 @@
+# A inclure dans le nginx.conf existant (dans le server block port 443).
+# Remplace la location /api-upload/ existante qui hardcode le secret CF Access.
+#
+# Modules requis : http_auth_request (present dans nginx officiel).
+
+# ==================================================================
+# Upstreams keepalive (a placer au niveau http {}, une seule fois)
+# ==================================================================
+# upstream orthanc_backend {
+#     server orthanc:8042;
+#     keepalive 8;
+# }
+# upstream auth_backend {
+#     server auth-service:8000;
+#     keepalive 4;
+# }
+
+# ==================================================================
+# /api-upload/ : upload programmatique protege par CF Access
+# ==================================================================
+location /api-upload/ {
+    # Delegue la verification du header CF a auth-service qui compare
+    # avec la valeur stockee en Redis. Retour 204 = OK, 403 = KO.
+    auth_request /_verify-cf;
+
+    # Streaming direct pour gros STOW-RS (jusqu'a 500 MB)
+    proxy_request_buffering off;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    client_max_body_size 500m;
+
+    # Defense en profondeur : masquer les headers CF avant qu'Orthanc
+    # les voie (evite qu'un futur bug les log en clair)
+    proxy_set_header CF-Access-Client-Id "";
+    proxy_set_header CF-Access-Client-Secret "";
+
+    # ATTENTION : adapter le path cible a ce qui existe deja dans TA conf.
+    # Le / final strip le prefixe /api-upload/. Options courantes :
+    #   proxy_pass http://orthanc_backend/instances;             # ingestion native
+    #   proxy_pass http://orthanc_backend/dicom-web/studies;     # STOW-RS
+    #   proxy_pass http://orthanc_backend/;                      # passthrough
+    proxy_pass http://orthanc_backend/;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# ==================================================================
+# Sous-requete interne appelee par auth_request
+# ==================================================================
+location = /_verify-cf {
+    internal;
+    proxy_pass http://auth_backend/api/internal/verify-cf;
+
+    # auth_request : pas de body, juste les headers
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+
+    # On extrait les headers CF de la requete originale et on les
+    # transmet a auth-service sous des noms non-CF pour eviter
+    # confusion avec un eventuel forward CF interne
+    proxy_set_header X-CF-Client-Id     $http_cf_access_client_id;
+    proxy_set_header X-CF-Client-Secret $http_cf_access_client_secret;
+
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_read_timeout 2s;
+    proxy_connect_timeout 1s;
+}

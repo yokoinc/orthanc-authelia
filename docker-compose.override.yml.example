@@ -1,0 +1,48 @@
+# Additions au docker-compose.yml existant.
+# A merger ou renommer en docker-compose.override.yml pour surcharge automatique.
+#
+# Prerequis one-shot sur le NAS avant premier up :
+#   sudo chown -R 1000:1000 ./orthanc ./authelia
+#   grep -q ORTHANC_ADMIN_USER .env || cat >> .env <<'EOF'
+#   ORTHANC_ADMIN_USER=svc-auth
+#   ORTHANC_ADMIN_PASS=$(openssl rand -hex 32)
+#   EOF
+
+services:
+  orthanc:
+    user: "1000:1000"
+    volumes:
+      # existant deja probablement, ajouter si absent :
+      - ./orthanc/orthanc.json:/etc/orthanc/orthanc.json:rw
+    environment:
+      # Compte Basic auth utilise par auth-service pour POST /tools/reset,
+      # /modalities, /dicom-web/servers. Injecte via env vars pour rester
+      # hors du orthanc.json edite par UI.
+      - ORTHANC__REGISTERED_USERS={"${ORTHANC_ADMIN_USER}":"${ORTHANC_ADMIN_PASS}"}
+      - ORTHANC__AUTHENTICATION_ENABLED=true
+
+  authelia:
+    user: "1000:1000"
+    volumes:
+      - ./authelia/users_database.yml:/config/users_database.yml:rw
+      - ./authelia/configuration.yml:/config/configuration.yml:ro
+
+  auth-service:
+    user: "1000:1000"
+    volumes:
+      # Bind-mount croise : le meme fichier host que orthanc/authelia,
+      # monte en RW cote auth-service pour edition depuis l'admin panel.
+      - ./orthanc/orthanc.json:/host/orthanc.json:rw
+      - ./authelia/users_database.yml:/host/authelia.yml:rw
+      # Volume dedie aux backups rotatifs (10 derniers par fichier)
+      - ./data/admin-backups:/host/backups:rw
+    environment:
+      # Credentials pour parler a Orthanc en Basic auth
+      - ORTHANC_ADMIN_USER=${ORTHANC_ADMIN_USER}
+      - ORTHANC_ADMIN_PASS=${ORTHANC_ADMIN_PASS}
+      - ORTHANC_URL=http://orthanc:8042
+      # Redis (probablement deja injecte)
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      # Versions (deja injectees dans le chantier precedent)
+      - IMAGE_VERSION=${IMAGE_VERSION}
+      - ASSET_VERSION=${ASSET_VERSION}
