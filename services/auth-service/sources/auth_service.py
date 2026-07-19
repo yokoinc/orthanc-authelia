@@ -256,6 +256,27 @@ USER_ROLES = {
 # Redis connection
 redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
 
+# ============================================================================
+# Admin/setup panel (feat/admin-setup-panel — WIP)
+# ============================================================================
+# admin_module utilise un client Redis async (aioredis) car ses endpoints
+# sont async. On l'initialise separement en partageant la meme DB Redis.
+# Le module expose : router, setup_gate, csrf_gate, set_redis.
+try:
+    import redis.asyncio as aioredis
+    import admin_module
+
+    _admin_redis = aioredis.Redis(
+        host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True,
+    )
+    admin_module.set_redis(_admin_redis)
+    app.include_router(admin_module.router)
+    app.middleware("http")(admin_module.setup_gate)
+    app.middleware("http")(admin_module.csrf_gate)
+    logging.info("admin_module chargé — routes /auth/setup et /auth/admin actives")
+except ImportError as e:
+    logging.warning(f"admin_module non charge : {e} — les routes admin ne seront pas dispo")
+
 def store_token(token: str, token_data: dict):
     """Store token in Redis with expiration"""
     expiration_time = int(token_data["expires_at"] - time.time())
