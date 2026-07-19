@@ -228,8 +228,8 @@ def _write_authelia(data: dict) -> None:
             reloaded = yaml.safe_load(serialized) or {}
             _validate_authelia(reloaded)
             _atomic_write(AUTHELIA_YML, serialized)
-    except Timeout:
-        raise HTTPException(423, "fichier verrouille par un autre admin, retry dans 5s")
+    except Timeout as e:
+        raise HTTPException(423, "fichier verrouille par un autre admin, retry dans 5s") from e
 
 
 class UserCreatePayload(BaseModel):
@@ -503,15 +503,18 @@ async def update_orthanc_config(
             backup = _backup(ORTHANC_JSON)
             serialized = json.dumps(config, indent=2, ensure_ascii=False) + "\n"
             _atomic_write(ORTHANC_JSON, serialized)
-    except Timeout:
-        raise HTTPException(423, "orthanc.json verrouille, retry")
+    except Timeout as e:
+        raise HTTPException(423, "orthanc.json verrouille, retry") from e
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
     try:
         await _reload_orthanc()
     except httpx.HTTPError as e:
-        raise HTTPException(502, f"reload Orthanc echoue : {e}. Backup dispo pour rollback: {backup.name}")
+        raise HTTPException(
+            502,
+            f"reload Orthanc echoue : {e}. Backup dispo pour rollback: {backup.name}",
+        ) from e
 
     await _audit(
         "orthanc.config.updated",
