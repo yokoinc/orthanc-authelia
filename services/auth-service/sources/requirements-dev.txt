@@ -1,0 +1,10 @@
+# Dependances de tests uniquement (non embarquees dans l'image auth-service).
+# Installer avec :
+#   pip install -r requirements.txt -r requirements-dev.txt
+# Executer :
+#   ORTHANC_ADMIN_USER=test ORTHANC_ADMIN_PASS=test python -m pytest tests/ -v
+
+pytest
+pytest-asyncio
+fakeredis
+respx

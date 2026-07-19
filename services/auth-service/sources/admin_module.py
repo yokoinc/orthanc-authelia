@@ -37,10 +37,9 @@ ORTHANC_URL = os.environ.get("ORTHANC_URL", "http://orthanc:8042")
 ORTHANC_USER = os.environ["ORTHANC_ADMIN_USER"]
 ORTHANC_PASS = os.environ["ORTHANC_ADMIN_PASS"]
 
-AUTHELIA_YML = Path("/host/authelia.yml")
-ORTHANC_JSON = Path("/host/orthanc.json")
-BACKUPS_DIR = Path("/host/backups")
-BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+AUTHELIA_YML = Path(os.getenv("ADMIN_AUTHELIA_PATH", "/host/authelia.yml"))
+ORTHANC_JSON = Path(os.getenv("ADMIN_ORTHANC_PATH", "/host/orthanc.json"))
+BACKUPS_DIR = Path(os.getenv("ADMIN_BACKUPS_DIR", "/host/backups"))
 
 SETUP_KEY = "orthanc_authelia:setup_completed"
 AUDIT_STREAM = "admin:audit"
@@ -74,6 +73,7 @@ def _r() -> aioredis.Redis:
 
 def _backup(path: Path, tag: str = "") -> Path:
     """Copie path vers backups/{name}.bak.{ts}[.tag], rotation 10 derniers."""
+    BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     suffix = f".bak.{ts}" + (f".{tag}" if tag else "")
     dest = BACKUPS_DIR / (path.name + suffix)
