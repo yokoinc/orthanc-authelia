@@ -773,8 +773,8 @@ body {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     padding: 0;
     background-color: rgb(75, 79, 84);
     border: none;
@@ -783,11 +783,22 @@ body {
     cursor: pointer;
     line-height: 1;
     transition: background-color 0.15s, color 0.15s;
+    /* Reset base font-size pour que les icones FA rendent a taille fixe
+       quel que soit l'heritage de la cellule (10-14px selon densite). */
+    font-size: 0;
 }
-/* Font Awesome <i> a l'interieur des boutons d'action: taille reduite pour
-   rester proportionnee dans un bouton de 24x24. Sans ca, la taille par
-   defaut (1em du parent) donne un glyph disproportionne. */
-.btn-action i { font-size: 10px; }
+/* Font Awesome <i>: taille fixe 12px avec width+height explicites. Le
+   `font-size: 0` sur le parent evite tout heritage indesirable, et on set
+   la taille sur le glyph directement. */
+.btn-action i {
+    font-size: 12px;
+    line-height: 1;
+    width: 12px;
+    height: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
 .btn-action:hover {
     background-color: rgb(90, 95, 100);
     color: #fff;
