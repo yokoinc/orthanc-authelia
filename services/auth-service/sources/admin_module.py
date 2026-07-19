@@ -12,6 +12,7 @@ Prerequis env vars : ORTHANC_ADMIN_USER, ORTHANC_ADMIN_PASS, ORTHANC_URL, REDIS_
 
 import json
 import os
+import re
 import secrets as pysecrets
 import shutil
 import time
@@ -24,9 +25,10 @@ import redis.asyncio as aioredis
 import yaml
 from argon2 import PasswordHasher
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from filelock import FileLock, Timeout
 from pydantic import BaseModel, EmailStr, Field
+from redis.exceptions import RedisError
 
 
 # ============================================================================
@@ -42,8 +44,28 @@ ORTHANC_JSON = Path(os.getenv("ADMIN_ORTHANC_PATH", "/host/orthanc.json"))
 BACKUPS_DIR = Path(os.getenv("ADMIN_BACKUPS_DIR", "/host/backups"))
 
 SETUP_KEY = "orthanc_authelia:setup_completed"
+SETUP_FIRST_ADMIN_KEY = "orthanc_authelia:setup_first_admin_created"
 AUDIT_STREAM = "admin:audit"
 CSRF_COOKIE = "orthanc_admin_csrf"
+
+TEMPLATES_DIR = Path(os.getenv("ADMIN_TEMPLATES_DIR", "/app/templates"))
+ASSET_VERSION = os.getenv("ASSET_VERSION", str(int(time.time())))
+IMAGE_VERSION = os.getenv("IMAGE_VERSION", "dev")
+_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
+
+
+def _render(template_name: str, **kwargs) -> str:
+    """
+    Rendu minimal {placeholder} → valeur, meme convention que auth_service.py.
+    Les placeholders inconnus sont laisses tels quels (utile pour du JS avec {}).
+    """
+    kwargs.setdefault("asset_version", ASSET_VERSION)
+    kwargs.setdefault("image_version", IMAGE_VERSION)
+    content = (TEMPLATES_DIR / template_name).read_text(encoding="utf-8")
+    return _PLACEHOLDER_RE.sub(
+        lambda m: str(kwargs[m.group(1)]) if m.group(1) in kwargs else m.group(0),
+        content,
+    )
 
 # argon2id parametres = defaults Authelia (compatibles avec ce qu'il verifie)
 _hasher = PasswordHasher(
@@ -190,9 +212,42 @@ def issue_csrf_cookie(response: Response) -> str:
 # ============================================================================
 
 def _load_authelia() -> dict:
+    """
+    Charge users_database.yml. Leve HTTPException 500 lisible si le YAML est
+    corrompu (edite manuellement de travers) : pointe vers /api/admin/backups
+    pour restaurer un backup connu bon.
+    """
     if not AUTHELIA_YML.exists():
         return {"users": {}}
-    return yaml.safe_load(AUTHELIA_YML.read_text(encoding="utf-8")) or {"users": {}}
+    try:
+        raw = AUTHELIA_YML.read_text(encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(500, f"authelia yml illisible : {e}") from e
+    try:
+        data = yaml.safe_load(raw)
+    except yaml.YAMLError as e:
+        raise HTTPException(
+            500,
+            f"authelia yml corrompu : {e}. Restaurer un backup via "
+            "POST /api/admin/backups/restore.",
+        ) from e
+    return data or {"users": {}}
+
+
+def _load_orthanc_config() -> dict:
+    """Idem pour orthanc.json — meme strategie d'erreur explicite."""
+    try:
+        raw = ORTHANC_JSON.read_text(encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(500, f"orthanc.json illisible : {e}") from e
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            500,
+            f"orthanc.json corrompu : {e}. Restaurer un backup via "
+            "POST /api/admin/backups/restore.",
+        ) from e
 
 
 def _validate_authelia(data: dict) -> None:
@@ -361,11 +416,42 @@ class CFRotatePayload(BaseModel):
 router = APIRouter()
 
 
+@router.get("/auth/setup", response_class=HTMLResponse)
+async def setup_page():
+    """Wizard HTML. setup_gate bloque si deja finalise."""
+    return HTMLResponse(_render("setup.html"))
+
+
+@router.get("/auth/admin", response_class=HTMLResponse)
+async def admin_page(response: Response, admin: AdminUser = Depends(require_admin)):
+    """Hub admin HTML. Pose le cookie CSRF au meme moment."""
+    csrf = pysecrets.token_urlsafe(32)
+    html = _render("admin.html", admin_username=admin.username)
+    resp = HTMLResponse(html)
+    resp.set_cookie(
+        CSRF_COOKIE, csrf,
+        secure=True, httponly=False, samesite="strict", max_age=3600,
+    )
+    return resp
+
+
 @router.post("/auth/setup/create-admin")
 async def setup_create_admin(payload: UserCreatePayload):
-    """Etape 1 : cree le premier admin. Bloque si setup deja finalise."""
+    """
+    Etape 1 : cree LE premier admin. Un seul appel autorise jusqu'a finalize.
+
+    Verrouille apres le 1er succes via SETUP_FIRST_ADMIN_KEY pour empecher un
+    tiers de creer un deuxieme admin en profitant de la fenetre ouverte du wizard.
+    Pour ajouter d'autres admins ensuite : POST /api/admin/users (auth requise).
+    """
     if (await _r().get(SETUP_KEY)) == "1":
         raise HTTPException(409, "setup deja finalise, utiliser /api/admin/users")
+    if (await _r().get(SETUP_FIRST_ADMIN_KEY)) == "1":
+        raise HTTPException(
+            409,
+            "un admin a deja ete cree — finaliser le setup (POST /auth/setup/finalize) "
+            "puis utiliser /api/admin/users pour en ajouter d'autres",
+        )
     if "admins" not in payload.groups:
         payload.groups.append("admins")
     data = _load_authelia()
@@ -379,6 +465,8 @@ async def setup_create_admin(payload: UserCreatePayload):
         "groups": payload.groups,
     }
     _write_authelia(data)
+    # Verrouille la fenetre : plus qu'un finalize acceptable maintenant
+    await _r().set(SETUP_FIRST_ADMIN_KEY, "1")
     await _audit("setup.admin.created", actor="wizard", target=payload.username)
     return {"ok": True, "username": payload.username}
 
@@ -396,6 +484,7 @@ async def setup_finalize():
     if not admins:
         raise HTTPException(400, "creer d'abord un admin (POST /auth/setup/create-admin)")
     await _r().set(SETUP_KEY, "1")
+    await _r().delete(SETUP_FIRST_ADMIN_KEY)  # verrou setup levee, ne sert plus
     await _audit("setup.finalized", actor="wizard", admin_count=len(admins))
     return {"ok": True, "admins": admins}
 
@@ -473,7 +562,7 @@ async def delete_user(username: str, admin: AdminUser = Depends(require_admin)):
 
 @router.get("/api/admin/orthanc/config")
 async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
-    config = json.loads(ORTHANC_JSON.read_text(encoding="utf-8"))
+    config = _load_orthanc_config()
     # Renvoie uniquement les valeurs editables (whitelist)
     result = {}
     for dotted in ORTHANC_EDITABLE_PATHS:
@@ -496,7 +585,7 @@ async def update_orthanc_config(
     lock = FileLock(str(ORTHANC_JSON) + ".lock", timeout=5)
     try:
         with lock:
-            config = json.loads(ORTHANC_JSON.read_text(encoding="utf-8"))
+            config = _load_orthanc_config()  # gere JSON corrompu
             for path, value in payload.changes.items():
                 _apply_scalar_change(config, path, value)
             _validate_orthanc(config)
@@ -508,12 +597,39 @@ async def update_orthanc_config(
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
+    reset_error = None
     try:
         await _reload_orthanc()
     except httpx.HTTPError as e:
+        # Auto-rollback : restaurer le backup et retenter le reset
+        reset_error = str(e)
+        try:
+            shutil.copy2(backup, ORTHANC_JSON)
+            await _reload_orthanc()
+        except (httpx.HTTPError, OSError) as rollback_err:
+            await _audit(
+                "orthanc.config.rollback_failed",
+                admin.username,
+                original_error=reset_error,
+                rollback_error=str(rollback_err),
+                backup=backup.name,
+            )
+            raise HTTPException(
+                502,
+                f"reload Orthanc echoue ({reset_error}). Rollback auto echoue aussi "
+                f"({rollback_err}). Etat incoherent, restauration manuelle requise : "
+                f"backup={backup.name}",
+            ) from e
+        await _audit(
+            "orthanc.config.rolled_back",
+            admin.username,
+            reason=reset_error,
+            backup=backup.name,
+        )
         raise HTTPException(
             502,
-            f"reload Orthanc echoue : {e}. Backup dispo pour rollback: {backup.name}",
+            f"reload Orthanc echoue ({reset_error}). Rollback automatique effectue "
+            f"depuis {backup.name}. Config restee dans l'etat precedent.",
         ) from e
 
     await _audit(
@@ -572,9 +688,19 @@ async def verify_cf(
     x_cf_client_id: str = Header(default=""),
     x_cf_client_secret: str = Header(default=""),
 ):
-    """Compare les headers CF avec les valeurs stockees en Redis."""
-    expected_id = await _r().get(CF_ID_KEY)
-    expected_secret = await _r().get(CF_SECRET_KEY)
+    """
+    Compare les headers CF avec les valeurs stockees en Redis.
+
+    Fail closed : si Redis est indisponible, on renvoie 403 (pas 500) pour que
+    nginx bloque l'upload. Mieux vaut refuser un upload legitime pendant une
+    panne Redis que laisser passer un secret pendant un blackout.
+    """
+    try:
+        expected_id = await _r().get(CF_ID_KEY)
+        expected_secret = await _r().get(CF_SECRET_KEY)
+    except RedisError:
+        return Response(status_code=403)  # fail closed
+
     if not expected_id or not expected_secret:
         return Response(status_code=503)  # pas configure
 
@@ -583,8 +709,63 @@ async def verify_cf(
     if not pysecrets.compare_digest(x_cf_client_secret, expected_secret):
         return Response(status_code=403)
 
-    await _r().incr("cf_access:checks_ok:24h")  # metrique compte-tour
+    # Metrique compte-tour — echec silencieux si Redis flaky ici, pas critique
+    try:
+        await _r().incr("cf_access:checks_ok:24h")
+    except RedisError:
+        pass
     return Response(status_code=204)
+
+
+# ============================================================================
+# Route : /api/admin/health (verifie Redis + Orthanc + fichiers config)
+# ============================================================================
+
+@router.get("/api/admin/health")
+async def admin_health(admin: AdminUser = Depends(require_admin)):
+    """
+    Diagnostic pour l'onglet Health : etat des dependances de auth-service.
+
+    Retourne 200 avec un dict par composant ({ok: bool, detail: str}), meme
+    si certains composants sont KO — c'est le job de l'UI de decider quoi
+    montrer. On evite 503 global qui masquerait quel composant est en cause.
+    """
+    checks = {}
+
+    # Redis
+    try:
+        pong = await _r().ping()
+        checks["redis"] = {"ok": bool(pong), "detail": "PONG"}
+    except RedisError as e:
+        checks["redis"] = {"ok": False, "detail": f"RedisError: {e}"}
+
+    # Fichiers config lisibles + parseables
+    try:
+        _load_authelia()
+        checks["authelia_yml"] = {"ok": True, "detail": str(AUTHELIA_YML)}
+    except FileNotFoundError:
+        checks["authelia_yml"] = {"ok": False, "detail": "fichier absent"}
+    except (yaml.YAMLError, OSError) as e:
+        checks["authelia_yml"] = {"ok": False, "detail": f"parse error: {e}"}
+
+    try:
+        if ORTHANC_JSON.exists():
+            json.loads(ORTHANC_JSON.read_text(encoding="utf-8"))
+            checks["orthanc_json"] = {"ok": True, "detail": str(ORTHANC_JSON)}
+        else:
+            checks["orthanc_json"] = {"ok": False, "detail": "fichier absent"}
+    except (json.JSONDecodeError, OSError) as e:
+        checks["orthanc_json"] = {"ok": False, "detail": f"parse error: {e}"}
+
+    # Orthanc API accessible (endpoint /system, moins invasif que /tools/reset)
+    try:
+        async with httpx.AsyncClient(timeout=3) as c:
+            r = await c.get(f"{ORTHANC_URL}/system", auth=(ORTHANC_USER, ORTHANC_PASS))
+            checks["orthanc_api"] = {"ok": r.status_code == 200, "detail": f"HTTP {r.status_code}"}
+    except httpx.HTTPError as e:
+        checks["orthanc_api"] = {"ok": False, "detail": f"HTTPError: {e}"}
+
+    return {"checks": checks}
 
 
 # ============================================================================

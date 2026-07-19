@@ -1,12 +1,43 @@
 # Additions au docker-compose.yml existant.
 # A merger ou renommer en docker-compose.override.yml pour surcharge automatique.
 #
-# Prerequis one-shot sur le NAS avant premier up :
-#   sudo chown -R 1000:1000 ./orthanc ./authelia
+# ============================================================================
+# Prerequis one-shot sur le NAS avant premier up
+# ============================================================================
+#
+# 1) Compte Orthanc dedie a auth-service (dans .env, non-editable via UI)
 #   grep -q ORTHANC_ADMIN_USER .env || cat >> .env <<'EOF'
 #   ORTHANC_ADMIN_USER=svc-auth
 #   ORTHANC_ADMIN_PASS=$(openssl rand -hex 32)
 #   EOF
+#
+# 2) Permissions bind-mounts (UID 1000)
+#
+# --- Linux natif / Docker Desktop / la plupart des NAS :
+#   sudo chown -R 1000:1000 ./orthanc ./authelia ./data/admin-backups
+#
+# --- Synology DSM (specifique) :
+#   DSM utilise des ACL Btrfs. `chown` classique peut etre partiellement
+#   ecrase par l'ACL par defaut du partage. Deux options :
+#
+#   a) Le plus simple : creer les dossiers depuis File Station en tant que
+#      l'utilisateur qui execute Docker (souvent 'docker' ou ton user perso),
+#      puis via SSH :
+#        sudo synoacltool -del ./orthanc/orthanc.json
+#        sudo synoacltool -del ./authelia/users_database.yml
+#        sudo chown 1000:1000 ./orthanc/orthanc.json ./authelia/users_database.yml
+#        sudo chmod 660 ./orthanc/orthanc.json ./authelia/users_database.yml
+#
+#   b) Plus propre : mettre les fichiers dans un volume Docker natif (pas
+#      un partage DSM). Ex : `- orthanc-config:/etc/orthanc/orthanc.json`
+#      avec `volumes: orthanc-config: {}` en haut. Perd la commodite du File
+#      Station mais aucun probleme d'ACL.
+#
+#   Verification :
+#     docker exec orthanc id            # doit sortir uid=1000
+#     docker exec auth-service id       # doit sortir uid=1000
+#     docker exec auth-service ls -l /host/orthanc.json
+#     # -> -rw-rw---- 1 1000 1000
 
 services:
   orthanc:

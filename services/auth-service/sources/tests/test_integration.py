@@ -17,6 +17,7 @@ import threading
 import time
 
 import fakeredis.aioredis
+import httpx
 import pytest
 import respx
 import yaml
@@ -443,3 +444,222 @@ class TestFileLock:
         # Le fichier n'a PAS ete modifie (le lock a empeche l'ecriture)
         content = json.loads(tmp_paths["orthanc"].read_text())
         assert content["Name"] == valid_orthanc_json["Name"]
+
+
+# ============================================================================
+# Test 7 : Auto-rollback Orthanc quand /tools/reset echoue
+# ============================================================================
+
+class TestAutoRollback:
+
+    def test_rollback_on_reset_failure(
+        self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
+    ):
+        """PATCH → /tools/reset renvoie 500 → rollback auto → 502 mais fichier restore."""
+        # 1er reset (celui qui echoue) puis 2eme (celui du rollback qui reussit)
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            reset_route = mock.post("/tools/reset").mock(
+                side_effect=[
+                    httpx.Response(500, text="orthanc down"),  # 1er appel = KO
+                    httpx.Response(200, json={}),               # 2eme = rollback OK
+                ]
+            )
+
+            r = client.patch("/api/admin/orthanc/config", json={
+                "changes": {"Name": "would-fail"},
+            }, headers=csrf_headers)
+
+            assert r.status_code == 502
+            assert "rollback" in r.text.lower()
+            # Le mock a bien ete appele 2 fois (initial + rollback)
+            assert reset_route.call_count == 2
+
+        # Le fichier est bien revenu au Name initial (rollback effectue)
+        current = json.loads(tmp_paths["orthanc"].read_text())
+        assert current["Name"] == valid_orthanc_json["Name"]
+
+        # Audit trail montre le rollback
+        import asyncio
+        entries = asyncio.run(fake_redis.xrange("admin:audit"))
+        events = [f["event"] for _, f in entries]
+        assert "orthanc.config.rolled_back" in events
+
+
+# ============================================================================
+# Test 8 : Setup wizard verrouille apres 1er create-admin
+# ============================================================================
+
+class TestSetupLockout:
+
+    def test_second_create_admin_refused(self, client, tmp_paths, fake_redis):
+        """Apres 1 create-admin, un 2e appel = 409 tant que non-finalize."""
+        r1 = client.post("/auth/setup/create-admin", json={
+            "username": "first.admin",
+            "displayname": "First",
+            "email": "first@example.com",
+            "password": "premier-admin-1234",
+        })
+        assert r1.status_code == 200
+
+        r2 = client.post("/auth/setup/create-admin", json={
+            "username": "second.admin",
+            "displayname": "Second",
+            "email": "second@example.com",
+            "password": "second-admin-12345",
+        })
+        assert r2.status_code == 409
+        assert "deja ete cree" in r2.text.lower()
+
+    def test_finalize_clears_lock_next_setup_impossible_anyway(
+        self, client, tmp_paths, fake_redis,
+    ):
+        """Apres finalize, le verrou first_admin est supprime (mais setup_gate ferme tout)."""
+        client.post("/auth/setup/create-admin", json={
+            "username": "admin.one",
+            "displayname": "Admin",
+            "email": "a@b.com",
+            "password": "admin-password-1234",
+        })
+        client.post("/auth/setup/finalize")
+
+        import asyncio
+        first_admin_flag = asyncio.run(
+            fake_redis.get("orthanc_authelia:setup_first_admin_created"),
+        )
+        setup_flag = asyncio.run(
+            fake_redis.get("orthanc_authelia:setup_completed"),
+        )
+        assert first_admin_flag is None
+        assert setup_flag == "1"
+
+
+# ============================================================================
+# Test 9 : Redis down = fail closed sur verify-cf
+# ============================================================================
+
+class TestRedisResilience:
+
+    def test_verify_cf_fail_closed_on_redis_error(self, app, tmp_paths, monkeypatch):
+        """Si Redis leve RedisError, verify-cf retourne 403 pas 500."""
+        from redis.exceptions import RedisError
+
+        class BrokenRedis:
+            async def get(self, k):
+                raise RedisError("simulated blackout")
+
+            async def incr(self, k):
+                raise RedisError("simulated blackout")
+
+        admin_module.set_redis(BrokenRedis())
+        c = TestClient(app)
+        r = c.get("/api/internal/verify-cf", headers={
+            "x-cf-client-id": "any", "x-cf-client-secret": "any",
+        })
+        assert r.status_code == 403
+
+
+# ============================================================================
+# Test 10 : YAML/JSON corrompu → 500 lisible avec hint restore
+# ============================================================================
+
+class TestCorruptConfig:
+
+    def test_corrupt_authelia_yml_returns_readable_500(
+        self, client, tmp_paths, fake_redis, csrf_headers,
+    ):
+        """YAML syntaxiquement casse → 500 avec message qui hint le restore."""
+        tmp_paths["authelia"].write_text("users:\n  cuffel: {this is: not: valid: yaml")
+
+        r = client.get("/api/admin/users")
+        assert r.status_code == 500
+        assert "corrompu" in r.text.lower()
+        assert "backups" in r.text.lower()
+
+    def test_corrupt_orthanc_json_returns_readable_500(
+        self, client, tmp_paths, fake_redis, csrf_headers,
+    ):
+        """JSON syntaxiquement casse → 500 avec message restore."""
+        tmp_paths["orthanc"].write_text('{"Name": "unclosed')
+
+        r = client.get("/api/admin/orthanc/config")
+        assert r.status_code == 500
+        assert "corrompu" in r.text.lower()
+        assert "backups" in r.text.lower()
+
+
+# ============================================================================
+# Test 11 : Health endpoint
+# ============================================================================
+
+class TestHealth:
+
+    def test_health_reports_component_status(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, valid_orthanc_json,
+    ):
+        """/api/admin/health renvoie l'etat de chaque composant."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/system").respond(status_code=200, json={"Version": "26.4.2"})
+
+            r = client.get("/api/admin/health")
+            assert r.status_code == 200
+            checks = r.json()["checks"]
+            assert set(checks.keys()) == {"redis", "authelia_yml", "orthanc_json", "orthanc_api"}
+            assert checks["redis"]["ok"] is True
+            assert checks["authelia_yml"]["ok"] is True
+            assert checks["orthanc_json"]["ok"] is True
+            assert checks["orthanc_api"]["ok"] is True
+
+    def test_setup_page_renders_when_setup_not_done(
+        self, client, tmp_paths, fake_redis,
+    ):
+        """GET /auth/setup avant finalize = HTML avec formulaire."""
+        # ADMIN_TEMPLATES_DIR est defini par le lanceur de tests. Si absent, skip.
+        if not (admin_module.TEMPLATES_DIR / "setup.html").exists():
+            import pytest
+            pytest.skip("templates/setup.html absent dans le layout de test")
+
+        r = client.get("/auth/setup")
+        assert r.status_code == 200
+        assert "setup-form" in r.text
+        assert "create-admin" in r.text  # le fetch JS pointe dessus
+
+    def test_setup_page_redirects_when_setup_done(
+        self, client, tmp_paths, fake_redis,
+    ):
+        """GET /auth/setup apres finalize = 302 vers /auth/admin (setup_gate)."""
+        import asyncio
+        asyncio.run(fake_redis.set("orthanc_authelia:setup_completed", "1"))
+
+        r = client.get("/auth/setup", follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["location"] == "/auth/admin"
+
+    def test_admin_page_sets_csrf_cookie(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml,
+    ):
+        """GET /auth/admin apres setup = HTML + cookie orthanc_admin_csrf pose."""
+        if not (admin_module.TEMPLATES_DIR / "admin.html").exists():
+            import pytest
+            pytest.skip("templates/admin.html absent dans le layout de test")
+
+        import asyncio
+        asyncio.run(fake_redis.set("orthanc_authelia:setup_completed", "1"))
+
+        r = client.get("/auth/admin")
+        assert r.status_code == 200
+        # Cookie CSRF pose
+        assert "orthanc_admin_csrf" in r.cookies
+        assert len(r.cookies["orthanc_admin_csrf"]) >= 40
+
+    def test_health_reports_corrupt_orthanc_json(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml,
+    ):
+        """orthanc.json corrompu = health signale KO sur ce composant."""
+        tmp_paths["orthanc"].write_text('{"unclosed')
+
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/system").respond(status_code=200, json={})
+
+            r = client.get("/api/admin/health")
+            assert r.status_code == 200
+            assert r.json()["checks"]["orthanc_json"]["ok"] is False
