@@ -12,7 +12,6 @@ Prerequis env vars : ORTHANC_ADMIN_USER, ORTHANC_ADMIN_PASS, ORTHANC_URL, REDIS_
 
 import json
 import os
-import re
 import secrets as pysecrets
 import shutil
 import time
@@ -24,7 +23,6 @@ import httpx
 import redis.asyncio as aioredis
 import yaml
 from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from filelock import FileLock, Timeout
@@ -190,9 +188,6 @@ def issue_csrf_cookie(response: Response) -> str:
 # ============================================================================
 # Authelia : validation + CRUD users
 # ============================================================================
-
-_USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]{3,32}$")
-
 
 def _load_authelia() -> dict:
     if not AUTHELIA_YML.exists():
