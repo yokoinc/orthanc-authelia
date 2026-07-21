@@ -167,16 +167,21 @@ async def require_admin(request: Request) -> AdminUser:
 
 async def setup_gate(request: Request, call_next):
     """
-    - /auth/setup/* accessible seulement si setup_completed absent
-    - /auth/admin/* accessible seulement si setup_completed present (+ auth admin)
+    - /setup/* accessible seulement si setup_completed absent
+    - /admin/* accessible seulement si setup_completed present (+ auth admin)
     - autres chemins : bypass
+
+    Note : nginx strip le prefixe /auth/ avant de proxy vers auth-service,
+    donc en interne on voit /setup et /admin (pas /auth/setup ou /auth/admin).
+    Les redirects RedirectResponse sont vus par le browser via nginx qui remet
+    le prefix, d'ou "/auth/admin" dans les Location renvoyes.
     """
     path = request.url.path
-    if not (path.startswith("/auth/setup") or path.startswith("/auth/admin")):
+    if not (path.startswith("/setup") or path.startswith("/admin")):
         return await call_next(request)
 
     done = (await _r().get(SETUP_KEY)) == "1"
-    is_setup = path.startswith("/auth/setup")
+    is_setup = path.startswith("/setup")
 
     if is_setup and done:
         return RedirectResponse("/auth/admin", status_code=302)
@@ -430,13 +435,13 @@ class CFRotatePayload(BaseModel):
 router = APIRouter()
 
 
-@router.get("/auth/setup", response_class=HTMLResponse)
+@router.get("/setup", response_class=HTMLResponse)
 async def setup_page():
     """Wizard HTML. setup_gate bloque si deja finalise."""
     return HTMLResponse(_render("setup.html"))
 
 
-@router.get("/auth/admin", response_class=HTMLResponse)
+@router.get("/admin", response_class=HTMLResponse)
 async def admin_page(response: Response, admin: AdminUser = Depends(require_admin)):
     """Hub admin HTML. Pose le cookie CSRF au meme moment."""
     csrf = pysecrets.token_urlsafe(32)
@@ -449,7 +454,7 @@ async def admin_page(response: Response, admin: AdminUser = Depends(require_admi
     return resp
 
 
-@router.post("/auth/setup/create-admin")
+@router.post("/setup/create-admin")
 async def setup_create_admin(payload: UserCreatePayload):
     """
     Etape 1 : cree LE premier admin. Un seul appel autorise jusqu'a finalize.
@@ -485,7 +490,7 @@ async def setup_create_admin(payload: UserCreatePayload):
     return {"ok": True, "username": payload.username}
 
 
-@router.post("/auth/setup/finalize")
+@router.post("/setup/finalize")
 async def setup_finalize():
     """Etape finale : verifie invariant admin actif puis flip le flag."""
     if (await _r().get(SETUP_KEY)) == "1":

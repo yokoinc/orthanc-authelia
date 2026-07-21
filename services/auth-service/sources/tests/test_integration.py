@@ -128,7 +128,7 @@ class TestSetupWizard:
         # (fake_redis est frais, aucune clef)
 
         # Etape 1 : creer le premier admin
-        r = client.post("/auth/setup/create-admin", json={
+        r = client.post("/setup/create-admin", json={
             "username": "cuffel.gregory",
             "displayname": "Gregory Cuffel",
             "email": "cuffel.gregory@gmail.com",
@@ -146,7 +146,7 @@ class TestSetupWizard:
         assert "admins" in yml["users"]["cuffel.gregory"]["groups"]
 
         # Etape 2 : finaliser
-        r = client.post("/auth/setup/finalize")
+        r = client.post("/setup/finalize")
         assert r.status_code == 200
         assert r.json()["admins"] == ["cuffel.gregory"]
 
@@ -156,7 +156,7 @@ class TestSetupWizard:
         assert val == "1"
 
         # Etape 3 : 2eme appel bloque par setup_gate (redirect vers /auth/admin)
-        r = client.post("/auth/setup/create-admin", json={
+        r = client.post("/setup/create-admin", json={
             "username": "someone.else",
             "displayname": "Someone Else",
             "email": "someone@example.com",
@@ -168,13 +168,13 @@ class TestSetupWizard:
     def test_finalize_refused_without_admin(self, client, tmp_paths, fake_redis):
         """Finaliser sans admin actif = 400 (invariant lockout)."""
         # Pas de POST create-admin avant
-        r = client.post("/auth/setup/finalize")
+        r = client.post("/setup/finalize")
         assert r.status_code == 400
         assert "admin" in r.text.lower()
 
     def test_create_admin_forces_admins_group(self, client, tmp_paths, fake_redis):
         """Meme si l'user oublie 'admins' dans groups, on l'ajoute."""
-        r = client.post("/auth/setup/create-admin", json={
+        r = client.post("/setup/create-admin", json={
             "username": "cuffel.gregory",
             "displayname": "Gregory",
             "email": "cuffel@example.com",
@@ -493,7 +493,7 @@ class TestSetupLockout:
 
     def test_second_create_admin_refused(self, client, tmp_paths, fake_redis):
         """Apres 1 create-admin, un 2e appel = 409 tant que non-finalize."""
-        r1 = client.post("/auth/setup/create-admin", json={
+        r1 = client.post("/setup/create-admin", json={
             "username": "first.admin",
             "displayname": "First",
             "email": "first@example.com",
@@ -501,7 +501,7 @@ class TestSetupLockout:
         })
         assert r1.status_code == 200
 
-        r2 = client.post("/auth/setup/create-admin", json={
+        r2 = client.post("/setup/create-admin", json={
             "username": "second.admin",
             "displayname": "Second",
             "email": "second@example.com",
@@ -514,13 +514,13 @@ class TestSetupLockout:
         self, client, tmp_paths, fake_redis,
     ):
         """Apres finalize, le verrou first_admin est supprime (mais setup_gate ferme tout)."""
-        client.post("/auth/setup/create-admin", json={
+        client.post("/setup/create-admin", json={
             "username": "admin.one",
             "displayname": "Admin",
             "email": "a@b.com",
             "password": "admin-password-1234",
         })
-        client.post("/auth/setup/finalize")
+        client.post("/setup/finalize")
 
         import asyncio
         first_admin_flag = asyncio.run(
@@ -618,7 +618,7 @@ class TestHealth:
             import pytest
             pytest.skip("templates/setup.html absent dans le layout de test")
 
-        r = client.get("/auth/setup")
+        r = client.get("/setup")
         assert r.status_code == 200
         assert "setup-form" in r.text
         assert "create-admin" in r.text  # le fetch JS pointe dessus
@@ -630,7 +630,7 @@ class TestHealth:
         import asyncio
         asyncio.run(fake_redis.set("orthanc_authelia:setup_completed", "1"))
 
-        r = client.get("/auth/setup", follow_redirects=False)
+        r = client.get("/setup", follow_redirects=False)
         assert r.status_code == 302
         assert r.headers["location"] == "/auth/admin"
 
@@ -645,7 +645,7 @@ class TestHealth:
         import asyncio
         asyncio.run(fake_redis.set("orthanc_authelia:setup_completed", "1"))
 
-        r = client.get("/auth/admin")
+        r = client.get("/admin")
         assert r.status_code == 200
         # Cookie CSRF pose
         assert "orthanc_admin_csrf" in r.cookies
