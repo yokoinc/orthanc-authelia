@@ -98,6 +98,14 @@
           "Icon": "fas fa-key",
           "Url": "/auth/tokens/manage",
           "Target": "_blank"
+        },
+        {
+          "HttpMethod": "GET",
+          "Id": "admin-panel",
+          "Tooltip": "Administration (users, config, health)",
+          "Icon": "fas fa-shield-halved",
+          "Url": "/auth/admin",
+          "Target": "_blank"
         }
       ],
       "study": [],
