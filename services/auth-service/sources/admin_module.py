@@ -36,8 +36,21 @@ from redis.exceptions import RedisError
 # ============================================================================
 
 ORTHANC_URL = os.environ.get("ORTHANC_URL", "http://orthanc:8042")
-ORTHANC_USER = os.environ["ORTHANC_ADMIN_USER"]
-ORTHANC_PASS = os.environ["ORTHANC_ADMIN_PASS"]
+# Ces creds ne sont VRAIMENT necessaires que pour les endpoints qui parlent
+# a Orthanc (reload, health check). Lecture non-stricte pour eviter un crash
+# a l'import si le container demarre sans que le compose n'ait ete mis a jour.
+# Les endpoints qui les utilisent verifient et retournent 503 si vides.
+ORTHANC_USER = os.environ.get("ORTHANC_ADMIN_USER", "")
+ORTHANC_PASS = os.environ.get("ORTHANC_ADMIN_PASS", "")
+
+
+def _require_orthanc_creds():
+    if not ORTHANC_USER or not ORTHANC_PASS:
+        raise HTTPException(
+            503,
+            "ORTHANC_ADMIN_USER/ORTHANC_ADMIN_PASS non configures dans .env — "
+            "l'endpoint est disponible mais ne peut pas appeler Orthanc",
+        )
 
 AUTHELIA_YML = Path(os.getenv("ADMIN_AUTHELIA_PATH", "/host/authelia.yml"))
 ORTHANC_JSON = Path(os.getenv("ADMIN_ORTHANC_PATH", "/host/orthanc.json"))
@@ -382,6 +395,7 @@ def _validate_orthanc(config: dict) -> None:
 
 async def _reload_orthanc() -> None:
     """POST /tools/reset : Orthanc re-parse le JSON et applique la nouvelle config."""
+    _require_orthanc_creds()
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.post(
             f"{ORTHANC_URL}/tools/reset",
