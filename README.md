@@ -86,74 +86,57 @@ Component versions as defined in `docker-compose.yml` (keep this table in sync w
 
 ### Prerequisites
 
-- Docker Engine 20.10+
-- Docker Compose 2.0+
-- External PostgreSQL database (or use optional local container)
+- Docker Engine 20.10+ with Compose plugin v2
 - 4GB RAM minimum (8GB recommended)
+- openssl (for secret generation, ships with most distros)
 
-### Installation
+### Installation (3 commands)
 
-1. **Clone and setup configuration**:
 ```bash
-git clone <repository-url>
+git clone https://github.com/yokoinc/orthanc-authelia.git
 cd orthanc-authelia
-
-# Copy example files
-cp .env.example .env
-cp docker-compose.yml.example docker-compose.yml
-cp authelia-configuration.yml.example services/authelia/config/configuration.yml
-cp authelia-users.yml.example services/authelia/config/users_database.yml
-cp orthanc.json.example services/orthanc/config/orthanc.json
+./bootstrap.sh && docker compose up -d
 ```
 
-2. **Configure environment** (`.env`):
+`bootstrap.sh` génère un `.env` avec 4 secrets aléatoires (Authelia x3 + Postgres + auth-service), copie les templates Authelia/Orthanc en place, et positionne les permissions. Aucune valeur à saisir à la main.
+
+À partir de là :
+- **Setup wizard** : https://localhost:30443/auth/setup (créer le premier admin)
+- **Orthanc Explorer** : https://localhost:30443/ (après login)
+- **Admin hub** : https://localhost:30443/auth/admin (après login, groupe `admins`)
+
+Le cert TLS est auto-généré self-signed — accepter l'avertissement navigateur au premier accès.
+
+### Réinitialiser complètement
+
 ```bash
-# Set your domain
-DOMAIN=pacs.yourdomain.com
-
-# Generate secrets
-openssl rand -base64 64  # Use for AUTHELIA_SESSION_SECRET
-openssl rand -base64 64  # Use for AUTHELIA_STORAGE_ENCRYPTION_KEY
-openssl rand -base64 64  # Use for AUTHELIA_JWT_SECRET
-
-# Set auth-service credentials
-AUTH_USERNAME=share-user
-AUTH_PASSWORD=your-secure-password
+docker compose down -v      # stop + supprime volumes (data included)
+rm -rf services/authelia/config/{configuration.yml,users_database.yml}
+rm -rf services/orthanc/config/orthanc.json .env docker-compose.yml
+./bootstrap.sh              # regénère tout à neuf
+docker compose up -d
 ```
 
-3. **Setup database**:
-```bash
-# Create network for external PostgreSQL
-docker network create database
+### Advanced : DB PostgreSQL externe
 
-# Connect your PostgreSQL container
-docker network connect database your-postgres-container
+Si tu as déjà un postgres tournant ailleurs, crée un `docker-compose.override.yml` à la racine :
 
-# Update credentials in docker-compose.yml and services/orthanc/config/orthanc.json
+```yaml
+services:
+  postgres:
+    profiles: ["disabled"]    # ne démarre jamais
+  orthanc:
+    networks:
+      - orthanc-network
+      - database              # ton réseau externe existant
+    environment:
+      - ORTHANC__POSTGRESQL__HOST=database
+networks:
+  database:
+    external: true
 ```
 
-See [Database Setup Guide](docs/DATABASE_SETUP.md) for detailed instructions.
-
-4. **Create users**:
-```bash
-./manage-authelia-users.sh
-```
-
-5. **Start the stack**:
-```bash
-docker-compose up -d
-```
-
-### First Login
-
-Access the system at `https://your-domain:30443` (or via your reverse proxy).
-
-Login with the admin account you created:
-1. Access `https://your-domain/auth/` to login
-2. Open OHIF viewer at `https://your-domain/ohif/`
-3. Access Orthanc Explorer 2 at `https://your-domain/ui/`
-4. Upload test DICOM images
-5. Manage tokens at `https://your-domain/auth/tokens/manage` (admin only)
+Voir [Database Setup Guide](docs/DATABASE_SETUP.md) pour plus de détails.
 
 ## Access Points
 
