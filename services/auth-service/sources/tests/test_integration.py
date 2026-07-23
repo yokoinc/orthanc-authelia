@@ -187,36 +187,6 @@ class TestSetupWizard:
 
 
 # ============================================================================
-# Test 2 : CF Access rotate + verify pipeline
-# ============================================================================
-
-class TestCFAccess:
-
-    def test_rotate_snapshots_old_to_history(self, client, fake_redis, csrf_headers):
-        """Ancien couple pousse dans cf_access:history au moment du rotate."""
-        # 1er rotate (client_id min 10 chars)
-        r1 = client.post("/api/admin/cf-access/rotate", json={
-            "client_id": "id-one-abc.access",
-            "client_secret": "1" * 64,
-        }, headers=csrf_headers)
-        assert r1.status_code == 200, r1.text
-        # 2eme rotate
-        r2 = client.post("/api/admin/cf-access/rotate", json={
-            "client_id": "id-two-abc.access",
-            "client_secret": "2" * 64,
-        }, headers=csrf_headers)
-        assert r2.status_code == 200, r2.text
-
-        # History contient au moins l'ancien couple
-        import asyncio
-        length = asyncio.run(fake_redis.llen("cf_access:history"))
-        assert length >= 1
-        first = asyncio.run(fake_redis.lindex("cf_access:history", 0))
-        assert "id-one-abc.access" in first
-        assert "1" * 64 in first
-
-
-# ============================================================================
 # Test 3 : Orthanc config change + reload
 # ============================================================================
 
@@ -325,29 +295,32 @@ class TestBackupRestore:
 
 class TestCSRF:
 
-    def test_post_without_token_refused(self, client, tmp_paths, fake_redis):
+    def test_post_without_token_refused(self, client, tmp_paths, fake_redis, valid_authelia_yml):
         """POST /api/admin/* sans cookie + header CSRF = 403."""
-        r = client.post("/api/admin/cf-access/rotate", json={
-            "client_id": "any-id-here",
-            "client_secret": "s" * 64,
+        r = client.post("/api/admin/users", json={
+            "username": "csrf.victim",
+            "displayname": "CSRF Test",
+            "email": "csrf@example.com",
+            "password": "long-enough-password-123",
         })
         assert r.status_code == 403
         assert "csrf.token" in r.text
 
-    def test_post_with_mismatched_token_refused(self, client, tmp_paths, fake_redis):
+    def test_post_with_mismatched_token_refused(self, client, tmp_paths, fake_redis, valid_authelia_yml):
         """Cookie != header = 403."""
         client.cookies.set("orthanc_admin_csrf", "one-token")
-        r = client.post("/api/admin/cf-access/rotate", json={
-            "client_id": "id",
-            "client_secret": "s" * 64,
+        r = client.post("/api/admin/users", json={
+            "username": "csrf.victim",
+            "displayname": "CSRF Test",
+            "email": "csrf@example.com",
+            "password": "long-enough-password-123",
         }, headers={"x-csrf-token": "other-token"})
         assert r.status_code == 403
         assert "csrf.token" in r.text
 
-    def test_get_bypass_csrf(self, client, tmp_paths, fake_redis):
+    def test_get_bypass_csrf(self, client, tmp_paths, fake_redis, valid_authelia_yml):
         """GET n'est jamais soumis a CSRF (idempotent)."""
-        # GET /api/admin/cf-access sans cookie
-        r = client.get("/api/admin/cf-access")
+        r = client.get("/api/admin/users")
         assert r.status_code == 200  # OK, csrf_gate laisse passer
 
 # ============================================================================

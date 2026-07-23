@@ -415,20 +415,6 @@ class OrthancConfigPayload(BaseModel):
 
 
 # ============================================================================
-# CF Access : verify (auth_request) + rotate + test
-# ============================================================================
-
-CF_ID_KEY = "cf_access:client_id"
-CF_SECRET_KEY = "cf_access:secret"
-CF_HISTORY_KEY = "cf_access:history"
-
-
-class CFRotatePayload(BaseModel):
-    client_id: str = Field(..., min_length=10, max_length=200)
-    client_secret: str = Field(..., min_length=32, max_length=200)
-
-
-# ============================================================================
 # Routes : setup wizard (unauthenticated)
 # ============================================================================
 
@@ -658,44 +644,6 @@ async def update_orthanc_config(
         backup=backup.name,
     )
     return {"ok": True, "backup": backup.name}
-
-
-# ============================================================================
-# Routes : /api/admin/cf-access
-# ============================================================================
-
-@router.get("/api/admin/cf-access")
-async def cf_status(admin: AdminUser = Depends(require_admin)):
-    cid = await _r().get(CF_ID_KEY) or ""
-    secret_exists = bool(await _r().get(CF_SECRET_KEY))
-    history_len = await _r().llen(CF_HISTORY_KEY)
-    return {
-        "client_id_masked": (cid[:8] + "…" + cid[-6:]) if len(cid) > 20 else cid,
-        "secret_configured": secret_exists,
-        "history_length": history_len,
-    }
-
-
-@router.post("/api/admin/cf-access/rotate")
-async def cf_rotate(
-    payload: CFRotatePayload,
-    admin: AdminUser = Depends(require_admin),
-):
-    """Rotation atomique : snapshot old vers history, set new, audit."""
-    old_id = await _r().get(CF_ID_KEY) or ""
-    old_secret = await _r().get(CF_SECRET_KEY) or ""
-    if old_secret:
-        entry = f"{int(time.time())}|{old_id}|{old_secret}"
-        await _r().lpush(CF_HISTORY_KEY, entry)
-        await _r().ltrim(CF_HISTORY_KEY, 0, 9)
-
-    async with _r().pipeline(transaction=True) as pipe:
-        pipe.set(CF_ID_KEY, payload.client_id)
-        pipe.set(CF_SECRET_KEY, payload.client_secret)
-        await pipe.execute()
-
-    await _audit("cf_access.rotated", admin.username, id_prefix=payload.client_id[:8])
-    return {"ok": True, "rotated_at": int(time.time())}
 
 
 # ============================================================================

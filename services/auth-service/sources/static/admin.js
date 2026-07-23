@@ -37,12 +37,11 @@ document.querySelectorAll('.admin-tab').forEach(btn => {
         document.querySelectorAll('.admin-tab').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         const target = btn.dataset.tab;
-        ['users', 'orthanc', 'cf', 'health'].forEach(t => {
+        ['users', 'orthanc', 'health'].forEach(t => {
             document.getElementById('panel-' + t).hidden = (t !== target);
         });
         if (target === 'users') loadUsers();
         if (target === 'orthanc') loadOrthanc();
-        if (target === 'cf') loadCF();
         if (target === 'health') loadHealth();
     });
 });
@@ -143,38 +142,6 @@ document.getElementById('orthanc-form').addEventListener('submit', async (e) => 
             body: { changes },
         });
         showMsg(`Applique. Backup : ${data.backup}`, true);
-    } catch (err) { showMsg(err.message, false); }
-});
-
-// ============ CF ACCESS ============
-async function loadCF() {
-    try {
-        const data = await api('/api/admin/cf-access');
-        document.getElementById('cf-status').innerHTML = `
-            Client ID actuel : <code>${data.client_id_masked || '(non configure)'}</code><br>
-            Secret configure : ${data.secret_configured ? '<span style="color:var(--oe2-success)">oui</span>' : '<span style="color:var(--oe2-danger)">non</span>'}<br>
-            Rotations historisees : ${data.history_length}
-        `;
-    } catch (e) {
-        document.getElementById('cf-status').textContent = 'Erreur : ' + e.message;
-    }
-}
-
-document.getElementById('cf-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    if (!confirm('Rotation atomique. Effet immediat sur la prochaine requete /api-upload/. Continuer ?')) return;
-    const fd = new FormData(e.target);
-    try {
-        await api('/api/admin/cf-access/rotate', {
-            method: 'POST',
-            body: {
-                client_id: fd.get('client_id'),
-                client_secret: fd.get('client_secret'),
-            },
-        });
-        showMsg('Rotation OK, effet immediat', true);
-        e.target.reset();
-        loadCF();
     } catch (err) { showMsg(err.message, false); }
 });
 

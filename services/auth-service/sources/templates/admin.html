@@ -72,9 +72,6 @@
                 <button class="admin-tab" data-tab="orthanc">
                     <i class="fa-solid fa-server"></i> Orthanc config
                 </button>
-                <button class="admin-tab" data-tab="cf">
-                    <i class="fa-solid fa-cloud"></i> Cloudflare Access
-                </button>
                 <button class="admin-tab" data-tab="health">
                     <i class="fa-solid fa-heart-pulse"></i> Health
                 </button>
@@ -120,19 +117,6 @@
                     </div>
                     <button type="submit" class="oe2-btn oe2-btn--primary" style="margin-top:16px">
                         Appliquer &amp; recharger Orthanc
-                    </button>
-                </form>
-            </div>
-
-            <!-- ===== CF ACCESS ===== -->
-            <div class="admin-panel" id="panel-cf" hidden>
-                <h2 style="font-size:14px;margin:0 0 12px">Rotation Cloudflare Access</h2>
-                <div id="cf-status" style="font-size:12px;color:var(--oe2-muted);margin-bottom:16px">Chargement…</div>
-                <form id="cf-form" style="max-width:520px">
-                    <div class="form-row"><label>Nouveau Client ID</label><input name="client_id" required minlength="10"></div>
-                    <div class="form-row"><label>Nouveau Secret</label><input type="password" name="client_secret" required minlength="32"></div>
-                    <button type="submit" class="oe2-btn oe2-btn--primary" style="margin-top:12px">
-                        Rotate (atomique, sans restart)
                     </button>
                 </form>
             </div>
