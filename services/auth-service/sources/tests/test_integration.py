@@ -192,44 +192,6 @@ class TestSetupWizard:
 
 class TestCFAccess:
 
-    def test_rotate_then_verify_matches(self, client, fake_redis, csrf_headers):
-        """POST rotate → GET verify-cf avec nouveaux headers = 204."""
-        r = client.post("/api/admin/cf-access/rotate", json={
-            "client_id": "new-id-ec87a9cb.access",
-            "client_secret": "s" * 64,
-        }, headers=csrf_headers)
-        assert r.status_code == 200
-
-        # Verify avec les nouveaux headers
-        r = client.get("/api/internal/verify-cf", headers={
-            "x-cf-client-id": "new-id-ec87a9cb.access",
-            "x-cf-client-secret": "s" * 64,
-        })
-        assert r.status_code == 204
-
-    def test_verify_wrong_secret_rejected(self, client, fake_redis, csrf_headers):
-        """Verify avec mauvais secret = 403."""
-        # Rotate d'abord (client_id min 10 chars par Field validation)
-        client.post("/api/admin/cf-access/rotate", json={
-            "client_id": "id-abc-with-length.access",
-            "client_secret": "s" * 64,
-        }, headers=csrf_headers)
-
-        # Mauvais secret
-        r = client.get("/api/internal/verify-cf", headers={
-            "x-cf-client-id": "id-abc-with-length.access",
-            "x-cf-client-secret": "w" * 64,
-        })
-        assert r.status_code == 403
-
-    def test_verify_no_config_returns_503(self, client, fake_redis):
-        """Verify sur Redis vide = 503 (pas configure)."""
-        r = client.get("/api/internal/verify-cf", headers={
-            "x-cf-client-id": "any",
-            "x-cf-client-secret": "any",
-        })
-        assert r.status_code == 503
-
     def test_rotate_snapshots_old_to_history(self, client, fake_redis, csrf_headers):
         """Ancien couple pousse dans cf_access:history au moment du rotate."""
         # 1er rotate (client_id min 10 chars)
@@ -388,15 +350,6 @@ class TestCSRF:
         r = client.get("/api/admin/cf-access")
         assert r.status_code == 200  # OK, csrf_gate laisse passer
 
-    def test_internal_verify_bypass_csrf(self, client, fake_redis):
-        """/api/internal/* n'est pas /api/admin/* et bypasse."""
-        r = client.get("/api/internal/verify-cf", headers={
-            "x-cf-client-id": "x", "x-cf-client-secret": "y",
-        })
-        # 503 (pas configure) prouve qu'on a atteint l'endpoint, pas 403 CSRF
-        assert r.status_code == 503
-
-
 # ============================================================================
 # Test 6 : File lock — concurrence write orthanc.json
 # ============================================================================
@@ -534,30 +487,6 @@ class TestSetupLockout:
 
 
 # ============================================================================
-# Test 9 : Redis down = fail closed sur verify-cf
-# ============================================================================
-
-class TestRedisResilience:
-
-    def test_verify_cf_fail_closed_on_redis_error(self, app, tmp_paths, monkeypatch):
-        """Si Redis leve RedisError, verify-cf retourne 403 pas 500."""
-        from redis.exceptions import RedisError
-
-        class BrokenRedis:
-            async def get(self, k):
-                raise RedisError("simulated blackout")
-
-            async def incr(self, k):
-                raise RedisError("simulated blackout")
-
-        admin_module.set_redis(BrokenRedis())
-        c = TestClient(app)
-        r = c.get("/api/internal/verify-cf", headers={
-            "x-cf-client-id": "any", "x-cf-client-secret": "any",
-        })
-        assert r.status_code == 403
-
-
 # ============================================================================
 # Test 10 : YAML/JSON corrompu → 500 lisible avec hint restore
 # ============================================================================

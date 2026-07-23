@@ -24,7 +24,7 @@ import httpx
 import redis.asyncio as aioredis
 import yaml
 from argon2 import PasswordHasher
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from filelock import FileLock, Timeout
 from pydantic import BaseModel, EmailStr, Field
@@ -696,44 +696,6 @@ async def cf_rotate(
 
     await _audit("cf_access.rotated", admin.username, id_prefix=payload.client_id[:8])
     return {"ok": True, "rotated_at": int(time.time())}
-
-
-# ============================================================================
-# Route interne : verify-cf (appelee par nginx auth_request)
-# ============================================================================
-
-@router.get("/api/internal/verify-cf", include_in_schema=False)
-async def verify_cf(
-    x_cf_client_id: str = Header(default=""),
-    x_cf_client_secret: str = Header(default=""),
-):
-    """
-    Compare les headers CF avec les valeurs stockees en Redis.
-
-    Fail closed : si Redis est indisponible, on renvoie 403 (pas 500) pour que
-    nginx bloque l'upload. Mieux vaut refuser un upload legitime pendant une
-    panne Redis que laisser passer un secret pendant un blackout.
-    """
-    try:
-        expected_id = await _r().get(CF_ID_KEY)
-        expected_secret = await _r().get(CF_SECRET_KEY)
-    except RedisError:
-        return Response(status_code=403)  # fail closed
-
-    if not expected_id or not expected_secret:
-        return Response(status_code=503)  # pas configure
-
-    if not pysecrets.compare_digest(x_cf_client_id, expected_id):
-        return Response(status_code=403)
-    if not pysecrets.compare_digest(x_cf_client_secret, expected_secret):
-        return Response(status_code=403)
-
-    # Metrique compte-tour — echec silencieux si Redis flaky ici, pas critique
-    try:
-        await _r().incr("cf_access:checks_ok:24h")
-    except RedisError:
-        pass
-    return Response(status_code=204)
 
 
 # ============================================================================
