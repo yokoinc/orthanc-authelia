@@ -1,27 +1,35 @@
 # ORTHANC-AUTHELIA STANDALONE - Complete medical imaging solution
-# Uses external PostgreSQL database container (or optional local PostgreSQL)
-# Includes Redis, Orthanc, OHIF, Authelia, and Nginx
+# Postgres embarque par defaut = clone + bootstrap.sh + docker compose up
+# Includes PostgreSQL, Redis, Orthanc, OHIF, Authelia, and Nginx
 #
 # =============================================================================
-# SETUP INSTRUCTIONS
+# QUICK START (recommended)
 # =============================================================================
 #
-# 1. Copy this file to docker-compose.yml:
-#    cp docker-compose.yml.example docker-compose.yml
+#   git clone https://github.com/yokoinc/orthanc-authelia.git
+#   cd orthanc-authelia
+#   ./bootstrap.sh              # genere .env + copie templates
+#   docker compose up -d        # demarre les 6 services
 #
-# 2. Copy and configure example files from the root directory:
-#    cp .env.example .env
-#    cp authelia-configuration.yml.example services/authelia/config/configuration.yml
-#    cp authelia-users.yml.example services/authelia/config/users_database.yml
-#    cp orthanc.json.example services/orthanc/config/orthanc.json
+# =============================================================================
+# EXTERNAL DATABASE (advanced)
+# =============================================================================
 #
-# 3. Edit the configuration files with your credentials:
-#    - .env: Update all secrets and passwords
-#    - services/authelia/config/configuration.yml: Update domain and secrets
-#    - services/authelia/config/users_database.yml: Generate user passwords
-#    - services/orthanc/config/orthanc.json: Update PostgreSQL credentials
+# Si tu as deja un postgres separe (autre stack docker, base managee, etc.),
+# cree un docker-compose.override.yml a la racine :
 #
-# 4. See README.md for detailed setup instructions
+#   services:
+#     postgres:
+#       profiles: ["disabled"]     # ne demarre jamais
+#     orthanc:
+#       networks:
+#         - orthanc-network
+#         - database                # ton reseau externe existant
+#       environment:
+#         - ORTHANC__POSTGRESQL__HOST=database
+#   networks:
+#     database:
+#       external: true
 #
 # =============================================================================
 
@@ -44,29 +52,27 @@ services:
       - orthanc-network
 
   # ---------------------------------------------------------------------------
-  # OPTIONAL: Local PostgreSQL (uncomment to use instead of external database)
+  # PostgreSQL embarque : marche out-of-the-box pour un clone frais.
+  # Pour utiliser une DB externe, cf. la section "EXTERNAL DATABASE" en haut.
   # ---------------------------------------------------------------------------
-  # If using local PostgreSQL:
-  # 1. Uncomment the postgres service below
-  # 2. Uncomment the postgres_data volume in the volumes section
-  # 3. Remove the "database" network from orthanc service
-  # 4. Remove the external "database" network definition at the bottom
-  # 5. Update orthanc depends_on to include postgres
-  # 6. Change POSTGRES_HOST to "postgres" in orthanc environment
-  # ---------------------------------------------------------------------------
-
-  # postgres:
-  #   image: postgres:16-alpine
-  #   container_name: orthanc-postgres
-  #   restart: unless-stopped
-  #   environment:
-  #     - POSTGRES_DB=orthanc
-  #     - POSTGRES_USER=orthanc
-  #     - POSTGRES_PASSWORD=change_this_password
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
-  #   networks:
-  #     - orthanc-network
+  postgres:
+    image: postgres:16-alpine
+    container_name: orthanc-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-orthanc}
+      - POSTGRES_USER=${POSTGRES_USER:-orthanc}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-orthanc}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - orthanc-network
 
   # =============================================================================
   # AUTHENTICATION SERVICES
@@ -135,22 +141,27 @@ services:
     depends_on:
       auth-service:
         condition: service_started
-      # postgres:  # Uncomment if using local PostgreSQL
-      #   condition: service_started
+      postgres:
+        condition: service_healthy
     volumes:
       - ./services/orthanc/config/orthanc.json:/etc/orthanc/orthanc.json:ro
     networks:
       - orthanc-network
-      - database  # Remove this line if using local PostgreSQL
     environment:
-      # PostgreSQL credentials kept for backward compatibility / scripts that may
-      # reference them; the actual PostgreSQL config Orthanc uses comes from
-      # the "PostgreSQL" section of orthanc.json (Host/Port/Database/...).
-      - POSTGRES_HOST=database  # Change to "postgres" if using local PostgreSQL
+      # Env vars ORTHANC__* overrident les valeurs du orthanc.json. Ca evite
+      # d'avoir a hardcoder credentials + host dans le JSON, et permet de
+      # basculer d'une DB embarquee a externe juste en changeant .env / override.
+      - ORTHANC__POSTGRESQL__HOST=postgres
+      - ORTHANC__POSTGRESQL__PORT=5432
+      - ORTHANC__POSTGRESQL__DATABASE=${POSTGRES_DB:-orthanc}
+      - ORTHANC__POSTGRESQL__USERNAME=${POSTGRES_USER:-orthanc}
+      - ORTHANC__POSTGRESQL__PASSWORD=${POSTGRES_PASSWORD}
+      # Kept for scripts backward compat (some helpers still read POSTGRES_*)
+      - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
-      - POSTGRES_DB=orthanc
-      - POSTGRES_USER=orthanc
-      - POSTGRES_PASSWORD=change_this_password
+      - POSTGRES_DB=${POSTGRES_DB:-orthanc}
+      - POSTGRES_USER=${POSTGRES_USER:-orthanc}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       # --- Plugin enablement (orthancteam) -----------------------------------
       # orthancteam/orthanc auto-discovers bundled plugins; an env var (or a
       # config section) is required to enable each. Plugins whose orthanc.json
@@ -227,8 +238,8 @@ services:
 volumes:
   nginx-ssl:
     name: orthanc_nginx_ssl
-  # postgres_data:  # Uncomment if using local PostgreSQL
-  #   name: orthanc_postgres_data
+  postgres_data:
+    name: orthanc_postgres_data
 
 # =============================================================================
 # NETWORK CONFIGURATION
@@ -238,6 +249,3 @@ networks:
   orthanc-network:
     name: orthanc-network
     driver: bridge
-  database:  # Remove this section if using local PostgreSQL
-    external: true
-    name: database

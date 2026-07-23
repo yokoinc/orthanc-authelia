@@ -29,12 +29,15 @@
   "PostgreSQL": {
     "EnableIndex": true,
     "EnableStorage": true,
-    "Host": "database",
+    "Host": "postgres",
     "Port": 5432,
     "Database": "orthanc",
-    "Username": "your-postgres-username",
-    "Password": "your-postgres-password"
+    "Username": "orthanc",
+    "Password": "change-this-postgres-password"
   },
+  // Note: les valeurs ci-dessus sont ecrasees en runtime par les env vars
+  // ORTHANC__POSTGRESQL__* injectees par docker-compose.yml a partir du .env.
+  // Modifier ici n'a d'effet que si tu retires les env vars du compose.
 
   // No explicit "Plugins" array here: with orthancteam/orthanc, bundled plugins
   // are auto-discovered from the image's own plugin directory and enabled
