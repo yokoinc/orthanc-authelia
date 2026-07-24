@@ -1,6 +1,14 @@
 # ORTHANC-AUTHELIA - .gitignore
 
 # ===============================================
+# Frontend Vue build artifacts
+# ===============================================
+services/auth-service/frontend/node_modules/
+services/auth-service/frontend/dist/
+services/auth-service/frontend/.vite/
+
+
+# ===============================================
 # Environment and Configuration
 # ===============================================
 

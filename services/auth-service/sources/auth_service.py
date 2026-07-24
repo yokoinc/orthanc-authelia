@@ -21,6 +21,14 @@ security = HTTPBasic()
 # Mount static files
 app.mount("/static", StaticFiles(directory="/app/static"), name="static")
 
+# Mount frontend Vue SPA si presente (skippee si l'image n'a pas ete build
+# avec le stage frontend, ex: dev local sans npm build).
+import os as _os
+if _os.path.isdir("/app/frontend"):
+    # html=True fait que /ui/xxx qui matche pas de fichier renvoie index.html
+    # (indispensable pour un SPA avec vue-router history mode)
+    app.mount("/ui", StaticFiles(directory="/app/frontend", html=True), name="frontend")
+
 # Configuration
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))

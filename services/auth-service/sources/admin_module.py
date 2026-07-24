@@ -167,26 +167,31 @@ async def require_admin(request: Request) -> AdminUser:
 
 async def setup_gate(request: Request, call_next):
     """
-    - /setup/* accessible seulement si setup_completed absent
-    - /admin/* accessible seulement si setup_completed present (+ auth admin)
-    - autres chemins : bypass
+    Redirige entre /auth/setup et /auth/admin selon l'etat du flag Redis
+    setup_completed. S'applique aussi aux paths du SPA Vue (/ui/setup, /ui/admin).
 
-    Note : nginx strip le prefixe /auth/ avant de proxy vers auth-service,
-    donc en interne on voit /setup et /admin (pas /auth/setup ou /auth/admin).
-    Les redirects RedirectResponse sont vus par le browser via nginx qui remet
-    le prefix, d'ou "/auth/admin" dans les Location renvoyes.
+    Nginx strip /auth/ avant de proxy vers auth-service, donc en interne on voit
+    /setup, /admin, /ui/setup, /ui/admin. Les RedirectResponse pointent sur les
+    URLs vues cote browser (avec /auth/ prefix).
     """
     path = request.url.path
-    if not (path.startswith("/setup") or path.startswith("/admin")):
+    is_setup = path.startswith("/setup") or path.startswith("/ui/setup")
+    is_admin = path.startswith("/admin") or path.startswith("/ui/admin")
+    if not (is_setup or is_admin):
         return await call_next(request)
 
     done = (await _r().get(SETUP_KEY)) == "1"
-    is_setup = path.startswith("/setup")
+
+    # Cible du redirect = version /ui/ (SPA Vue) quand la source est /ui/*,
+    # legacy /auth/setup et /auth/admin sinon (retro-compat vieux liens).
+    is_ui = path.startswith("/ui/")
+    target_admin = "/auth/ui/admin" if is_ui else "/auth/admin"
+    target_setup = "/auth/ui/setup" if is_ui else "/auth/setup"
 
     if is_setup and done:
-        return RedirectResponse("/auth/admin", status_code=302)
-    if not is_setup and not done:
-        return RedirectResponse("/auth/setup", status_code=302)
+        return RedirectResponse(target_admin, status_code=302)
+    if is_admin and not done:
+        return RedirectResponse(target_setup, status_code=302)
     return await call_next(request)
 
 
@@ -421,21 +426,40 @@ class OrthancConfigPayload(BaseModel):
 router = APIRouter()
 
 
-@router.get("/setup", response_class=HTMLResponse)
-async def setup_page():
-    """Wizard HTML. setup_gate bloque si deja finalise."""
-    return HTMLResponse(_render("setup.html"))
+@router.get("/setup")
+async def setup_legacy_redirect():
+    """Legacy URL — redirige vers le SPA Vue a /auth/ui/setup."""
+    return RedirectResponse("/auth/ui/setup", status_code=302)
 
 
-@router.get("/admin", response_class=HTMLResponse)
-async def admin_page(response: Response, admin: AdminUser = Depends(require_admin)):
-    """Hub admin HTML. Pose le cookie CSRF au meme moment."""
+@router.get("/admin")
+async def admin_legacy_redirect(admin: AdminUser = Depends(require_admin)):
+    """
+    Legacy URL — redirige vers le SPA Vue a /auth/ui/admin.
+    Pose le cookie CSRF ici parce que c'est le premier point d'entree derriere
+    Authelia auth : le SPA le trouvera au premier fetch() sans avoir a
+    passer par une route dediee.
+    """
     csrf = pysecrets.token_urlsafe(32)
-    html = _render("admin.html", admin_username=admin.username)
-    resp = HTMLResponse(html)
+    resp = RedirectResponse("/auth/ui/admin", status_code=302)
     resp.set_cookie(
         CSRF_COOKIE, csrf,
         secure=True, httponly=False, samesite="strict", max_age=3600,
+    )
+    return resp
+
+
+@router.get("/api/admin/whoami")
+async def admin_whoami(admin: AdminUser = Depends(require_admin)):
+    """
+    Meta d'affichage pour l'AdminHub.vue (nom user, version image).
+    Pose aussi le cookie CSRF si absent — utile si l'utilisateur arrive
+    directement sur /auth/ui/admin (bookmark) sans passer par la redirection.
+    """
+    from fastapi import Response as FastAPIResponse
+    resp = FastAPIResponse(
+        content='{"username":"' + admin.username + '","image_version":"' + IMAGE_VERSION + '"}',
+        media_type="application/json",
     )
     return resp
 

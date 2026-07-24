@@ -511,24 +511,18 @@ class TestHealth:
             assert checks["orthanc_json"]["ok"] is True
             assert checks["orthanc_api"]["ok"] is True
 
-    def test_setup_page_renders_when_setup_not_done(
+    def test_setup_legacy_redirects_to_spa(
         self, client, tmp_paths, fake_redis,
     ):
-        """GET /auth/setup avant finalize = HTML avec formulaire."""
-        # ADMIN_TEMPLATES_DIR est defini par le lanceur de tests. Si absent, skip.
-        if not (admin_module.TEMPLATES_DIR / "setup.html").exists():
-            import pytest
-            pytest.skip("templates/setup.html absent dans le layout de test")
+        """GET /setup avant finalize = 302 vers /auth/ui/setup (SPA Vue)."""
+        r = client.get("/setup", follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["location"] == "/auth/ui/setup"
 
-        r = client.get("/setup")
-        assert r.status_code == 200
-        assert "setup-form" in r.text
-        assert "create-admin" in r.text  # le fetch JS pointe dessus
-
-    def test_setup_page_redirects_when_setup_done(
+    def test_setup_legacy_redirects_to_admin_when_done(
         self, client, tmp_paths, fake_redis,
     ):
-        """GET /auth/setup apres finalize = 302 vers /auth/admin (setup_gate)."""
+        """GET /setup apres finalize = 302 vers /auth/admin (setup_gate)."""
         import asyncio
         asyncio.run(fake_redis.set("orthanc_authelia:setup_completed", "1"))
 
@@ -536,22 +530,31 @@ class TestHealth:
         assert r.status_code == 302
         assert r.headers["location"] == "/auth/admin"
 
-    def test_admin_page_sets_csrf_cookie(
+    def test_admin_legacy_sets_csrf_cookie_and_redirects(
         self, client, tmp_paths, fake_redis, valid_authelia_yml,
     ):
-        """GET /auth/admin apres setup = HTML + cookie orthanc_admin_csrf pose."""
-        if not (admin_module.TEMPLATES_DIR / "admin.html").exists():
-            import pytest
-            pytest.skip("templates/admin.html absent dans le layout de test")
-
+        """GET /admin apres setup = 302 vers /auth/ui/admin + cookie CSRF."""
         import asyncio
         asyncio.run(fake_redis.set("orthanc_authelia:setup_completed", "1"))
 
-        r = client.get("/admin")
-        assert r.status_code == 200
-        # Cookie CSRF pose
+        r = client.get("/admin", follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["location"] == "/auth/ui/admin"
         assert "orthanc_admin_csrf" in r.cookies
         assert len(r.cookies["orthanc_admin_csrf"]) >= 40
+
+    def test_whoami_returns_admin_info(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml,
+    ):
+        """GET /api/admin/whoami = username + image_version pour le SPA."""
+        import asyncio, json
+        asyncio.run(fake_redis.set("orthanc_authelia:setup_completed", "1"))
+
+        r = client.get("/api/admin/whoami")
+        assert r.status_code == 200
+        data = json.loads(r.text)
+        assert "username" in data
+        assert "image_version" in data
 
     def test_health_reports_corrupt_orthanc_json(
         self, client, tmp_paths, fake_redis, valid_authelia_yml,
