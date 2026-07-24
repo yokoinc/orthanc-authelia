@@ -17,6 +17,9 @@ const tabs = [
 const active = ref('users')
 const currentTab = () => tabs.find((t) => t.id === active.value).comp
 
+// URLs runtime (servies par nginx, pas bundled par Vite)
+const logoUrl = '/auth/static/orthanc-logo-official.png'
+
 const imageVersion = ref('dev')
 const adminUsername = ref('admin')
 
@@ -36,7 +39,7 @@ onMounted(async () => {
   <div class="hub">
     <aside class="sidebar">
       <div class="brand">
-        <img src="/auth/static/orthanc-logo-official.png" alt="Orthanc" class="logo">
+        <img :src="logoUrl" alt="Orthanc" class="logo">
         <div class="brand-name">Orthanc</div>
       </div>
       <nav>
