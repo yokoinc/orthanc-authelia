@@ -82,6 +82,15 @@ services:
     image: registry.yokoinc.ovh/orthanc-auth-service:1.0.16
     container_name: orthanc-auth-service
     restart: unless-stopped
+    volumes:
+      # Bind-mounts croises : auth-service edite les MEMES fichiers host que
+      # authelia et orthanc lisent. Sans ces mounts, le panel admin ecrit dans
+      # le filesystem ephemere du container : les users crees ne sont jamais
+      # vus par Authelia et disparaissent au restart.
+      - ./services/authelia/config/users_database.yml:/host/authelia.yml:rw
+      - ./services/orthanc/config/orthanc.json:/host/orthanc.json:rw
+      # Backups rotatifs (10 derniers) crees avant chaque ecriture
+      - ./data/admin-backups:/host/backups:rw
     environment:
       # Essential Configuration (from .env)
       - LANGUAGE=${LANGUAGE}
@@ -91,6 +100,11 @@ services:
       # Version semantique affichee en pied de page du token manager.
       # A synchroniser avec le tag de l'image ci-dessus (1.0.16) a chaque bump.
       - IMAGE_VERSION=1.0.16
+      # Compte Orthanc dedie pour POST /tools/reset (reload config a chaud).
+      # Genere par bootstrap.sh dans .env.
+      - ORTHANC_URL=http://orthanc:8042
+      - ORTHANC_ADMIN_USER=${ORTHANC_ADMIN_USER:-}
+      - ORTHANC_ADMIN_PASS=${ORTHANC_ADMIN_PASS:-}
       # Optional overrides (uncomment in .env if needed)
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - DEFAULT_TOKEN_MAX_USES=${DEFAULT_TOKEN_MAX_USES:-50}

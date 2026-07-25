@@ -74,16 +74,37 @@ else
     S3=$(openssl rand -hex 32)
     PG_PASS=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
     AUTH_PASS=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
+    ORTHANC_PASS=$(openssl rand -hex 32)
 
+    # DOMAIN par defaut : Authelia exige un cookie domain avec au moins un
+    # point (RFC 6265). "localhost" seul est refuse au demarrage.
     sed \
         -e "s|^AUTHELIA_SESSION_SECRET=.*|AUTHELIA_SESSION_SECRET=$S1|" \
         -e "s|^AUTHELIA_STORAGE_ENCRYPTION_KEY=.*|AUTHELIA_STORAGE_ENCRYPTION_KEY=$S2|" \
         -e "s|^AUTHELIA_JWT_SECRET=.*|AUTHELIA_JWT_SECRET=$S3|" \
         -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG_PASS|" \
         -e "s|^AUTH_PASSWORD=.*|AUTH_PASSWORD=$AUTH_PASS|" \
-        -e "s|^DOMAIN=.*|DOMAIN=localhost|" \
+        -e "s|^DOMAIN=.*|DOMAIN=pacs.localhost|" \
         .env.example > .env
-    ok ".env genere avec 4 secrets aleatoires (Authelia x3 + Postgres + Auth)"
+
+    # Compte Orthanc dedie a auth-service (POST /tools/reset). Pas dans
+    # .env.example car specifique au panel admin.
+    {
+        echo ""
+        echo "# Compte Orthanc utilise par auth-service pour recharger la config"
+        echo "ORTHANC_ADMIN_USER=svc-auth"
+        echo "ORTHANC_ADMIN_PASS=$ORTHANC_PASS"
+    } >> .env
+
+    ok ".env genere avec 5 secrets aleatoires (Authelia x3 + Postgres + Orthanc)"
+fi
+
+# ---------------------------------------------------------------------------
+# Dossier des backups admin (rotatifs, crees avant chaque ecriture de config)
+# ---------------------------------------------------------------------------
+if [[ ! -d data/admin-backups ]]; then
+    mkdir -p data/admin-backups
+    ok "data/admin-backups/ cree"
 fi
 
 # ---------------------------------------------------------------------------
@@ -104,6 +125,63 @@ copy_if_missing() {
 copy_if_missing "authelia-configuration.yml.example" "services/authelia/config/configuration.yml"
 copy_if_missing "authelia-users.yml.example"         "services/authelia/config/users_database.yml"
 copy_if_missing "orthanc.json.example"               "services/orthanc/config/orthanc.json"
+
+# ---------------------------------------------------------------------------
+# Substitution des ${VAR} dans la config Authelia
+# ---------------------------------------------------------------------------
+# Authelia ne fait PAS d'expansion shell dans son YAML : les ${AUTHELIA_DOMAIN}
+# et ${REDIS_PORT:-6379} du template restent litteraux et font crasher le
+# demarrage ("option 'domain' is not a valid cookie domain", "cannot parse
+# value as 'int'"). On les substitue ici, une fois, a la copie.
+AUTHELIA_CFG="services/authelia/config/configuration.yml"
+if grep -q '\${' "$AUTHELIA_CFG" 2>/dev/null; then
+    # shellcheck disable=SC1091
+    DOMAIN_VALUE=$(grep '^DOMAIN=' .env | cut -d= -f2-)
+    sed -i \
+        -e "s|\${AUTHELIA_DOMAIN}|${DOMAIN_VALUE}|g" \
+        -e "s|\${REDIS_HOST:-redis}|redis|g" \
+        -e "s|\${REDIS_PORT:-6379}|6379|g" \
+        -e "s|\${REDIS_DB:-0}|0|g" \
+        "$AUTHELIA_CFG"
+    ok "configuration.yml : variables substituees (domaine ${DOMAIN_VALUE}, redis)"
+fi
+
+# ---------------------------------------------------------------------------
+# Hash argon2id valide dans users_database.yml
+# ---------------------------------------------------------------------------
+# Le template contient EXAMPLE_HASH_REPLACE_THIS qui n'est pas un hash argon2
+# parsable : Authelia refuse de demarrer ("argon2 decode error"). On genere
+# un hash reel avec un mot de passe aleatoire jamais affiche — ces comptes
+# de demo sont donc inutilisables, et le setup wizard cree le vrai admin.
+USERS_DB="services/authelia/config/users_database.yml"
+if grep -q 'EXAMPLE_HASH_REPLACE_THIS' "$USERS_DB" 2>/dev/null; then
+    info "Generation d'un hash argon2id (via l'image Authelia)…"
+    THROWAWAY=$(openssl rand -base64 32)
+    REAL_HASH=$(docker run --rm authelia/authelia:4.39.5 \
+        authelia crypto hash generate argon2 --password "$THROWAWAY" 2>/dev/null \
+        | sed 's/^Digest: //')
+    if [[ -n $REAL_HASH ]]; then
+        # Python plutot que sed : le hash contient des $ et / qui cassent
+        # les regex sed (back-references, delimiteurs).
+        REAL_HASH="$REAL_HASH" python3 - "$USERS_DB" <<'PYEOF'
+import os, sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+content = content.replace(
+    "$argon2id$v=19$m=65536,t=3,p=4$EXAMPLE_HASH_REPLACE_THIS",
+    os.environ["REAL_HASH"],
+)
+with open(path, "w") as f:
+    f.write(content)
+PYEOF
+        ok "users_database.yml : hash argon2id valide (comptes demo inutilisables)"
+    else
+        warn "Generation du hash echouee — Authelia refusera de demarrer."
+        warn "Lance manuellement :"
+        warn "  docker run --rm authelia/authelia:4.39.5 authelia crypto hash generate argon2 --password 'x'"
+    fi
+fi
 
 # ---------------------------------------------------------------------------
 # Recap
