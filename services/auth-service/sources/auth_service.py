@@ -25,9 +25,20 @@ app.mount("/static", StaticFiles(directory="/app/static"), name="static")
 # avec le stage frontend, ex: dev local sans npm build).
 import os as _os
 if _os.path.isdir("/app/frontend"):
-    # html=True fait que /ui/xxx qui matche pas de fichier renvoie index.html
-    # (indispensable pour un SPA avec vue-router history mode)
-    app.mount("/ui", StaticFiles(directory="/app/frontend", html=True), name="frontend")
+    app.mount("/ui/assets", StaticFiles(directory="/app/frontend/assets"), name="frontend-assets")
+
+    # Catch-all SPA : n'importe quel /ui/xxx renvoie index.html pour laisser
+    # vue-router (history mode) prendre le relais cote client. Necessaire
+    # parce que StaticFiles html=True ne fallback pas sur les paths inconnus.
+    from fastapi.responses import FileResponse as _FileResponse
+
+    @app.get("/ui/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        return _FileResponse("/app/frontend/index.html")
+
+    @app.get("/ui", include_in_schema=False)
+    async def spa_root():
+        return _FileResponse("/app/frontend/index.html")
 
 # Configuration
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
