@@ -7,6 +7,18 @@ services/auth-service/frontend/node_modules/
 services/auth-service/frontend/dist/
 services/auth-service/frontend/.vite/
 
+# ===============================================
+# Runtime artifacts (generes par les containers)
+# ===============================================
+# Verrous FileLock poses par le panel admin pendant les ecritures
+*.lock
+# Base de sessions Authelia
+services/authelia/config/db.sqlite3
+# Configs generees par bootstrap.sh depuis les .example
+services/authelia/config/configuration.yml
+services/authelia/config/users_database.yml
+services/orthanc/config/orthanc.json
+
 
 # ===============================================
 # Environment and Configuration
