@@ -87,8 +87,16 @@ services:
       # authelia et orthanc lisent. Sans ces mounts, le panel admin ecrit dans
       # le filesystem ephemere du container : les users crees ne sont jamais
       # vus par Authelia et disparaissent au restart.
-      - ./services/authelia/config/users_database.yml:/host/authelia.yml:rw
-      - ./services/orthanc/config/orthanc.json:/host/orthanc.json:rw
+      #
+      # On monte les DOSSIERS, pas les fichiers. Deux raisons :
+      #   1. Les ecritures sont atomiques (write tmp + rename). Un rename sur
+      #      un bind-mount de fichier echoue avec EBUSY — le fichier est un
+      #      point de montage, on ne peut pas le remplacer.
+      #   2. Un rename cree un nouvel inode. Les autres containers qui
+      #      montent le FICHIER resteraient colles a l'ancien inode et ne
+      #      verraient jamais les modifications.
+      - ./services/authelia/config:/host/authelia-config:rw
+      - ./services/orthanc/config:/host/orthanc-config:rw
       # Backups rotatifs (10 derniers) crees avant chaque ecriture
       - ./data/admin-backups:/host/backups:rw
     environment:
@@ -158,7 +166,11 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./services/orthanc/config/orthanc.json:/etc/orthanc/orthanc.json:ro
+      # Dossier, pas fichier : auth-service reecrit orthanc.json via
+      # write-tmp + rename, ce qui cree un nouvel inode. Un bind-mount de
+      # fichier resterait colle a l'ancien inode et POST /tools/reset
+      # rechargerait l'ancienne config. Orthanc scanne /etc/orthanc/*.json.
+      - ./services/orthanc/config:/etc/orthanc:ro
     networks:
       - orthanc-network
     environment:

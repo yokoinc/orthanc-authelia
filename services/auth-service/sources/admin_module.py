@@ -52,8 +52,15 @@ def _require_orthanc_creds():
             "l'endpoint est disponible mais ne peut pas appeler Orthanc",
         )
 
-AUTHELIA_YML = Path(os.getenv("ADMIN_AUTHELIA_PATH", "/host/authelia.yml"))
-ORTHANC_JSON = Path(os.getenv("ADMIN_ORTHANC_PATH", "/host/orthanc.json"))
+# Les dossiers parents sont bind-mountes (pas les fichiers) : les ecritures
+# atomiques font un rename, impossible sur un mount de fichier (EBUSY), et
+# le nouvel inode ne serait pas vu par les autres containers.
+AUTHELIA_YML = Path(
+    os.getenv("ADMIN_AUTHELIA_PATH", "/host/authelia-config/users_database.yml")
+)
+ORTHANC_JSON = Path(
+    os.getenv("ADMIN_ORTHANC_PATH", "/host/orthanc-config/orthanc.json")
+)
 BACKUPS_DIR = Path(os.getenv("ADMIN_BACKUPS_DIR", "/host/backups"))
 
 SETUP_KEY = "orthanc_authelia:setup_completed"
