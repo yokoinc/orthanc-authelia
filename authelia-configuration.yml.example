@@ -77,6 +77,29 @@ access_control:
   default_policy: deny              # Deny access by default (secure)
   
   rules:
+    # --- Console d'administration (namespace /console/) --------------------
+    # Ces deux regles doivent rester EN TETE : Authelia applique la premiere
+    # regle qui correspond, et la regle "^/auth/.*$" plus bas est un bypass
+    # qui court-circuiterait l'authentification si elle etait evaluee avant.
+
+    # Wizard d'installation : accessible sans compte, puisqu'il sert a en
+    # creer un. Le middleware setup_gate (FastAPI) referme l'acces des que
+    # l'installation est finalisee.
+    - domain: ${AUTHELIA_DOMAIN}
+      policy: bypass
+      resources:
+        - "^/console/setup.*$"        # page du wizard
+        - "^/console/assets/.*$"       # JS/CSS necessaires a son affichage
+        - "^/console/api/setup/.*$"    # creation du compte + finalisation
+
+    # Hub d'administration : authentification obligatoire. L'appartenance au
+    # groupe "admins" est verifiee ensuite cote FastAPI.
+    - domain: ${AUTHELIA_DOMAIN}
+      policy: one_factor
+      resources:
+        - "^/console/.*$"
+        - "^/console$"
+
     # Authelia authentication pages - bypass authentication (must be accessible)
     - domain: ${AUTHELIA_DOMAIN}
       policy: bypass                # Allow without authentication

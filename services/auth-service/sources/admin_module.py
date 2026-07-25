@@ -156,31 +156,29 @@ async def require_admin(request: Request) -> AdminUser:
 
 async def setup_gate(request: Request, call_next):
     """
-    Redirige entre /auth/setup et /auth/admin selon l'etat du flag Redis
-    setup_completed. S'applique aussi aux paths du SPA Vue (/ui/setup, /ui/admin).
+    Aiguille entre le wizard et le hub selon le flag Redis setup_completed.
 
-    Nginx strip /auth/ avant de proxy vers auth-service, donc en interne on voit
-    /setup, /admin, /ui/setup, /ui/admin. Les RedirectResponse pointent sur les
-    URLs vues cote browser (avec /auth/ prefix).
+    Nginx expose la console sous /console/ et proxifie vers /ui/... cote
+    auth-service, donc les chemins vus ici sont /ui/setup et /ui/ (le hub).
+    Les redirections, elles, pointent sur les URLs telles que le navigateur
+    les voit, prefixe /console/ inclus.
     """
     path = request.url.path
-    is_setup = path.startswith("/setup") or path.startswith("/ui/setup")
-    is_admin = path.startswith("/admin") or path.startswith("/ui/admin")
-    if not (is_setup or is_admin):
+    if not path.startswith("/ui"):
         return await call_next(request)
 
+    # Les assets ne sont pas des pages : les rediriger casserait le chargement
+    # du SPA sur la page de setup.
+    if path.startswith("/ui/assets"):
+        return await call_next(request)
+
+    is_setup = path.startswith("/ui/setup")
     done = (await _r().get(SETUP_KEY)) == "1"
 
-    # Cible du redirect = version /ui/ (SPA Vue) quand la source est /ui/*,
-    # legacy /auth/setup et /auth/admin sinon (retro-compat vieux liens).
-    is_ui = path.startswith("/ui/")
-    target_admin = "/auth/ui/admin" if is_ui else "/auth/admin"
-    target_setup = "/auth/ui/setup" if is_ui else "/auth/setup"
-
     if is_setup and done:
-        return RedirectResponse(target_admin, status_code=302)
-    if is_admin and not done:
-        return RedirectResponse(target_setup, status_code=302)
+        return RedirectResponse("/console/", status_code=302)
+    if not is_setup and not done:
+        return RedirectResponse("/console/setup", status_code=302)
     return await call_next(request)
 
 
@@ -415,40 +413,22 @@ class OrthancConfigPayload(BaseModel):
 router = APIRouter()
 
 
-@router.get("/setup")
-async def setup_legacy_redirect():
-    """Legacy URL — redirige vers le SPA Vue a /auth/ui/setup."""
-    return RedirectResponse("/auth/ui/setup", status_code=302)
-
-
-@router.get("/admin")
-async def admin_legacy_redirect(admin: AdminUser = Depends(require_admin)):
-    """
-    Legacy URL — redirige vers le SPA Vue a /auth/ui/admin.
-    Pose le cookie CSRF ici parce que c'est le premier point d'entree derriere
-    Authelia auth : le SPA le trouvera au premier fetch() sans avoir a
-    passer par une route dediee.
-    """
-    csrf = pysecrets.token_urlsafe(32)
-    resp = RedirectResponse("/auth/ui/admin", status_code=302)
-    resp.set_cookie(
-        CSRF_COOKIE, csrf,
-        secure=True, httponly=False, samesite="strict", max_age=3600,
-    )
-    return resp
-
-
 @router.get("/api/admin/whoami")
 async def admin_whoami(admin: AdminUser = Depends(require_admin)):
     """
-    Meta d'affichage pour l'AdminHub.vue (nom user, version image).
-    Pose aussi le cookie CSRF si absent — utile si l'utilisateur arrive
-    directement sur /auth/ui/admin (bookmark) sans passer par la redirection.
+    Identite et version, consommees par le hub au chargement.
+
+    C'est aussi ici qu'est pose le cookie CSRF : le SPA etant servi comme un
+    fichier statique, aucune route ne le rend cote serveur. whoami est le
+    premier appel authentifie du hub, donc le bon endroit pour l'emettre.
     """
-    from fastapi import Response as FastAPIResponse
-    resp = FastAPIResponse(
-        content='{"username":"' + admin.username + '","image_version":"' + IMAGE_VERSION + '"}',
-        media_type="application/json",
+    csrf = pysecrets.token_urlsafe(32)
+    resp = JSONResponse(
+        {"username": admin.username, "image_version": IMAGE_VERSION},
+    )
+    resp.set_cookie(
+        CSRF_COOKIE, csrf,
+        secure=True, httponly=False, samesite="strict", max_age=3600,
     )
     return resp
 

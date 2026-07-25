@@ -15,7 +15,7 @@ const newUser = reactive({
 async function load() {
   loading.value = true
   try {
-    const data = await api('/api/admin/users')
+    const data = await api('/console/api/admin/users')
     users.value = data.users
   } catch (e) {
     ui.notify('Erreur chargement users : ' + e.message, 'err')
@@ -26,7 +26,7 @@ async function load() {
 
 async function addUser() {
   try {
-    await api('/api/admin/users', { method: 'POST', body: { ...newUser } })
+    await api('/console/api/admin/users', { method: 'POST', body: { ...newUser } })
     ui.notify('User cree, Authelia reload dans ~2s', 'ok')
     Object.assign(newUser, {
       username: '', displayname: '', email: '', password: '',
@@ -42,7 +42,7 @@ async function addUser() {
 async function deleteUser(username) {
   if (!confirm(`Supprimer l'utilisateur "${username}" ?`)) return
   try {
-    await api(`/api/admin/users/${encodeURIComponent(username)}`, { method: 'DELETE' })
+    await api(`/console/api/admin/users/${encodeURIComponent(username)}`, { method: 'DELETE' })
     ui.notify(`${username} supprime`, 'ok')
     load()
   } catch (e) {

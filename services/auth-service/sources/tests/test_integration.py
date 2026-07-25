@@ -155,15 +155,16 @@ class TestSetupWizard:
         val = asyncio.run(fake_redis.get("orthanc_authelia:setup_completed"))
         assert val == "1"
 
-        # Etape 3 : 2eme appel bloque par setup_gate (redirect vers /auth/admin)
+        # Etape 3 : un 2eme appel est refuse. Le middleware ne redirige que les
+        # pages du SPA ; une API doit repondre une erreur JSON, pas un 302.
         r = client.post("/setup/create-admin", json={
             "username": "someone.else",
             "displayname": "Someone Else",
             "email": "someone@example.com",
             "password": "another-password-12345",
-        }, follow_redirects=False)
-        assert r.status_code == 302
-        assert r.headers["location"] == "/auth/admin"
+        })
+        assert r.status_code == 409
+        assert "deja finalise" in r.text.lower()
 
     def test_finalize_refused_without_admin(self, client, tmp_paths, fake_redis):
         """Finaliser sans admin actif = 400 (invariant lockout)."""
@@ -511,42 +512,36 @@ class TestHealth:
             assert checks["orthanc_json"]["ok"] is True
             assert checks["orthanc_api"]["ok"] is True
 
-    def test_setup_legacy_redirects_to_spa(
+    def test_ui_redirects_to_setup_when_not_done(
         self, client, tmp_paths, fake_redis,
     ):
-        """GET /setup avant finalize = 302 vers /auth/ui/setup (SPA Vue)."""
-        r = client.get("/setup", follow_redirects=False)
+        """Le hub renvoie vers le wizard tant que l'installation n'est pas faite."""
+        r = client.get("/ui/", follow_redirects=False)
         assert r.status_code == 302
-        assert r.headers["location"] == "/auth/ui/setup"
+        assert r.headers["location"] == "/console/setup"
 
-    def test_setup_legacy_redirects_to_admin_when_done(
+    def test_ui_setup_redirects_to_hub_when_done(
         self, client, tmp_paths, fake_redis,
     ):
-        """GET /setup apres finalize = 302 vers /auth/admin (setup_gate)."""
+        """Une fois finalise, le wizard renvoie vers le hub."""
         import asyncio
         asyncio.run(fake_redis.set("orthanc_authelia:setup_completed", "1"))
 
-        r = client.get("/setup", follow_redirects=False)
+        r = client.get("/ui/setup", follow_redirects=False)
         assert r.status_code == 302
-        assert r.headers["location"] == "/auth/admin"
+        assert r.headers["location"] == "/console/"
 
-    def test_admin_legacy_sets_csrf_cookie_and_redirects(
+    def test_ui_assets_never_redirected(
+        self, client, tmp_paths, fake_redis,
+    ):
+        """Les assets echappent au middleware, sinon le SPA ne charge pas."""
+        r = client.get("/ui/assets/index-abc123.js", follow_redirects=False)
+        assert r.status_code != 302
+
+    def test_whoami_returns_info_and_csrf_cookie(
         self, client, tmp_paths, fake_redis, valid_authelia_yml,
     ):
-        """GET /admin apres setup = 302 vers /auth/ui/admin + cookie CSRF."""
-        import asyncio
-        asyncio.run(fake_redis.set("orthanc_authelia:setup_completed", "1"))
-
-        r = client.get("/admin", follow_redirects=False)
-        assert r.status_code == 302
-        assert r.headers["location"] == "/auth/ui/admin"
-        assert "orthanc_admin_csrf" in r.cookies
-        assert len(r.cookies["orthanc_admin_csrf"]) >= 40
-
-    def test_whoami_returns_admin_info(
-        self, client, tmp_paths, fake_redis, valid_authelia_yml,
-    ):
-        """GET /api/admin/whoami = username + image_version pour le SPA."""
+        """whoami fournit l'identite au SPA et pose le cookie CSRF."""
         import asyncio, json
         asyncio.run(fake_redis.set("orthanc_authelia:setup_completed", "1"))
 
@@ -555,6 +550,8 @@ class TestHealth:
         data = json.loads(r.text)
         assert "username" in data
         assert "image_version" in data
+        assert "orthanc_admin_csrf" in r.cookies
+        assert len(r.cookies["orthanc_admin_csrf"]) >= 40
 
     def test_health_reports_corrupt_orthanc_json(
         self, client, tmp_paths, fake_redis, valid_authelia_yml,

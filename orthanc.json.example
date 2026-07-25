@@ -107,7 +107,7 @@
           "Id": "admin-panel",
           "Tooltip": "Administration (users, config, health)",
           "Icon": "fas fa-shield-halved",
-          "Url": "/auth/admin",
+          "Url": "/console/",
           "Target": "_blank"
         }
       ],

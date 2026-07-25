@@ -22,7 +22,7 @@ function isModified(key) {
 async function load() {
   loading.value = true
   try {
-    const data = await api('/api/admin/orthanc/config')
+    const data = await api('/console/api/admin/orthanc/config')
     fields.value = { ...data.editable }
     originalFields.value = JSON.parse(JSON.stringify(data.editable))
   } catch (e) {
@@ -43,7 +43,7 @@ async function save() {
   }
   saving.value = true
   try {
-    const r = await api('/api/admin/orthanc/config', {
+    const r = await api('/console/api/admin/orthanc/config', {
       method: 'PATCH', body: { changes },
     })
     ui.notify(`Applique. Backup : ${r.backup}`, 'ok')

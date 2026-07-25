@@ -6,7 +6,7 @@ import vue from '@vitejs/plugin-vue'
 // catch-all qui renvoie index.html pour toute route SPA.
 export default defineConfig({
   plugins: [vue()],
-  base: '/auth/ui/',   // les assets sont servis sous /auth/ui/assets/*
+  base: '/console/',   // les assets sont servis sous /console/assets/*
   build: {
     outDir: 'dist',
     emptyOutDir: true,
@@ -19,7 +19,7 @@ export default defineConfig({
     // En dev (npm run dev), proxy les /api/* vers l'auth-service local
     // pour developper le frontend contre le vrai backend Python.
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/console/api': 'http://localhost:8000',
     },
   },
 })

@@ -26,7 +26,7 @@ const adminUsername = ref('admin')
 onMounted(async () => {
   // Ces infos sont exposees par une nouvelle route /api/admin/whoami
   try {
-    const meta = await api('/api/admin/whoami')
+    const meta = await api('/console/api/admin/whoami')
     imageVersion.value = meta.image_version || 'dev'
     adminUsername.value = meta.username || 'admin'
   } catch {

@@ -10,7 +10,7 @@ const loading = ref(true)
 async function load() {
   loading.value = true
   try {
-    const data = await api('/api/admin/health')
+    const data = await api('/console/api/admin/health')
     checks.value = data.checks
   } catch (e) {
     ui.notify('Erreur health : ' + e.message, 'err')

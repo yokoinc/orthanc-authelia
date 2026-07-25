@@ -36,7 +36,7 @@ async function submit() {
   if (!canSubmit.value) return
   submitting.value = true
   try {
-    await api('/auth/setup/create-admin', {
+    await api('/console/api/setup/create-admin', {
       method: 'POST',
       body: {
         username: form.username,
@@ -46,9 +46,9 @@ async function submit() {
         groups: ['admins'],
       },
     })
-    await api('/auth/setup/finalize', { method: 'POST' })
+    await api('/console/api/setup/finalize', { method: 'POST' })
     ui.notify('Admin cree, redirection vers /auth/admin…', 'ok')
-    setTimeout(() => { window.location.href = '/auth/admin' }, 1500)
+    setTimeout(() => { window.location.href = '/console/' }, 1500)
   } catch (e) {
     ui.notify(e.message, 'err')
     submitting.value = false

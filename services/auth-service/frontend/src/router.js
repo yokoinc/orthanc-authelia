@@ -2,16 +2,15 @@ import { createRouter, createWebHistory } from 'vue-router'
 import SetupWizard from './views/SetupWizard.vue'
 import AdminHub from './views/AdminHub.vue'
 
-// Base = /auth/ui/ pour rester derriere le prefix nginx qui strip /auth/
-// et envoie /ui/... a auth-service. Les vraies URLs cote browser :
-//   /auth/ui/setup  → wizard
-//   /auth/ui/admin  → hub
+// Namespace /console/ dedie, distinct de /auth/ qui appartient a Authelia.
+// URLs cote navigateur :
+//   /console/        → hub admin  (authentification requise)
+//   /console/setup   → wizard     (accessible sans compte)
 const router = createRouter({
-  history: createWebHistory('/auth/ui/'),
+  history: createWebHistory('/console/'),
   routes: [
-    { path: '/', redirect: '/admin' },
+    { path: '/', component: AdminHub, meta: { title: 'Administration' } },
     { path: '/setup', component: SetupWizard, meta: { title: 'Configuration initiale' } },
-    { path: '/admin', component: AdminHub, meta: { title: 'Administration' } },
   ],
 })
 
