@@ -1,10 +1,8 @@
 <script setup>
 import { ref, reactive, computed } from 'vue'
-import { useRouter } from 'vue-router'
 import { api } from '../api.js'
 import { useUiStore } from '../stores/ui.js'
 
-const router = useRouter()
 const ui = useUiStore()
 
 const form = reactive({
@@ -19,14 +17,20 @@ const submitting = ref(false)
 const passwordsMatch = computed(
   () => form.password === form.password2 && form.password.length >= 12,
 )
-const canSubmit = computed(
-  () =>
-    form.username.length >= 3 &&
-    form.displayname.length > 0 &&
-    form.email.includes('@') &&
-    passwordsMatch.value &&
-    !submitting.value,
-)
+
+// Liste ce qui empeche encore la soumission, pour l'afficher a l'utilisateur.
+// Un bouton grise sans explication laisse deviner ce qui manque.
+const blockers = computed(() => {
+  const missing = []
+  if (form.username.length < 3) missing.push('un login (3 caractères minimum)')
+  if (!form.displayname.length) missing.push('un nom affiché')
+  if (!form.email.includes('@')) missing.push('un email valide')
+  if (form.password.length < 12) missing.push('un mot de passe de 12 caractères minimum')
+  else if (form.password !== form.password2) missing.push('une confirmation identique')
+  return missing
+})
+
+const canSubmit = computed(() => blockers.value.length === 0 && !submitting.value)
 
 async function submit() {
   if (!canSubmit.value) return
@@ -98,6 +102,10 @@ async function submit() {
         Les mots de passe ne correspondent pas.
       </div>
 
+      <div v-if="blockers.length" class="blockers">
+        Il manque encore {{ blockers.join(', ') }}.
+      </div>
+
       <div class="actions">
         <button type="submit" class="btn btn--primary" :disabled="!canSubmit">
           {{ submitting ? 'Création…' : "Créer l'admin et finaliser" }}
@@ -151,6 +159,15 @@ input:focus { border-color: var(--oe2-accent); outline: none; }
   margin-top: 4px;
 }
 .hint--err { color: #ff8080; }
+.blockers {
+  margin-top: 20px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--oe2-accent-orange);
+  background: rgba(209, 155, 61, 0.12);
+  font-size: 12px;
+  color: #e8c98a;
+  border-radius: 2px;
+}
 .actions {
   margin-top: 24px;
   display: flex;
