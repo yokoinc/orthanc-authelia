@@ -5,12 +5,24 @@
 
 set -e
 
-# Default values for environment variables
-DOMAIN=${DOMAIN:-localhost}
+# PUBLIC_URL est la seule variable a renseigner dans .env : l'URL complete
+# par laquelle les navigateurs joignent la stack, port inclus s'il n'est pas
+# standard. DOMAIN (le nom d'hote seul) en est derive.
+#
+# Les deux servent a des choses differentes dans les templates :
+#   DOMAIN     -> en-tetes Host, X-Forwarded-Host, CN du certificat
+#                 (un nom d'hote ne porte jamais de port)
+#   PUBLIC_URL -> URLs absolues : redirections, origine CORS, X-Original-URL
+#                 (elles doivent inclure le port, sinon le navigateur part
+#                  sur 443 alors que la stack ecoute ailleurs)
+PUBLIC_URL=${PUBLIC_URL:-https://localhost}
+DOMAIN=$(echo "$PUBLIC_URL" | sed -E 's#^https?://##; s#:[0-9]+$##; s#/.*$##')
 SSL_MODE=${SSL_MODE:-selfsigned}
+export PUBLIC_URL DOMAIN
 
 echo "Starting nginx configuration with environment variables..."
-echo "DOMAIN: $DOMAIN"
+echo "PUBLIC_URL: $PUBLIC_URL"
+echo "DOMAIN (derive): $DOMAIN"
 echo "SSL_MODE: $SSL_MODE"
 
 # Create SSL directory if it doesn't exist
@@ -52,7 +64,7 @@ fi
 
 # Process main nginx configuration
 echo "Processing nginx.conf template..."
-envsubst '$DOMAIN' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf
+envsubst '$DOMAIN $PUBLIC_URL' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf
 
 # Process configuration files in conf.d
 echo "Processing conf.d templates..."
@@ -62,7 +74,7 @@ for template in /etc/nginx/conf.d.templates/*.conf; do
     if [ -f "$template" ]; then
         filename=$(basename "$template")
         echo "Processing $filename..."
-        envsubst '$DOMAIN' < "$template" > "/etc/nginx/conf.d/$filename"
+        envsubst '$DOMAIN $PUBLIC_URL' < "$template" > "/etc/nginx/conf.d/$filename"
     fi
 done
 

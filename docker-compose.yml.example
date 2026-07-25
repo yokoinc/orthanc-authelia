@@ -182,6 +182,13 @@ services:
       - ORTHANC__POSTGRESQL__DATABASE=${POSTGRES_DB:-orthanc}
       - ORTHANC__POSTGRESQL__USERNAME=${POSTGRES_USER:-orthanc}
       - ORTHANC__POSTGRESQL__PASSWORD=${POSTGRES_PASSWORD}
+      # Credentials du plugin Authorization pour joindre auth-service. En env
+      # var et non dans orthanc.json pour deux raisons : ils doivent rester
+      # synchronises avec AUTH_USERNAME/AUTH_PASSWORD du .env (source unique),
+      # et orthanc.json est editable depuis le panel admin — un secret n'a
+      # rien a y faire.
+      - ORTHANC__AUTHORIZATION__WEB_SERVICE_USERNAME=${AUTH_USERNAME}
+      - ORTHANC__AUTHORIZATION__WEB_SERVICE_PASSWORD=${AUTH_PASSWORD}
       # Kept for scripts backward compat (some helpers still read POSTGRES_*)
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
@@ -243,7 +250,9 @@ services:
       - ./services/nginx/nginx.ssl.conf:/etc/nginx/templates/nginx.conf.template:ro
       - ./services/nginx/conf.d:/etc/nginx/conf.d.templates:ro
     environment:
-      - DOMAIN=${DOMAIN}
+      # Seule variable a renseigner : l'URL publique complete. Le nom
+      # d'hote (DOMAIN) en est derive par l'entrypoint.
+      - PUBLIC_URL=${PUBLIC_URL}
       - SSL_MODE=${SSL_MODE:-selfsigned}
       # Optional: enables POST /api-upload/instances for scripted DICOM uploads
       # (bypasses Authelia SSO, uses HTTP Basic auth instead).

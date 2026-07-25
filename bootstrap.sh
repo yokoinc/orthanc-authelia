@@ -76,15 +76,15 @@ else
     AUTH_PASS=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
     ORTHANC_PASS=$(openssl rand -hex 32)
 
-    # DOMAIN par defaut : Authelia exige un cookie domain avec au moins un
-    # point (RFC 6265). "localhost" seul est refuse au demarrage.
+    # PUBLIC_URL par defaut : URL locale complete, port du compose inclus.
+    # Le nom d'hote (pacs.localhost) doit contenir un point, sinon Authelia
+    # refuse le cookie domain (RFC 6265).
     sed \
         -e "s|^AUTHELIA_SESSION_SECRET=.*|AUTHELIA_SESSION_SECRET=$S1|" \
         -e "s|^AUTHELIA_STORAGE_ENCRYPTION_KEY=.*|AUTHELIA_STORAGE_ENCRYPTION_KEY=$S2|" \
         -e "s|^AUTHELIA_JWT_SECRET=.*|AUTHELIA_JWT_SECRET=$S3|" \
         -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG_PASS|" \
         -e "s|^AUTH_PASSWORD=.*|AUTH_PASSWORD=$AUTH_PASS|" \
-        -e "s|^DOMAIN=.*|DOMAIN=pacs.localhost|" \
         -e "s|^PUBLIC_URL=.*|PUBLIC_URL=https://pacs.localhost:30443|" \
         .env.example > .env
 
@@ -137,8 +137,10 @@ copy_if_missing "orthanc.json.example"               "services/orthanc/config/or
 AUTHELIA_CFG="services/authelia/config/configuration.yml"
 if grep -q '\${' "$AUTHELIA_CFG" 2>/dev/null; then
     # shellcheck disable=SC1091
-    DOMAIN_VALUE=$(grep '^DOMAIN=' .env | cut -d= -f2-)
     PUBLIC_URL_VALUE=$(grep '^PUBLIC_URL=' .env | cut -d= -f2-)
+    # Nom d'hote seul, sans schema ni port : c'est ce qu'attend le cookie
+    # domain d'Authelia (un cookie ne porte jamais de port).
+    DOMAIN_VALUE=$(echo "$PUBLIC_URL_VALUE" | sed -E 's#^https?://##; s#:[0-9]+$##; s#/.*$##')
     sed -i \
         -e "s|\${AUTHELIA_DOMAIN}|${DOMAIN_VALUE}|g" \
         -e "s|\${PUBLIC_URL}|${PUBLIC_URL_VALUE}|g" \

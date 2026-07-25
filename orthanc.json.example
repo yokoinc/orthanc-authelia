@@ -129,8 +129,13 @@
     "WebServiceTokenValidationUrl": "http://auth-service:8000/tokens/validate",
     "WebServiceUserProfileUrl": "http://auth-service:8000/user/get-profile",
     "WebServiceTokenCreationBaseUrl": "http://auth-service:8000/tokens/",
+    // Credentials injectes en runtime par docker-compose depuis le .env
+    // (ORTHANC__AUTHORIZATION__WEB_SERVICE_USERNAME et _PASSWORD). Les
+    // valeurs ci-dessous ne servent que de repli si les env vars sont
+    // absentes — ne pas y mettre le vrai mot de passe : ce fichier est
+    // editable depuis le panel d'administration.
     "WebServiceUsername": "share-user",
-    "WebServicePassword": "your-auth-password-here",
+    "WebServicePassword": "set-via-env-AUTH_PASSWORD",
     "StandardConfigurations": [
       "orthanc-explorer-2",
       "ohif",
