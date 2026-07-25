@@ -134,8 +134,12 @@ session:
   
   cookies:
     - domain: ${AUTHELIA_DOMAIN}   # Domain for session cookies
-      authelia_url: https://${AUTHELIA_DOMAIN}/auth  # Authelia login URL
-      default_redirection_url: https://${AUTHELIA_DOMAIN}/ui/app/  # Default redirect after login
+      # URLs absolues vers lesquelles Authelia redirige. Doivent inclure le
+      # port si la stack n'est pas publiee sur 443 (cas du dev local en
+      # 30443). Le cookie domain ci-dessus n'en prend pas : les cookies
+      # ignorent le port par specification.
+      authelia_url: ${PUBLIC_URL}/auth  # Authelia login URL
+      default_redirection_url: ${PUBLIC_URL}/ui/app/  # Default redirect after login
       same_site: lax               # Cookie same-site policy
   
   # Redis backend for session storage (scales better than file storage)

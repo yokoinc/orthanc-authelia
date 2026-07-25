@@ -85,6 +85,7 @@ else
         -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG_PASS|" \
         -e "s|^AUTH_PASSWORD=.*|AUTH_PASSWORD=$AUTH_PASS|" \
         -e "s|^DOMAIN=.*|DOMAIN=pacs.localhost|" \
+        -e "s|^PUBLIC_URL=.*|PUBLIC_URL=https://pacs.localhost:30443|" \
         .env.example > .env
 
     # Compte Orthanc dedie a auth-service (POST /tools/reset). Pas dans
@@ -137,13 +138,15 @@ AUTHELIA_CFG="services/authelia/config/configuration.yml"
 if grep -q '\${' "$AUTHELIA_CFG" 2>/dev/null; then
     # shellcheck disable=SC1091
     DOMAIN_VALUE=$(grep '^DOMAIN=' .env | cut -d= -f2-)
+    PUBLIC_URL_VALUE=$(grep '^PUBLIC_URL=' .env | cut -d= -f2-)
     sed -i \
         -e "s|\${AUTHELIA_DOMAIN}|${DOMAIN_VALUE}|g" \
+        -e "s|\${PUBLIC_URL}|${PUBLIC_URL_VALUE}|g" \
         -e "s|\${REDIS_HOST:-redis}|redis|g" \
         -e "s|\${REDIS_PORT:-6379}|6379|g" \
         -e "s|\${REDIS_DB:-0}|0|g" \
         "$AUTHELIA_CFG"
-    ok "configuration.yml : variables substituees (domaine ${DOMAIN_VALUE}, redis)"
+    ok "configuration.yml : domaine ${DOMAIN_VALUE}, URL publique ${PUBLIC_URL_VALUE}"
 fi
 
 # ---------------------------------------------------------------------------
