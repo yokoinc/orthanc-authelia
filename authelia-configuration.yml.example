@@ -44,6 +44,11 @@ totp:
 authentication_backend:
   file:
     path: /config/users_database.yml # User database file location
+    # Recharge users_database.yml des qu'il change sur disque (~1s, via
+    # fsnotify). Indispensable au panel admin : le setup wizard et l'onglet
+    # Users ecrivent ce fichier, et sans watch il faudrait redemarrer le
+    # container Authelia a chaque ajout d'utilisateur.
+    watch: true
     password:
       algorithm: argon2id           # Secure password hashing algorithm
       iterations: 1                 # Hash iterations (1 for faster auth in PACS)
