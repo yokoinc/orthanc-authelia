@@ -12,7 +12,6 @@ Prerequis env vars : ORTHANC_ADMIN_USER, ORTHANC_ADMIN_PASS, ORTHANC_URL, REDIS_
 
 import json
 import os
-import re
 import secrets as pysecrets
 import shutil
 import time
@@ -25,7 +24,7 @@ import redis.asyncio as aioredis
 import yaml
 from argon2 import PasswordHasher
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from filelock import FileLock, Timeout
 from pydantic import BaseModel, EmailStr, Field
 from redis.exceptions import RedisError
@@ -68,24 +67,7 @@ SETUP_FIRST_ADMIN_KEY = "orthanc_authelia:setup_first_admin_created"
 AUDIT_STREAM = "admin:audit"
 CSRF_COOKIE = "orthanc_admin_csrf"
 
-TEMPLATES_DIR = Path(os.getenv("ADMIN_TEMPLATES_DIR", "/app/templates"))
-ASSET_VERSION = os.getenv("ASSET_VERSION", str(int(time.time())))
 IMAGE_VERSION = os.getenv("IMAGE_VERSION", "dev")
-_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
-
-
-def _render(template_name: str, **kwargs) -> str:
-    """
-    Rendu minimal {placeholder} → valeur, meme convention que auth_service.py.
-    Les placeholders inconnus sont laisses tels quels (utile pour du JS avec {}).
-    """
-    kwargs.setdefault("asset_version", ASSET_VERSION)
-    kwargs.setdefault("image_version", IMAGE_VERSION)
-    content = (TEMPLATES_DIR / template_name).read_text(encoding="utf-8")
-    return _PLACEHOLDER_RE.sub(
-        lambda m: str(kwargs[m.group(1)]) if m.group(1) in kwargs else m.group(0),
-        content,
-    )
 
 # argon2id parametres = defaults Authelia (compatibles avec ce qu'il verifie)
 _hasher = PasswordHasher(

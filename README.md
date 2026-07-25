@@ -98,14 +98,38 @@ cd orthanc-authelia
 ./bootstrap.sh && docker compose up -d
 ```
 
-`bootstrap.sh` génère un `.env` avec 4 secrets aléatoires (Authelia x3 + Postgres + auth-service), copie les templates Authelia/Orthanc en place, et positionne les permissions. Aucune valeur à saisir à la main.
+`bootstrap.sh` s'occupe de tout : génération des secrets aléatoires (Authelia ×3, PostgreSQL, compte de service Orthanc), copie des templates de configuration, substitution des variables dans la config Authelia, et génération d'un hash argon2id valide. Aucune valeur à saisir à la main.
 
 À partir de là :
-- **Setup wizard** : https://localhost:30443/auth/setup (créer le premier admin)
-- **Orthanc Explorer** : https://localhost:30443/ (après login)
-- **Admin hub** : https://localhost:30443/auth/admin (après login, groupe `admins`)
 
-Le cert TLS est auto-généré self-signed — accepter l'avertissement navigateur au premier accès.
+1. **Setup wizard** — https://localhost:30443/auth/ui/setup
+   Créer le compte administrateur. Accessible sans authentification uniquement au premier démarrage ; la porte se ferme dès que le wizard est finalisé.
+2. **Orthanc Explorer** — https://localhost:30443/
+   Login avec le compte qui vient d'être créé.
+3. **Hub d'administration** — https://localhost:30443/auth/ui/admin
+   Gestion des utilisateurs, configuration Orthanc, health checks. Réservé au groupe `admins`.
+
+Le certificat TLS est auto-généré et self-signed : accepter l'avertissement du navigateur au premier accès.
+
+### Interface d'administration
+
+Le hub admin est une application Vue 3 (`services/auth-service/frontend/`) compilée par Vite et embarquée dans l'image auth-service au build. Trois onglets :
+
+| Onglet | Ce qu'il fait | Mécanisme |
+|---|---|---|
+| **Users** | CRUD des comptes Authelia | Écrit `users_database.yml`, hot-reload en ~1s |
+| **Orthanc config** | ~40 paramètres de `orthanc.json` | Écrit le JSON, puis `POST /tools/reset` |
+| **Health** | État de Redis, Orthanc, fichiers de config | Lecture seule |
+
+Chaque écriture crée un backup rotatif dans `data/admin-backups/` (10 derniers conservés). Aucune opération ne nécessite d'accès au socket Docker : Authelia surveille son fichier de users, Orthanc expose un endpoint de rechargement à chaud.
+
+Pour développer le frontend avec hot-reload :
+
+```bash
+cd services/auth-service/frontend
+npm install
+npm run dev    # proxifie /api vers localhost:8000
+```
 
 ### Réinitialiser complètement
 

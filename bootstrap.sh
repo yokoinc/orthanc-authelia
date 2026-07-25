@@ -186,26 +186,33 @@ fi
 # ---------------------------------------------------------------------------
 # Recap
 # ---------------------------------------------------------------------------
+G=$'\033[32m'; C=$'\033[36m'; R=$'\033[0m'
 cat <<EOF
 
-$(printf "\033[32m════════════════════════════════════════════\033[0m")
-$(printf "\033[32m Bootstrap complet\033[0m")
-$(printf "\033[32m════════════════════════════════════════════\033[0m")
+${G}════════════════════════════════════════════${R}
+${G} Bootstrap complet${R}
+${G}════════════════════════════════════════════${R}
 
 Etapes suivantes :
 
-  1. \033[36mReviser .env\033[0m si besoin (domaine, langue, TZ)
+  1. ${C}Reviser .env${R} si besoin (domaine, langue, TZ)
 
-  2. \033[36mDemarrer la stack\033[0m :
+  2. ${C}Demarrer la stack${R} :
        docker compose up -d
 
-  3. \033[36mAcceder\033[0m :
-       http://localhost:30080   (HTTP redirige vers HTTPS)
-       https://localhost:30443  (cert self-signed, accepte l'avertissement)
+  3. ${C}Setup wizard${R} — creation du premier admin :
+       https://localhost:30443/auth/ui/setup
+       (cert self-signed : accepter l'avertissement du navigateur)
 
-  4. \033[36mSetup wizard\033[0m au premier boot :
-       https://localhost:30443/auth/setup
+  4. ${C}Apres le wizard${R} :
+       https://localhost:30443/          Orthanc Explorer
+       https://localhost:30443/auth/ui/admin   Hub d'administration
 
-Rollback : \`docker compose down\` + supprimer .env pour repartir de zero.
+Repartir de zero :
+  docker compose down -v
+  rm -rf .env docker-compose.yml data/admin-backups \\
+         services/authelia/config/{configuration.yml,users_database.yml} \\
+         services/orthanc/config/orthanc.json
+  ./bootstrap.sh
 
 EOF
