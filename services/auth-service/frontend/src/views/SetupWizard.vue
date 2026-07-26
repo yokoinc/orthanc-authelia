@@ -1,6 +1,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { api } from '../api.js'
+import { t } from '../i18n.js'
 import { useUiStore } from '../stores/ui.js'
 
 const ui = useUiStore()
@@ -47,11 +48,20 @@ const passwordsMatch = computed(
 // Un bouton grise sans explication laisse deviner ce qui manque.
 const blockers = computed(() => {
   const missing = []
-  if (form.username.length < 3) missing.push('un login (3 caractères minimum)')
-  if (!form.displayname.length) missing.push('un nom affiché')
-  if (!form.email.includes('@')) missing.push('un email valide')
-  if (form.password.length < 12) missing.push('un mot de passe de 12 caractères minimum')
-  else if (form.password !== form.password2) missing.push('une confirmation identique')
+  if (form.username.length < 3) {
+    missing.push(t('setup_missing_username', 'un identifiant (3 caractères minimum)'))
+  }
+  if (!form.displayname.length) {
+    missing.push(t('setup_missing_displayname', 'un nom affiché'))
+  }
+  if (!form.email.includes('@')) {
+    missing.push(t('setup_missing_email', 'une adresse e-mail valide'))
+  }
+  if (form.password.length < 12) {
+    missing.push(t('setup_missing_password', 'un mot de passe de 12 caractères minimum'))
+  } else if (form.password !== form.password2) {
+    missing.push(t('setup_missing_confirm', 'une confirmation identique'))
+  }
   return missing
 })
 
@@ -91,7 +101,7 @@ async function submit() {
       submitting.value = false
       return
     }
-    ui.notify('Administrateur cree, redirection…', 'ok')
+    ui.notify(t('setup_admin_created', 'Administrateur créé, redirection…'), 'ok')
     setTimeout(() => { window.location.href = '/console/' }, 1500)
   } catch (e) {
     ui.notify(e.message, 'err')
@@ -104,79 +114,85 @@ async function submit() {
   <div class="setup">
     <h1>
       <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
-      Configuration initiale
+      {{ t('setup_title', 'Configuration initiale') }}
     </h1>
     <p class="subtitle">
-      Premier démarrage — création du compte administrateur.
-      Ce compte pourra ensuite gérer les autres users depuis le hub Admin.
+      {{ t('setup_subtitle', "Premier démarrage — création du compte administrateur. Ce compte pourra ensuite gérer les autres utilisateurs depuis le panel d'administration.") }}
     </p>
 
     <div v-if="termine" class="fini">
-      <p><strong>Installation terminée.</strong></p>
-      <p>Relancer la pile pour appliquer le nouveau domaine :</p>
+      <p><strong>{{ t('setup_done_title', 'Installation terminée.') }}</strong></p>
+      <p>{{ t('setup_done_restart', 'Relancer la pile pour appliquer le nouveau domaine :') }}</p>
       <pre>docker compose up -d</pre>
-      <p>Puis se connecter sur <a :href="termine">{{ termine }}</a>.</p>
+      <p>
+        {{ t('setup_done_connect', 'Puis se connecter sur') }}
+        <a :href="termine">{{ termine }}</a>.
+      </p>
     </div>
 
     <form v-else @submit.prevent="submit">
-      <label for="username">Login</label>
+      <label for="username">{{ t('setup_username_label', 'Identifiant') }}</label>
       <input
         id="username" v-model="form.username" required
-        pattern="[a-zA-Z0-9._-]{3,32}" placeholder="cuffel.gregory"
+        pattern="[a-zA-Z0-9._-]{3,32}" placeholder="prenom.nom"
       >
-      <div class="hint">3-32 caractères, alphanumériques + . _ -</div>
+      <div class="hint">
+        {{ t('setup_username_hint', '3 à 32 caractères : lettres, chiffres, point, tiret, tiret bas.') }}
+      </div>
 
-      <label for="displayname">Nom affiché</label>
+      <label for="displayname">{{ t('setup_displayname_label', 'Nom affiché') }}</label>
       <input
         id="displayname" v-model="form.displayname" required
-        maxlength="100" placeholder="Grégory Cuffel"
+        maxlength="100" :placeholder="t('setup_displayname_example', 'Prénom Nom')"
       >
 
-      <label for="email">Email</label>
+      <label for="email">{{ t('setup_email_label', 'Adresse e-mail') }}</label>
       <input
         id="email" v-model="form.email" type="email" required
-        placeholder="cuffel.gregory@gmail.com"
+        placeholder="admin@exemple.fr"
       >
 
-      <label for="password">Mot de passe</label>
+      <label for="password">{{ t('setup_password_label', 'Mot de passe') }}</label>
       <input
         id="password" v-model="form.password" type="password" required
-        minlength="12" placeholder="min 12 caractères"
+        minlength="12" :placeholder="t('setup_password_example', '12 caractères minimum')"
       >
-      <div class="hint">Hashé argon2id avant écriture dans users_database.yml</div>
+      <div class="hint">
+        {{ t('setup_password_hint', 'Haché en argon2id avant écriture dans users_database.yml.') }}
+      </div>
 
-      <label for="password2">Confirmation</label>
+      <label for="password2">{{ t('setup_password2_label', 'Confirmation') }}</label>
       <input
         id="password2" v-model="form.password2" type="password" required minlength="12"
       >
       <div v-if="form.password2 && !passwordsMatch" class="hint hint--err">
-        Les mots de passe ne correspondent pas.
+        {{ t('setup_password_mismatch', 'Les deux mots de passe diffèrent.') }}
       </div>
 
-      <label for="publicUrl">URL publique</label>
+      <label for="publicUrl">{{ t('setup_public_url_label', 'URL publique') }}</label>
       <input
         id="publicUrl" v-model="form.publicUrl" :disabled="!urlModifiable"
         placeholder="https://pacs.exemple.fr"
       >
       <div v-if="!urlModifiable" class="hint">
-        Non modifiable ici : le fichier .env n'est pas monté dans le conteneur.
+        {{ t('setup_public_url_locked', "Non modifiable ici : le fichier .env n'est pas monté dans le conteneur.") }}
       </div>
       <div v-else-if="urlChangee" class="hint hint--warn">
-        Le domaine changera. Il faudra relancer la pile puis se reconnecter sur
-        cette adresse — la session en cours est liée à l'ancien domaine.
+        {{ t('setup_public_url_warning', 'Le domaine va changer. Il faudra relancer la pile puis se reconnecter sur cette adresse : la session en cours est liée à l\'ancien domaine.') }}
       </div>
       <div v-else class="hint">
-        Adresse par laquelle le PACS sera joint. À laisser telle quelle pour
-        rester en local ; modifiable plus tard depuis le panel.
+        {{ t('setup_public_url_hint', 'Adresse par laquelle le PACS sera joint. À laisser telle quelle pour rester en local ; modifiable plus tard depuis le panel.') }}
       </div>
 
       <div v-if="blockers.length" class="blockers">
-        Il manque encore {{ blockers.join(', ') }}.
+        {{ t('setup_missing', 'Il manque encore {liste}.', { liste: blockers.join(', ') }) }}
       </div>
 
       <div class="actions">
         <button type="submit" class="btn btn--primary" :disabled="!canSubmit">
-          {{ submitting ? 'Création…' : "Créer l'admin et finaliser" }}
+          {{ submitting
+            ? t('setup_submitting', 'Création…')
+            : t('setup_submit', "Créer l'administrateur et terminer") }}
         </button>
       </div>
     </form>
@@ -221,6 +237,7 @@ input {
   box-sizing: border-box;
 }
 input:focus { border-color: var(--oe2-accent); outline: none; }
+input:disabled { opacity: 0.55; cursor: not-allowed; }
 .hint {
   font-size: 11px;
   color: var(--oe2-muted);

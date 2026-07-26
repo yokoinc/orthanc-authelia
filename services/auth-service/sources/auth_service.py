@@ -30,15 +30,44 @@ if _os.path.isdir("/app/frontend"):
     # Catch-all SPA : n'importe quel /ui/xxx renvoie index.html pour laisser
     # vue-router (history mode) prendre le relais cote client. Necessaire
     # parce que StaticFiles html=True ne fallback pas sur les paths inconnus.
-    from fastapi.responses import FileResponse as _FileResponse
+    from fastapi.responses import HTMLResponse as _HTMLResponse
+
+    _SPA_INDEX = "/app/frontend/index.html"
+
+    def _spa_html() -> str:
+        """index.html du SPA, traductions injectees.
+
+        LANGUAGE est lue dans l'environnement au demarrage : impossible de
+        figer les libelles dans le bundle au moment du build. Les injecter
+        dans la page evite d'exposer une route supplementaire -- le wizard
+        n'est pas authentifie, il aurait fallu lui ouvrir un passage dedie
+        dans la configuration nginx.
+
+        TRANSLATIONS et LANGUAGE sont definis plus bas dans ce fichier ; la
+        resolution se fait a l'appel, pas a l'import, donc l'ordre importe
+        peu.
+        """
+        html = Path(_SPA_INDEX).read_text(encoding="utf-8")
+        charge = json.dumps(
+            {"lang": LANGUAGE, "ui": TRANSLATIONS.get("ui", {})},
+            ensure_ascii=False,
+        )
+        # </script> dans une valeur traduite fermerait la balise par
+        # inadvertance et casserait la page.
+        charge = charge.replace("</", "<\\/")
+        return html.replace(
+            "</head>",
+            f"<script>window.__I18N__={charge};</script></head>",
+            1,
+        )
 
     @app.get("/ui/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str):
-        return _FileResponse("/app/frontend/index.html")
+        return _HTMLResponse(_spa_html())
 
     @app.get("/ui", include_in_schema=False)
     async def spa_root():
-        return _FileResponse("/app/frontend/index.html")
+        return _HTMLResponse(_spa_html())
 
 # Configuration
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
