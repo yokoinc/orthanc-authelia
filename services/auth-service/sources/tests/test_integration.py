@@ -53,7 +53,7 @@ def fake_redis():
 
 @pytest.fixture
 def admin_user():
-    return admin_module.AdminUser(username="cuffel.gregory", groups=["admins"])
+    return admin_module.AdminUser(username="cuffel.gregory", groups=["admin"])
 
 
 @pytest.fixture
@@ -106,7 +106,7 @@ def valid_authelia_yml(tmp_paths):
                 "displayname": "Gregory Cuffel",
                 "email": "cuffel.gregory@gmail.com",
                 "password": hasher.hash("initial-admin-password"),
-                "groups": ["admins", "doctors"],
+                "groups": ["admin", "doctors"],
             },
         },
     }
@@ -133,7 +133,7 @@ class TestSetupWizard:
             "displayname": "Gregory Cuffel",
             "email": "cuffel.gregory@gmail.com",
             "password": "premier-admin-12345",
-            "groups": ["admins"],
+            "groups": ["admin"],
         })
         assert r.status_code == 200, r.text
         assert r.json()["ok"] is True
@@ -143,7 +143,7 @@ class TestSetupWizard:
         yml = yaml.safe_load(tmp_paths["authelia"].read_text())
         assert "cuffel.gregory" in yml["users"]
         assert yml["users"]["cuffel.gregory"]["password"].startswith("$argon2id$")
-        assert "admins" in yml["users"]["cuffel.gregory"]["groups"]
+        assert "admin" in yml["users"]["cuffel.gregory"]["groups"]
 
         # Etape 2 : finaliser
         r = client.post("/setup/finalize")
@@ -184,7 +184,7 @@ class TestSetupWizard:
         })
         assert r.status_code == 200
         yml = yaml.safe_load(tmp_paths["authelia"].read_text())
-        assert "admins" in yml["users"]["cuffel.gregory"]["groups"]
+        assert "admin" in yml["users"]["cuffel.gregory"]["groups"]
 
 
 # ============================================================================

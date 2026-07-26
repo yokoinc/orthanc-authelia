@@ -43,7 +43,7 @@ async function submit() {
         displayname: form.displayname,
         email: form.email,
         password: form.password,
-        groups: ['admins'],
+        groups: ['admin'],
       },
     })
     await api('/console/api/setup/finalize', { method: 'POST' })

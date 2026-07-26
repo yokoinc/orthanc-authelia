@@ -9,7 +9,7 @@ const loading = ref(true)
 const showAddForm = ref(false)
 const newUser = reactive({
   username: '', displayname: '', email: '', password: '',
-  groups: ['doctors'],
+  groups: ['doctor'],
 })
 
 async function load() {
@@ -30,7 +30,7 @@ async function addUser() {
     ui.notify('User cree, Authelia reload dans ~2s', 'ok')
     Object.assign(newUser, {
       username: '', displayname: '', email: '', password: '',
-      groups: ['doctors'],
+      groups: ['doctor'],
     })
     showAddForm.value = false
     load()
@@ -78,7 +78,7 @@ onMounted(load)
             <span
               v-for="g in u.groups"
               :key="g"
-              :class="['badge', g === 'admins' ? 'badge--admin' : 'badge--doctor']"
+              :class="['badge', g === 'admin' ? 'badge--admin' : 'badge--doctor']"
             >{{ g }}</span>
           </td>
           <td class="right">
@@ -103,7 +103,7 @@ onMounted(load)
         <div class="row">
           <label>Groupes</label>
           <div class="groups">
-            <label v-for="g in ['admins', 'doctors', 'external']" :key="g" class="chk">
+            <label v-for="g in ['admin', 'doctor', 'external']" :key="g" class="chk">
               <input type="checkbox" :checked="newUser.groups.includes(g)" @change="toggleGroup(g)">
               {{ g }}
             </label>

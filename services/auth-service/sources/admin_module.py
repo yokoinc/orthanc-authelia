@@ -145,8 +145,8 @@ async def require_admin(request: Request) -> AdminUser:
     if not username:
         raise HTTPException(401, "auth requise")
     groups = [g.strip() for g in groups_raw.split(",") if g.strip()]
-    if "admins" not in groups:
-        raise HTTPException(403, "groupe admins requis")
+    if "admin" not in groups:
+        raise HTTPException(403, "groupe admin requis")
     return AdminUser(username=username, groups=groups)
 
 
@@ -312,7 +312,7 @@ def _validate_authelia(data: dict) -> None:
         raise ValueError("users: section vide ou absente")
     active_admins = [
         u for u, info in data["users"].items()
-        if not info.get("disabled") and "admins" in (info.get("groups") or [])
+        if not info.get("disabled") and "admin" in (info.get("groups") or [])
     ]
     if not active_admins:
         raise ValueError("au moins 1 admin actif requis (invariant lockout)")
@@ -503,8 +503,8 @@ async def setup_create_admin(payload: UserCreatePayload):
             "un admin a deja ete cree — finaliser le setup (POST /auth/setup/finalize) "
             "puis utiliser /api/admin/users pour en ajouter d'autres",
         )
-    if "admins" not in payload.groups:
-        payload.groups.append("admins")
+    if "admin" not in payload.groups:
+        payload.groups.append("admin")
     data = _load_authelia()
     if payload.username in data.get("users", {}):
         raise HTTPException(409, f"user {payload.username} existe deja")
@@ -530,7 +530,7 @@ async def setup_finalize():
     data = _load_authelia()
     admins = [
         u for u, i in data.get("users", {}).items()
-        if not i.get("disabled") and "admins" in (i.get("groups") or [])
+        if not i.get("disabled") and "admin" in (i.get("groups") or [])
     ]
     if not admins:
         raise HTTPException(400, "creer d'abord un admin (POST /auth/setup/create-admin)")

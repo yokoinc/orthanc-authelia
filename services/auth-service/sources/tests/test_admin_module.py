@@ -28,7 +28,7 @@ def valid_authelia_data():
                 "displayname": "Gregory Cuffel",
                 "email": "cuffel.gregory@gmail.com",
                 "password": "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQxMjM$dGVzdA",
-                "groups": ["admins", "doctors"],
+                "groups": ["admin", "doctors"],
             },
         },
     }
