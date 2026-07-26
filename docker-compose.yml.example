@@ -182,10 +182,19 @@ services:
       - ORTHANC__POSTGRESQL__DATABASE=${POSTGRES_DB:-orthanc}
       - ORTHANC__POSTGRESQL__USERNAME=${POSTGRES_USER:-orthanc}
       - ORTHANC__POSTGRESQL__PASSWORD=${POSTGRES_PASSWORD}
-      # Les identifiants du plugin Authorization ne peuvent pas passer par une
-      # variable : Orthanc n'applique pas ORTHANC__AUTHORIZATION__* a cette
-      # section. bootstrap.sh les ecrit directement dans orthanc.json a partir
-      # d'AUTH_USERNAME / AUTH_PASSWORD.
+      # Identifiants du plugin Authorization. Ces variables OVERRIDENT le
+      # orthanc.json — Orthanc le dit au demarrage : "Authorization.
+      # WebServicePassword has already been defined; it will be overwritten by
+      # the value defined in env-var". bootstrap.sh ecrit les memes valeurs
+      # dans le JSON, meme source (.env) : pas de desynchronisation possible.
+      #
+      # ATTENTION : apres avoir change AUTH_PASSWORD dans .env, il faut
+      #   docker compose up -d --force-recreate orthanc
+      # Un simple `restart` rejoue l'environnement fige du container : le
+      # plugin garde l'ancien mot de passe, /user/get-profile repond 401 et
+      # toute l'API Orthanc renvoie 403.
+      - ORTHANC__AUTHORIZATION__WEB_SERVICE_USERNAME=${AUTH_USERNAME}
+      - ORTHANC__AUTHORIZATION__WEB_SERVICE_PASSWORD=${AUTH_PASSWORD}
       # Kept for scripts backward compat (some helpers still read POSTGRES_*)
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432

@@ -33,6 +33,11 @@ services/orthanc/config/orthanc.json
 # Backup environment files
 .env.backup
 .env.bak
+# bootstrap.sh --force horodate ses sauvegardes (.env.bak.20260726-090539).
+# Sans ce motif elles restent non-ignorees et partent au premier git add -A,
+# avec les mots de passe Postgres et les cles Authelia en clair.
+.env.bak.*
+.env.*.bak
 
 # ===============================================
 # Docker and Container Data
