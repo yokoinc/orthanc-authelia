@@ -606,10 +606,17 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
         })
 
     # --- Authenticated user : map Authelia group -> permissions ------------
-    if "admin" in group:
+    # Authelia transmet les groupes en une seule chaine separee par des
+    # virgules ("admin,doctor"). Tester l'appartenance a la liste et non la
+    # presence d'une sous-chaine : "admin" in "readonly-admin" est vrai, et un
+    # groupe cree de bonne foi heriterait des pleins droits sur le PACS sans
+    # que rien ne le signale.
+    group_list = [g.strip() for g in group.replace(";", ",").split(",") if g.strip()]
+
+    if "admin" in group_list:
         user_name = TRANSLATIONS["ui"]["administrator"]
         permissions = ["view", "download", "upload", "delete", "modify", "anonymize", "share", "send", "settings", "edit-labels"]
-    elif "doctor" in group:
+    elif "doctor" in group_list:
         user_name = TRANSLATIONS["ui"]["doctor"]
         permissions = ["view", "download", "upload", "share", "send", "edit-labels"]
     else:
@@ -621,7 +628,7 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
         "user-id": group,                 # wire key is 'user-id' (NOT 'id')
         "authorized-labels": ["*"],       # access to all labels
         "permissions": permissions,
-        "groups": [group],
+        "groups": group_list,
         "validity": CACHE_VALIDITY_USER_SESSION
     })
 
