@@ -67,7 +67,7 @@
     --oe2-space-4: 16px;
     --oe2-space-5: 20px;
     --oe2-space-6: 24px;
-    --oe2-sidebar-w: 220px;
+    --oe2-sidebar-w: 260px;   /* aligne sur --nav-bar-width d'OE2 */
 }
 
 /* -----------------------------------------------------------------------------
@@ -128,9 +128,15 @@ body {
        filter: brightness(50) + height: 48px. brightness(50) explose les
        valeurs => silhouette blanche uniforme sur fond dark, preserve
        la transparence. */
-    height: 48px;
-    width: auto;
+    /* Largeur cible plutot que hauteur : notre PNG (786x250, ratio 3,1) ne
+       fait que 151px de large a height:48px, alors qu'OE2 affiche un logo
+       d'environ 200px. Le fixer en largeur donne le meme encombrement
+       visuel quel que soit le ratio du fichier fourni. */
+    width: 200px;
+    max-width: 85%;
+    height: auto;
     display: block;
+    margin: 0 auto;
     filter: brightness(50);
 }
 
@@ -551,7 +557,9 @@ body {
 
     /* Brand tighter en mobile */
     .oe2-sidebar__brand { padding: 8px 12px 0; }
-    .oe2-sidebar__logo { height: 36px; }
+    .oe2-sidebar__logo { width: 150px; }  /* en largeur comme la regle de base :
+                                          melanger width fixe et height fixe
+                                          deformerait le logo */
     .oe2-sidebar__brand-name {
         padding: 3px 0 5px;
         margin: 4px 0 0;
