@@ -81,7 +81,7 @@ onMounted(load)
       </div>
 
       <div class="toolbar">
-        <button class="btn btn--primary" :disabled="saving" @click="save">
+        <button class="oe2-btn oe2-btn--primary" :disabled="saving" @click="save">
           <i class="fa-solid fa-check"></i>
           {{ saving
             ? t('orthanc_saving', 'Enregistrement…')
@@ -125,11 +125,4 @@ h2 { font-size: 14px; margin: 0 0 12px; font-weight: 400; }
 }
 .flag { font-size: 10px; color: var(--oe2-accent-orange); }
 .toolbar { margin-top: 16px; text-align: right; }
-.btn {
-  padding: 8px 16px; border: none; border-radius: 3px; cursor: pointer;
-  font-size: 13px;
-}
-.btn--primary { background: var(--oe2-accent); color: white; }
-.btn--primary:hover:not(:disabled) { background: var(--oe2-accent-soft); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

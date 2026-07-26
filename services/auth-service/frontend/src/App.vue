@@ -13,34 +13,28 @@ const ui = useUiStore()
 </template>
 
 <style>
-:root {
-  --oe2-nav-bg: rgb(30, 36, 42);
-  --oe2-nav-sub-bg: #181c20;
-  --oe2-nav-color: #ffffff;
-  --oe2-accent: #3d748d;
-  --oe2-accent-soft: #7fb3cf;
-  --oe2-accent-orange: #d19b3d;
-  --oe2-border-subtle: rgba(255, 255, 255, 0.2);
-  --oe2-muted: #b0b0b0;
-  --oe2-success: #28a745;
-  --oe2-danger: #dc3545;
-  --oe2-card-bg: rgb(40, 40, 45);
-  --oe2-label-bg: rgb(61, 116, 141);
-  --oe2-font-mono: 'Courier New', Consolas, monospace;
-}
+/* oe2-shared.css (charge par index.html) fait foi pour la palette, la
+   typographie et les composants. Ce fichier ne contient donc que le style
+   propre au bandeau de notification.
+
+   Les 13 variables :root et la regle body qui se trouvaient ici ont ete
+   retirees : elles redefinissaient par-dessus le design system une police
+   differente (-apple-system au lieu d'Avenir), une taille de 13px au lieu
+   de 14px, aucune graisse fine, et prenaient le fond de la barre laterale
+   comme fond de page. Le panel ne ressemblait donc pas a Orthanc Explorer
+   alors que la feuille partagee etait bien chargee. */
+
 body {
+  /* Seul reglage conserve : oe2-shared.css ne remet pas la marge par
+     defaut du navigateur a zero. */
   margin: 0;
-  background: var(--oe2-nav-bg);
-  color: var(--oe2-nav-color);
-  font-family: -apple-system, "Segoe UI", Arial, sans-serif;
-  font-size: 13px;
 }
 .flash {
   position: fixed;
   top: 12px; right: 12px; left: 12px;
   padding: 10px 14px;
-  border-radius: 3px;
-  font-size: 12px;
+  border-radius: var(--oe2-radius);
+  font-size: var(--oe2-fs-small);
   z-index: 1000;
   max-width: 560px;
   margin-left: auto;

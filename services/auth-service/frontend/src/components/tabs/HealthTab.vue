@@ -53,7 +53,7 @@ onMounted(load)
       </tbody>
     </table>
 
-    <button class="btn" @click="load">
+    <button class="oe2-btn oe2-btn--secondary" @click="load">
       <i class="fa-solid fa-rotate"></i> {{ t('refresh', 'Rafraîchir') }}
     </button>
   </div>
@@ -74,8 +74,4 @@ h2 { font-size: 14px; margin: 0 0 12px; font-weight: 400; }
 .ok  { color: var(--oe2-success); }
 .err { color: var(--oe2-danger); }
 .mono { font-family: var(--oe2-font-mono); font-size: 11px; color: var(--oe2-muted); }
-.btn {
-  padding: 6px 12px; border: none; border-radius: 3px; cursor: pointer;
-  background: rgb(75, 79, 84); color: white; font-size: 12px;
-}
 </style>

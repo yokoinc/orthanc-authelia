@@ -189,7 +189,7 @@ async function submit() {
       </div>
 
       <div class="actions">
-        <button type="submit" class="btn btn--primary" :disabled="!canSubmit">
+        <button type="submit" class="oe2-btn oe2-btn--primary" :disabled="!canSubmit">
           {{ submitting
             ? t('setup_submitting', 'Création…')
             : t('setup_submit', "Créer l'administrateur et terminer") }}
@@ -272,17 +272,4 @@ input:disabled { opacity: 0.55; cursor: not-allowed; }
   display: flex;
   justify-content: flex-end;
 }
-.btn {
-  padding: 8px 16px;
-  border-radius: 3px;
-  border: none;
-  cursor: pointer;
-  font-size: 13px;
-}
-.btn--primary {
-  background: var(--oe2-accent);
-  color: white;
-}
-.btn--primary:hover:not(:disabled) { background: var(--oe2-accent-soft); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

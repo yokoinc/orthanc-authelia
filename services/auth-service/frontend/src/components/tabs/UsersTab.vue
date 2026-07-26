@@ -89,7 +89,7 @@ onMounted(load)
             >{{ g }}</span>
           </td>
           <td class="right">
-            <button class="btn btn--sm" @click="deleteUser(u.username)" :title="t('delete', 'Supprimer')">
+            <button class="oe2-btn oe2-btn--danger" @click="deleteUser(u.username)" :title="t('delete', 'Supprimer')">
               <i class="fa-solid fa-trash"></i>
             </button>
           </td>
@@ -116,7 +116,7 @@ onMounted(load)
             </label>
           </div>
         </div>
-        <button type="submit" class="btn btn--primary">{{ t('create', 'Créer') }}</button>
+        <button type="submit" class="oe2-btn oe2-btn--primary">{{ t('create', 'Créer') }}</button>
       </form>
     </details>
   </div>
@@ -152,11 +152,4 @@ summary { cursor: pointer; color: var(--oe2-accent-soft); font-size: 13px; }
 }
 .groups { display: flex; gap: 12px; }
 .chk { display: flex; align-items: center; gap: 4px; font-size: 12px; }
-.btn {
-  padding: 4px 8px; border: none; border-radius: 3px; cursor: pointer;
-  background: rgb(75, 79, 84); color: white; font-size: 12px;
-}
-.btn--sm i { font-size: 11px; }
-.btn--primary { background: var(--oe2-accent); }
-.btn--primary:hover { background: var(--oe2-accent-soft); }
 </style>
