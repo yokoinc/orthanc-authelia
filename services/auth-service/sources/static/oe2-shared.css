@@ -42,10 +42,10 @@
     /* OE2 redefinit la couleur de bordure de Bootstrap
        (--bs-border-color: rgb(110, 160, 200), relevee dans
        libOrthancExplorer2.so) : ses tableaux sont donc soulignes de bleu
-       clair, la ou les bordures blanches translucides ci-dessus donnaient
-       des separations grises. Reservee aux tableaux : dans OE2 la structure
-       (barre laterale, onglets) ne porte pas cette couleur. */
-    --oe2-table-border: rgb(110, 160, 200);
+       clair, et il en va de meme de tous ses separateurs : en-tetes,
+       fenetres modales, tableaux. Seul le trait sous le nom du serveur y
+       echappe (.orthanc-name herite de la couleur du texte, donc blanc). */
+    --oe2-separator: rgb(110, 160, 200);
     --oe2-muted: #b0b0b0;
     --oe2-success: #28a745;
     --oe2-danger: #dc3545;
@@ -247,7 +247,7 @@ body {
     justify-content: space-between;
     padding: 0 12px 12px;
     margin-bottom: 12px;
-    border-bottom: 1px solid var(--oe2-border);
+    border-bottom: 1px solid var(--oe2-separator);
 }
 
 .oe2-main__title {
@@ -282,7 +282,7 @@ body {
     justify-content: space-between;
     padding: var(--oe2-space-2) 0 var(--oe2-space-3) 0;
     margin-bottom: var(--oe2-space-2);
-    border-bottom: 1px solid var(--oe2-border);
+    border-bottom: 1px solid var(--oe2-separator);
 }
 
 .oe2-section__title {
@@ -429,7 +429,7 @@ body {
 
 .oe2-modal .modal-header {
     background-color: var(--oe2-table-header-bg);
-    border-bottom: 1px solid var(--oe2-border);
+    border-bottom: 1px solid var(--oe2-separator);
     padding: 12px 16px;
 }
 
@@ -442,7 +442,7 @@ body {
 
 .oe2-modal .modal-footer {
     background-color: var(--oe2-table-filter-bg);
-    border-top: 1px solid var(--oe2-border);
+    border-top: 1px solid var(--oe2-separator);
     padding: 12px 16px;
     gap: 8px;
 }
@@ -476,7 +476,7 @@ body {
     font-size: 12px;
     font-weight: var(--oe2-fw-regular);
     padding: 8px 12px;
-    border-bottom: 1px solid var(--oe2-border);
+    border-bottom: 1px solid var(--oe2-separator);
 }
 
 .oe2-toast .toast-header.bg-success { background-color: var(--oe2-success) !important; color: #fff; }
@@ -656,7 +656,7 @@ body {
     text-align: left;
     padding: 4px 8px;
     line-height: 1.2rem;
-    border-bottom: 1px solid var(--oe2-border);
+    border-bottom: 1px solid var(--oe2-separator);
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.3px;
@@ -672,7 +672,7 @@ body {
 .tokens-table tbody td {
     padding: 4px 8px;
     line-height: 1.3rem;
-    border-bottom: 1px solid var(--oe2-border);
+    border-bottom: 1px solid var(--oe2-separator);
     vertical-align: middle;
 }
 .tokens-table tbody tr:last-child td { border-bottom: none; }
@@ -682,8 +682,8 @@ body {
 /* Wrapper de la table — bord top+bottom seulement (edge-to-edge lateral) */
 .tokens-table-wrapper {
     background-color: var(--oe2-card-bg);
-    border-top: 1px solid var(--oe2-border);
-    border-bottom: 1px solid var(--oe2-border);
+    border-top: 1px solid var(--oe2-separator);
+    border-bottom: 1px solid var(--oe2-separator);
     overflow: hidden;
     box-shadow: var(--oe2-card-shadow);
     margin-bottom: var(--oe2-space-4);

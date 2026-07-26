@@ -105,7 +105,8 @@ onMounted(async () => {
 .tabs {
   display: flex;
   gap: 4px;
-  border-bottom: 1px solid var(--oe2-border-subtle);
+  /* Bleu comme les separateurs d'Orthanc, cf. --oe2-separator. */
+  border-bottom: 1px solid var(--oe2-separator);
   margin-bottom: 16px;
 }
 .tab {
