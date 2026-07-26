@@ -613,3 +613,50 @@ class TestBackupRestoreSafety:
                 headers=csrf_headers,
             )
         assert r.status_code == 200, r.text
+
+
+# ============================================================================
+# Rechargement Orthanc indisponible : la modification doit survivre
+# ============================================================================
+
+class TestOrthancReloadRefused:
+
+    def test_403_keeps_change_and_asks_restart(
+        self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
+    ):
+        """Un 403 du plugin ne doit pas annuler l'ecriture.
+
+        Le fichier est valide, seul le rechargement a chaud est refuse :
+        annuler ferait perdre la saisie de l'utilisateur sans raison.
+        """
+        import respx, httpx, json as _json
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.post("/tools/reset").respond(status_code=403)
+            r = client.patch("/api/admin/orthanc/config", json={
+                "changes": {"Name": "Nouveau Nom"},
+            }, headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["restart_required"] is True
+        assert "restart orthanc" in body["message"].lower()
+
+        # La modification est bien sur disque
+        assert _json.loads(tmp_paths["orthanc"].read_text())["Name"] == "Nouveau Nom"
+
+    def test_network_error_still_rolls_back(
+        self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
+    ):
+        """Une panne reseau reste traitee par un rollback : Orthanc peut etre
+        dans un etat incertain, contrairement au cas d'un refus explicite."""
+        import respx, httpx, json as _json
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.post("/tools/reset").mock(
+                side_effect=httpx.ConnectError("injoignable")
+            )
+            r = client.patch("/api/admin/orthanc/config", json={
+                "changes": {"Name": "Ne Doit Pas Rester"},
+            }, headers=csrf_headers)
+
+        assert r.status_code == 502
+        assert _json.loads(tmp_paths["orthanc"].read_text())["Name"] == valid_orthanc_json["Name"]

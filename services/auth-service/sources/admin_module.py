@@ -652,7 +652,35 @@ async def update_orthanc_config(
     try:
         await _reload_orthanc()
     except httpx.HTTPError as e:
-        # Auto-rollback : restaurer le backup et retenter le reset
+        status = getattr(getattr(e, "response", None), "status_code", None)
+
+        # Un refus explicite du plugin Authorization ne remet pas en cause
+        # l'ecriture : le fichier est valide, seul le rechargement a chaud est
+        # indisponible. /tools/reset n'est couvert par aucun motif de
+        # permission du plugin, qui le rejette sans meme consulter
+        # auth-service. Conserver la modification et indiquer la marche a
+        # suivre vaut mieux que de la perdre.
+        if status in (401, 403):
+            await _audit(
+                "orthanc.config.updated_pending_restart",
+                admin.username,
+                fields=",".join(payload.changes.keys()),
+                backup=backup.name,
+            )
+            return {
+                "ok": True,
+                "backup": backup.name,
+                "restart_required": True,
+                "message": (
+                    "Configuration enregistree. Orthanc ne peut pas la recharger "
+                    "a chaud (le plugin Authorization refuse /tools/reset) : "
+                    "redemarrer le conteneur pour l'appliquer — "
+                    "docker compose restart orthanc"
+                ),
+            }
+
+        # Tout autre echec (panne reseau, erreur serveur) laisse Orthanc dans
+        # un etat incertain : on restaure le fichier precedent.
         reset_error = str(e)
         try:
             shutil.copy2(backup, ORTHANC_JSON)
