@@ -1,10 +1,20 @@
-# Dependances de tests uniquement (non embarquees dans l'image auth-service).
-# Installer avec :
-#   pip install -r requirements.txt -r requirements-dev.txt
-# Executer :
-#   ORTHANC_ADMIN_USER=test ORTHANC_ADMIN_PASS=test python -m pytest tests/ -v
+# Dependances necessaires pour lancer la suite de tests, absentes de l'image
+# de production. Versions figees : sans elles, pip installe les dernieres
+# publiees et la suite devient irreproductible d'une machine a l'autre.
+#
+# Lancer les tests sans installer Python sur la machine hote :
+#
+#   docker run --rm --entrypoint sh \
+#     -e AUTH_USERNAME=x -e AUTH_PASSWORD=xxxxxxxxxxxx \
+#     -e ORTHANC_ADMIN_USER=x -e ORTHANC_ADMIN_PASS=y \
+#     -v "$PWD/services/auth-service/sources:/src" -w /src \
+#     registry.yokoinc.ovh/orthanc-auth-service:1.0.16 \
+#     -c 'pip install -q -r requirements-dev.txt && python -m pytest tests/ -q'
+#
+# Les quatre variables d'environnement sont exigees au chargement du module
+# auth_service ; leurs valeurs n'ont aucune importance pour les tests.
 
-pytest
-pytest-asyncio
-fakeredis
-respx
+pytest==9.1.1
+pytest-asyncio==1.4.0
+fakeredis==2.37.0
+respx==0.23.1

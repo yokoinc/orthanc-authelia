@@ -45,8 +45,21 @@ def tmp_paths(tmp_path, monkeypatch):
 
 @pytest.fixture
 def fake_redis():
-    """Injecte un Redis fake dans le module (synchrone pour TestClient)."""
-    r = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    """Injecte un Redis fake dans le module, plus un acces synchrone.
+
+    Les deux clients partagent le meme FakeServer : ce que l'un ecrit,
+    l'autre le voit. Le code applicatif utilise le client asynchrone ; les
+    tests passent par `.sync` pour preparer ou relire l'etat.
+
+    Ne pas revenir a asyncio.run() sur le client async : asyncio.run ouvre
+    une boucle d'evenements puis la ferme, le client fakeredis reste lie a
+    cette boucle morte, et la requete HTTP suivante -- servie par le portail
+    du TestClient, donc une autre boucle -- casse sur "Queue is bound to a
+    different event loop". L'echec ne dit rien du code teste.
+    """
+    server = fakeredis.FakeServer()
+    r = fakeredis.aioredis.FakeRedis(decode_responses=True, server=server)
+    r.sync = fakeredis.FakeRedis(decode_responses=True, server=server)
     admin_module.set_redis(r)
     return r
 
@@ -70,7 +83,15 @@ def app(admin_user):
 
 @pytest.fixture
 def client(app, tmp_paths, fake_redis):
-    return TestClient(app)
+    """TestClient maintenu ouvert pour toute la duree du test.
+
+    Sans gestionnaire de contexte, Starlette ouvre puis ferme un portail
+    anyio -- donc une boucle d'evenements -- a CHAQUE requete. Le `with`
+    garde un portail unique, condition pour que le client fakeredis reste
+    utilisable d'une requete a l'autre.
+    """
+    with TestClient(app) as c:
+        yield c
 
 
 @pytest.fixture
@@ -151,8 +172,7 @@ class TestSetupWizard:
         assert r.json()["admins"] == ["cuffel.gregory"]
 
         # Redis a bien le flag maintenant
-        import asyncio
-        val = asyncio.run(fake_redis.get("orthanc_authelia:setup_completed"))
+        val = fake_redis.sync.get("orthanc_authelia:setup_completed")
         assert val == "1"
 
         # Etape 3 : un 2eme appel est refuse. Le middleware ne redirige que les
@@ -219,8 +239,7 @@ class TestOrthancConfig:
         assert len(backups) == 1
 
         # Audit stream a une entree
-        import asyncio
-        entries = asyncio.run(fake_redis.xrange("admin:audit"))
+        entries = fake_redis.sync.xrange("admin:audit")
         assert len(entries) >= 1
         _, fields = entries[-1]
         assert fields["event"] == "orthanc.config.updated"
@@ -406,8 +425,7 @@ class TestAutoRollback:
         assert current["Name"] == valid_orthanc_json["Name"]
 
         # Audit trail montre le rollback
-        import asyncio
-        entries = asyncio.run(fake_redis.xrange("admin:audit"))
+        entries = fake_redis.sync.xrange("admin:audit")
         events = [f["event"] for _, f in entries]
         assert "orthanc.config.rolled_back" in events
 
@@ -449,13 +467,8 @@ class TestSetupLockout:
         })
         client.post("/setup/finalize")
 
-        import asyncio
-        first_admin_flag = asyncio.run(
-            fake_redis.get("orthanc_authelia:setup_first_admin_created"),
-        )
-        setup_flag = asyncio.run(
-            fake_redis.get("orthanc_authelia:setup_completed"),
-        )
+        first_admin_flag = fake_redis.sync.get("orthanc_authelia:setup_first_admin_created")
+        setup_flag = fake_redis.sync.get("orthanc_authelia:setup_completed")
         assert first_admin_flag is None
         assert setup_flag == "1"
 
@@ -524,8 +537,7 @@ class TestHealth:
         self, client, tmp_paths, fake_redis,
     ):
         """Une fois finalise, le wizard renvoie vers le hub."""
-        import asyncio
-        asyncio.run(fake_redis.set("orthanc_authelia:setup_completed", "1"))
+        fake_redis.sync.set("orthanc_authelia:setup_completed", "1")
 
         r = client.get("/ui/setup", follow_redirects=False)
         assert r.status_code == 302
@@ -542,8 +554,8 @@ class TestHealth:
         self, client, tmp_paths, fake_redis, valid_authelia_yml,
     ):
         """whoami fournit l'identite au SPA et pose le cookie CSRF."""
-        import asyncio, json
-        asyncio.run(fake_redis.set("orthanc_authelia:setup_completed", "1"))
+        import json
+        fake_redis.sync.set("orthanc_authelia:setup_completed", "1")
 
         r = client.get("/api/admin/whoami")
         assert r.status_code == 200
