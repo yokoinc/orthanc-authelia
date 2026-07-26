@@ -443,6 +443,13 @@ async def _reload_orthanc() -> None:
         r = await client.post(
             f"{ORTHANC_URL}/tools/reset",
             auth=(ORTHANC_USER, ORTHANC_PASS),
+            # Le plugin Authorization d'Orthanc lit Remote-User (declare dans
+            # TokenHttpHeaders) et le transmet a /user/get-profile comme
+            # identite. Sans cet en-tete, l'appel est vu comme anonyme : le
+            # profil correspondant n'a que la permission "upload" et /tools/
+            # est refuse (403). "admin" donne la permission "settings", requise
+            # pour recharger la configuration.
+            headers={"Remote-User": "admin"},
         )
         r.raise_for_status()
 
