@@ -244,6 +244,52 @@ def _load_authelia() -> dict:
     return data or {"users": {}}
 
 
+def _strip_json_comments(raw: str) -> str:
+    """
+    Retire les commentaires // et /* */ d'un JSON.
+
+    Orthanc accepte les commentaires dans sa configuration, mais json.loads
+    les refuse. On ne peut pas se contenter d'une expression reguliere : le
+    fichier contient des URLs ("http://auth-service:8000") dont le // ne doit
+    pas etre traite comme un debut de commentaire. On parcourt donc le texte
+    en suivant l'etat "dans une chaine" / "hors chaine".
+    """
+    out = []
+    i, n = 0, len(raw)
+    in_string = False
+    while i < n:
+        ch = raw[i]
+        if in_string:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:      # echappement : copier la paire
+                out.append(raw[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "/" and i + 1 < n:
+            if raw[i + 1] == "/":               # commentaire jusqu'a la ligne
+                while i < n and raw[i] != "\n":
+                    i += 1
+                continue
+            if raw[i + 1] == "*":               # commentaire bloc
+                i += 2
+                while i + 1 < n and not (raw[i] == "*" and raw[i + 1] == "/"):
+                    i += 1
+                i += 2
+                continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _load_orthanc_config() -> dict:
     """Idem pour orthanc.json — meme strategie d'erreur explicite."""
     try:
@@ -251,7 +297,7 @@ def _load_orthanc_config() -> dict:
     except OSError as e:
         raise HTTPException(500, f"orthanc.json illisible : {e}") from e
     try:
-        return json.loads(raw)
+        return json.loads(_strip_json_comments(raw))
     except json.JSONDecodeError as e:
         raise HTTPException(
             500,

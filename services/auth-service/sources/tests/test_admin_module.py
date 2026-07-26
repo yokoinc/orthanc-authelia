@@ -219,3 +219,70 @@ class TestCSRF:
     def test_compare_digest_rejects_diff(self):
         import secrets
         assert not secrets.compare_digest("abc", "abd")
+
+
+# ============================================================================
+# Commentaires JSON : Orthanc les accepte, json.loads non
+# ============================================================================
+
+class TestStripJsonComments:
+
+    def test_line_comment_removed(self):
+        from admin_module import _strip_json_comments
+        import json
+        raw = """{
+  // un commentaire
+  "a": 1
+}"""
+        assert json.loads(_strip_json_comments(raw)) == {"a": 1}
+
+    def test_block_comment_removed(self):
+        from admin_module import _strip_json_comments
+        import json
+        raw = """{
+  /* sur
+     plusieurs lignes */
+  "a": 1
+}"""
+        assert json.loads(_strip_json_comments(raw)) == {"a": 1}
+
+    def test_url_double_slash_preserved(self):
+        """Le // d'une URL ne doit pas etre pris pour un commentaire."""
+        from admin_module import _strip_json_comments
+        import json
+        raw = '{"url": "http://auth-service:8000"}'
+        out = json.loads(_strip_json_comments(raw))
+        assert out["url"] == "http://auth-service:8000"
+
+    def test_slashes_inside_string_preserved(self):
+        from admin_module import _strip_json_comments
+        import json
+        raw = '{"path": "a//b", "glob": "/* pas un commentaire */"}'
+        out = json.loads(_strip_json_comments(raw))
+        assert out["path"] == "a//b"
+        assert out["glob"] == "/* pas un commentaire */"
+
+    def test_escaped_quote_inside_string(self):
+        """Une quote echappee ne doit pas terminer la chaine prematurement."""
+        from admin_module import _strip_json_comments
+        import json
+        raw = '{"quoted": "il a dit \\"bonjour\\"", "n": 1}'
+        out = json.loads(_strip_json_comments(raw))
+        assert out["n"] == 1
+
+    def test_real_orthanc_config_shape(self):
+        """Cas reel : commentaires en tete et URL avec // dans la meme config."""
+        from admin_module import _strip_json_comments
+        import json
+        raw = """{
+  // =====================================================
+  // ORTHANC PACS SERVER CONFIGURATION
+  // =====================================================
+  "Name": "Orthanc",
+  "Authorization": {
+    "WebServiceRootUrl": "http://auth-service:8000"
+  }
+}"""
+        out = json.loads(_strip_json_comments(raw))
+        assert out["Name"] == "Orthanc"
+        assert out["Authorization"]["WebServiceRootUrl"] == "http://auth-service:8000"
