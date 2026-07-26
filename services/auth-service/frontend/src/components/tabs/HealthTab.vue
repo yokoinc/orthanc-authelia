@@ -65,7 +65,8 @@ h2 { font-size: 14px; margin: 0 0 12px; font-weight: 400; }
 .table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 12px; }
 .table th, .table td {
   padding: 6px 10px; text-align: left;
-  border-bottom: 1px solid var(--oe2-border-subtle);
+  /* Bleu clair comme les tableaux d'Orthanc, cf. --oe2-table-border. */
+  border-bottom: 1px solid var(--oe2-table-border);
 }
 .table th {
   color: var(--oe2-muted); text-transform: uppercase;

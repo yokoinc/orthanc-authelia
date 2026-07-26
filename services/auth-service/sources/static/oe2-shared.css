@@ -39,6 +39,13 @@
     --oe2-form-placeholder: #888;
     --oe2-border: #ffffff;
     --oe2-border-subtle: rgba(255, 255, 255, 0.2);
+    /* OE2 redefinit la couleur de bordure de Bootstrap
+       (--bs-border-color: rgb(110, 160, 200), relevee dans
+       libOrthancExplorer2.so) : ses tableaux sont donc soulignes de bleu
+       clair, la ou les bordures blanches translucides ci-dessus donnaient
+       des separations grises. Reservee aux tableaux : dans OE2 la structure
+       (barre laterale, onglets) ne porte pas cette couleur. */
+    --oe2-table-border: rgb(110, 160, 200);
     --oe2-muted: #b0b0b0;
     --oe2-success: #28a745;
     --oe2-danger: #dc3545;
@@ -155,7 +162,13 @@ body {
 .oe2-sidebar__nav {
     flex: 1;
     margin-top: 10px;
-    font-size: 14px;
+    /* Valeurs exactes de .nav-side-menu dans OE2 : la barre laterale y
+       change de police (verdana) et descend a 12px, contrairement au reste
+       de l'interface qui est en Avenir 14px. C'est ce qui donnait a nos
+       pages un menu visiblement different. */
+    font-family: verdana, sans-serif;
+    font-size: 12px;
+    font-weight: 200;
 }
 
 .oe2-sidebar__link {
@@ -190,11 +203,14 @@ body {
 
 .oe2-sidebar__link svg,
 .oe2-sidebar__link i {
-    width: 16px;
-    height: 16px;
-    margin-right: 10px;
+    /* .nav-side-menu li a i dans OE2 : 20px de large, 10px avant et 20px
+       apres. Nos 16px + 10px de marge decalaient le texte vers la gauche. */
+    padding-left: 10px;
+    width: 20px;
+    padding-right: 20px;
     text-align: center;
     flex-shrink: 0;
+    box-sizing: content-box;
 }
 
 .oe2-sidebar__link-count {
