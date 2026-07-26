@@ -10,7 +10,7 @@
 # =============================================================================
 
 # Theme configuration - auto detects user preference (light/dark mode)
-theme: auto
+theme: dark
 
 # =============================================================================
 # SERVER CONFIGURATION

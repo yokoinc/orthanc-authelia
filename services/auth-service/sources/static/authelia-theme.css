@@ -1,0 +1,112 @@
+/* =============================================================================
+   HABILLAGE ORTHANC DE LA PAGE DE CONNEXION AUTHELIA
+   =============================================================================
+   Authelia n'a pas de mécanisme de feuille de style personnalisée : son
+   asset_path n'accepte que favicon.ico, logo.png et locales/. Ce fichier est
+   donc injecté par nginx (bloc `location /auth/` de nginx.ssl.conf), qui
+   ajoute un <link> vers /auth/static/authelia-theme.css avant </head>.
+
+   Il est servi par auth-service comme les autres fichiers statiques : le
+   modifier ne demande ni rebuild de nginx ni rechargement de sa
+   configuration, seulement `docker compose restart auth-service`.
+
+   Pourquoi !important partout : le portail est construit en CSS-in-JS
+   (styles générés et injectés dans <head> au runtime, avec une spécificité
+   élevée). Sans !important, rien ne prend.
+
+   Les classes .Mui* sont les noms stables générés par MUI, la bibliothèque
+   de composants d'Authelia. Le logo, lui, est ciblé par son src plutôt que
+   par une classe : le nom de classe est généré et changerait d'une version
+   à l'autre.
+   ============================================================================= */
+
+:root {
+    /* Palette reprise d'Orthanc Explorer 2 (cf. oe2-shared.css) */
+    --orthanc-bg: rgb(30, 36, 42);
+    --orthanc-surface: rgb(40, 40, 45);
+    --orthanc-accent: #3d748d;
+    --orthanc-accent-hover: #5088a3;
+    --orthanc-text: #ffffff;
+    --orthanc-muted: #b0b0b0;
+    --orthanc-border: rgba(255, 255, 255, 0.2);
+}
+
+/* --- Logo -------------------------------------------------------------------
+   Le logo Orthanc est large (786x250, ratio 3:1) alors qu'Authelia réserve un
+   emplacement pensé pour un logo compact : sans cette règle il paraît minuscule.
+   Hauteur automatique pour préserver les proportions, et plafond en vw pour
+   qu'il ne déborde pas sur mobile. */
+img[src*="logo.png"] {
+    width: 260px !important;
+    max-width: 70vw !important;
+    height: auto !important;
+    margin-bottom: 8px !important;
+}
+
+/* --- Fond et texte --------------------------------------------------------- */
+body {
+    background-color: var(--orthanc-bg) !important;
+    color: var(--orthanc-text) !important;
+}
+
+/* La carte de connexion */
+.MuiPaper-root {
+    background-color: var(--orthanc-surface) !important;
+    color: var(--orthanc-text) !important;
+    border: 1px solid var(--orthanc-border) !important;
+    border-radius: 4px !important;
+}
+
+.MuiTypography-root {
+    color: var(--orthanc-text) !important;
+}
+.MuiTypography-subtitle1,
+.MuiTypography-subtitle2,
+.MuiTypography-caption {
+    color: var(--orthanc-muted) !important;
+}
+
+/* --- Champs de saisie ------------------------------------------------------ */
+.MuiOutlinedInput-root {
+    background-color: #181c20 !important;
+    color: var(--orthanc-text) !important;
+}
+.MuiOutlinedInput-notchedOutline {
+    border-color: var(--orthanc-border) !important;
+}
+.MuiOutlinedInput-root:hover .MuiOutlinedInput-notchedOutline,
+.MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline {
+    border-color: var(--orthanc-accent) !important;
+}
+.MuiInputLabel-root {
+    color: var(--orthanc-muted) !important;
+}
+.MuiInputLabel-root.Mui-focused {
+    color: var(--orthanc-accent) !important;
+}
+
+/* --- Boutons --------------------------------------------------------------- */
+.MuiButton-contained {
+    background-color: var(--orthanc-accent) !important;
+    color: #ffffff !important;
+    box-shadow: none !important;
+}
+.MuiButton-contained:hover {
+    background-color: var(--orthanc-accent-hover) !important;
+}
+.MuiCheckbox-root.Mui-checked {
+    color: var(--orthanc-accent) !important;
+}
+
+/* --- Liens ----------------------------------------------------------------- */
+a {
+    color: #6ea0c8 !important;
+}
+
+/* --- Réinitialisation du mot de passe --------------------------------------
+   Masquée : aucun serveur SMTP n'est configuré dans cette pile, le lien mène
+   donc à une impasse. Cette règle remplace le <style> qui était injecté
+   directement dans la configuration nginx. */
+a[href="/reset-password/step1"] {
+    display: none !important;
+}
