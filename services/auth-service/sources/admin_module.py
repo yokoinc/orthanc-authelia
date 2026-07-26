@@ -718,7 +718,9 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
 
     try:
         if ORTHANC_JSON.exists():
-            json.loads(ORTHANC_JSON.read_text(encoding="utf-8"))
+            # Meme tolerance aux commentaires que _load_orthanc_config, sinon
+            # le health check signale a tort une config corrompue.
+            json.loads(_strip_json_comments(ORTHANC_JSON.read_text(encoding="utf-8")))
             checks["orthanc_json"] = {"ok": True, "detail": str(ORTHANC_JSON)}
         else:
             checks["orthanc_json"] = {"ok": False, "detail": "fichier absent"}

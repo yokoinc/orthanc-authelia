@@ -72,7 +72,19 @@ else
     S1=$(openssl rand -hex 32)
     S2=$(openssl rand -hex 32)
     S3=$(openssl rand -hex 32)
+    # PostgreSQL n'applique POSTGRES_PASSWORD qu'a l'initialisation de son
+    # volume. Si le volume existe deja, en generer un nouveau rendrait la base
+    # inaccessible ("password authentication failed for user orthanc") : on
+    # conserve alors celui du .env precedent.
     PG_PASS=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
+    if docker volume inspect orthanc_postgres_data >/dev/null 2>&1; then
+        EXISTING_PG=$(grep '^POSTGRES_PASSWORD=' .env 2>/dev/null | cut -d= -f2-)
+        if [[ -n ${EXISTING_PG:-} ]]; then
+            PG_PASS=$EXISTING_PG
+            warn "Volume PostgreSQL existant : mot de passe conserve"
+            warn "  (pour repartir de zero : docker compose down -v)"
+        fi
+    fi
     AUTH_PASS=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
     ORTHANC_PASS=$(openssl rand -hex 32)
 
