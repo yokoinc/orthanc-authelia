@@ -23,6 +23,16 @@
   "MaximumPatientCount": 0,
   "StorageCompression": false,
 
+  // Persistance en base des modalites DICOM et des peers Orthanc.
+  //
+  // Sans ces deux drapeaux, tout equipement ajoute depuis le panel
+  // d'administration (ou via l'API REST) disparait au redemarrage
+  // d'Orthanc : la liste est relue depuis ce fichier a chaque demarrage.
+  //
+  // Le panel refuse de les repasser a false, pour la meme raison.
+  "DicomModalitiesInDatabase": true,
+  "OrthancPeersInDatabase": true,
+
   // =============================================================================
   // POSTGRESQL - UPDATE THESE CREDENTIALS
   // =============================================================================
