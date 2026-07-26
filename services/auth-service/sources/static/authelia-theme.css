@@ -41,6 +41,12 @@ img[src*="logo.png"] {
     max-width: 70vw !important;
     height: auto !important;
     margin-bottom: 8px !important;
+    /* Le PNG est bleu (RGB moyen 59,134,185), illisible sur fond sombre.
+       brightness(50) sature les valeurs et donne une silhouette blanche
+       uniforme tout en preservant la transparence -- meme technique que
+       .oe2-sidebar__logo dans oe2-shared.css, pour que le logo soit
+       identique sur le portail et dans le panel. */
+    filter: brightness(50) !important;
 }
 
 /* --- Fond et texte --------------------------------------------------------- */
