@@ -178,6 +178,36 @@ if grep -q '\${' "$AUTHELIA_CFG" 2>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
+# Mot de passe du plugin Authorization dans orthanc.json
+# ---------------------------------------------------------------------------
+# Le plugin s'authentifie aupres d'auth-service en Basic auth avec les valeurs
+# de la section Authorization. Elles doivent correspondre a AUTH_USERNAME et
+# AUTH_PASSWORD du .env, sans quoi /user/get-profile repond 401 et Orthanc
+# refuse toute requete (403) sans message explicite.
+#
+# Les variables ORTHANC__AUTHORIZATION__WEB_SERVICE_* ne conviennent pas :
+# Orthanc ne les applique pas a cette section, la valeur du fichier reste
+# utilisee. On substitue donc a la copie.
+ORTHANC_CFG="services/orthanc/config/orthanc.json"
+if grep -q 'set-via-env-AUTH_PASSWORD' "$ORTHANC_CFG" 2>/dev/null; then
+    AUTH_USER_VALUE=$(grep '^AUTH_USERNAME=' .env | cut -d= -f2-)
+    AUTH_PASS_VALUE=$(grep '^AUTH_PASSWORD=' .env | cut -d= -f2-)
+    AUTH_USER_VALUE="$AUTH_USER_VALUE" AUTH_PASS_VALUE="$AUTH_PASS_VALUE"         python3 - "$ORTHANC_CFG" <<'PYSUB'
+import os, sys
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+content = content.replace('"WebServiceUsername": "share-user"',
+                          '"WebServiceUsername": "%s"' % os.environ["AUTH_USER_VALUE"])
+content = content.replace('"WebServicePassword": "set-via-env-AUTH_PASSWORD"',
+                          '"WebServicePassword": "%s"' % os.environ["AUTH_PASS_VALUE"])
+with open(path, "w") as f:
+    f.write(content)
+PYSUB
+    ok "orthanc.json : identifiants du plugin Authorization synchronises"
+fi
+
+# ---------------------------------------------------------------------------
 # Hash argon2id valide dans users_database.yml
 # ---------------------------------------------------------------------------
 # Le template contient EXAMPLE_HASH_REPLACE_THIS qui n'est pas un hash argon2

@@ -182,13 +182,10 @@ services:
       - ORTHANC__POSTGRESQL__DATABASE=${POSTGRES_DB:-orthanc}
       - ORTHANC__POSTGRESQL__USERNAME=${POSTGRES_USER:-orthanc}
       - ORTHANC__POSTGRESQL__PASSWORD=${POSTGRES_PASSWORD}
-      # Credentials du plugin Authorization pour joindre auth-service. En env
-      # var et non dans orthanc.json pour deux raisons : ils doivent rester
-      # synchronises avec AUTH_USERNAME/AUTH_PASSWORD du .env (source unique),
-      # et orthanc.json est editable depuis le panel admin — un secret n'a
-      # rien a y faire.
-      - ORTHANC__AUTHORIZATION__WEB_SERVICE_USERNAME=${AUTH_USERNAME}
-      - ORTHANC__AUTHORIZATION__WEB_SERVICE_PASSWORD=${AUTH_PASSWORD}
+      # Les identifiants du plugin Authorization ne peuvent pas passer par une
+      # variable : Orthanc n'applique pas ORTHANC__AUTHORIZATION__* a cette
+      # section. bootstrap.sh les ecrit directement dans orthanc.json a partir
+      # d'AUTH_USERNAME / AUTH_PASSWORD.
       # Kept for scripts backward compat (some helpers still read POSTGRES_*)
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
