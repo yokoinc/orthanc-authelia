@@ -565,3 +565,51 @@ class TestHealth:
             r = client.get("/api/admin/health")
             assert r.status_code == 200
             assert r.json()["checks"]["orthanc_json"]["ok"] is False
+
+
+# ============================================================================
+# Restauration de backup : le nom vient du client
+# ============================================================================
+
+class TestBackupRestoreSafety:
+
+    def test_path_traversal_refused(self, client, tmp_paths, fake_redis, csrf_headers):
+        """Un nom qui remonte hors du dossier de backups doit etre refuse.
+
+        "orthanc.json.bak.../../../x" satisfait les controles de forme
+        (contient .bak., commence par orthanc.json.bak.) tout en designant
+        un fichier hors du dossier.
+        """
+        r = client.post(
+            "/api/admin/backups/restore",
+            params={"backup_name": "orthanc.json.bak.../../../etc/passwd"},
+            headers=csrf_headers,
+        )
+        assert r.status_code == 400
+        assert "invalide" in r.text.lower()
+
+    def test_absolute_path_refused(self, client, tmp_paths, fake_redis, csrf_headers):
+        r = client.post(
+            "/api/admin/backups/restore",
+            params={"backup_name": "/etc/orthanc.json.bak.1"},
+            headers=csrf_headers,
+        )
+        assert r.status_code == 400
+
+    def test_legitimate_name_still_accepted(
+        self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
+    ):
+        """Un nom normal continue de fonctionner."""
+        import respx, httpx
+        tmp_paths["backups"].mkdir(parents=True, exist_ok=True)
+        backup = tmp_paths["backups"] / "orthanc.json.bak.20260101-000000"
+        backup.write_text(tmp_paths["orthanc"].read_text())
+
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.post("/tools/reset").respond(status_code=200, json={})
+            r = client.post(
+                "/api/admin/backups/restore",
+                params={"backup_name": backup.name},
+                headers=csrf_headers,
+            )
+        assert r.status_code == 200, r.text

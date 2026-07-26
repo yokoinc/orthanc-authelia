@@ -755,7 +755,17 @@ async def restore_backup(
     admin: AdminUser = Depends(require_admin),
 ):
     """Restaure un backup depuis /host/backups/ vers son fichier d'origine."""
-    src = BACKUPS_DIR / backup_name
+    # Le nom vient du client : il ne doit designer qu'un fichier du dossier de
+    # backups. Un nom comme "orthanc.json.bak.../../../etc/passwd" satisfait
+    # les controles de forme plus bas tout en pointant hors du dossier, d'ou
+    # cette verification sur le chemin resolu.
+    if "/" in backup_name or "\\" in backup_name or ".." in backup_name:
+        raise HTTPException(400, "nom de backup invalide")
+
+    src = (BACKUPS_DIR / backup_name).resolve()
+    if not src.is_relative_to(BACKUPS_DIR.resolve()):
+        raise HTTPException(400, "nom de backup invalide")
+
     if not src.exists() or ".bak." not in backup_name:
         raise HTTPException(404, "backup introuvable ou nom invalide")
 
