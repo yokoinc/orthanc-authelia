@@ -64,6 +64,11 @@ BACKUPS_DIR = Path(os.getenv("ADMIN_BACKUPS_DIR", "/host/backups"))
 
 SETUP_KEY = "orthanc_authelia:setup_completed"
 SETUP_FIRST_ADMIN_KEY = "orthanc_authelia:setup_first_admin_created"
+
+# Compte present dans users_database.yml.example au seul titre qu'Authelia
+# refuse de demarrer sur une base vide ("users: non zero value required").
+# Desactive et sans groupe, il est supprime a la finalisation du wizard.
+BOOTSTRAP_USERNAME = "bootstrap@localhost"
 AUDIT_STREAM = "admin:audit"
 CSRF_COOKIE = "orthanc_admin_csrf"
 
@@ -524,7 +529,8 @@ async def setup_create_admin(payload: UserCreatePayload):
 
 @router.post("/setup/finalize")
 async def setup_finalize():
-    """Etape finale : verifie invariant admin actif puis flip le flag."""
+    """Etape finale : verifie l'invariant admin actif, supprime le compte
+    d'amorcage, puis marque le setup comme termine."""
     if (await _r().get(SETUP_KEY)) == "1":
         raise HTTPException(409, "setup deja finalise")
     data = _load_authelia()
@@ -534,10 +540,25 @@ async def setup_finalize():
     ]
     if not admins:
         raise HTTPException(400, "creer d'abord un admin (POST /auth/setup/create-admin)")
+
+    # Un vrai administrateur existe : le compte d'amorcage n'a plus de raison
+    # d'etre et n'a pas a rester visible dans le panel. Suppression par nom
+    # exact — si l'exploitant l'a renomme ou s'en est servi comme compte
+    # reel, rien n'est touche. L'ecriture precede le flip du drapeau : si
+    # elle echoue, le setup n'est pas marque comme termine.
+    bootstrap_removed = None
+    if BOOTSTRAP_USERNAME in data.get("users", {}):
+        del data["users"][BOOTSTRAP_USERNAME]
+        _write_authelia(data)
+        bootstrap_removed = BOOTSTRAP_USERNAME
+
     await _r().set(SETUP_KEY, "1")
     await _r().delete(SETUP_FIRST_ADMIN_KEY)  # verrou setup levee, ne sert plus
-    await _audit("setup.finalized", actor="wizard", admin_count=len(admins))
-    return {"ok": True, "admins": admins}
+    await _audit(
+        "setup.finalized", actor="wizard", admin_count=len(admins),
+        bootstrap_removed=bootstrap_removed,
+    )
+    return {"ok": True, "admins": admins, "bootstrap_removed": bootstrap_removed}
 
 
 # ============================================================================

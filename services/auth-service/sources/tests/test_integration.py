@@ -186,6 +186,62 @@ class TestSetupWizard:
         assert r.status_code == 409
         assert "deja finalise" in r.text.lower()
 
+    def _bootstrap_only(self, tmp_paths):
+        """Base telle que bootstrap.sh la laisse sur une installation neuve."""
+        tmp_paths["authelia"].write_text(yaml.safe_dump({
+            "users": {
+                admin_module.BOOTSTRAP_USERNAME: {
+                    "disabled": True,
+                    "displayname": "Compte d'amorcage",
+                    "password": "$argon2id$v=19$m=65536,t=3,p=4$nimportequoi",
+                    "email": "bootstrap@localhost",
+                    "groups": [],
+                },
+            },
+        }))
+
+    def _create_first_admin(self, client):
+        return client.post("/setup/create-admin", json={
+            "username": "cuffel.gregory",
+            "displayname": "Gregory Cuffel",
+            "email": "cuffel.gregory@gmail.com",
+            "password": "premier-admin-12345",
+            "groups": ["admin"],
+        })
+
+    def test_finalize_removes_bootstrap_account(self, client, tmp_paths, fake_redis):
+        """Le compte d'amorcage disparait une fois le vrai admin cree.
+
+        Authelia refuse de demarrer sur une base vide, d'ou ce compte dans le
+        template. Il ne doit pas survivre a l'installation : une fois le
+        wizard termine, seul le compte de l'exploitant subsiste.
+        """
+        self._bootstrap_only(tmp_paths)
+
+        assert self._create_first_admin(client).status_code == 200
+
+        # Encore present juste avant la finalisation
+        yml = yaml.safe_load(tmp_paths["authelia"].read_text())
+        assert admin_module.BOOTSTRAP_USERNAME in yml["users"]
+
+        r = client.post("/setup/finalize")
+        assert r.status_code == 200, r.text
+        assert r.json()["bootstrap_removed"] == admin_module.BOOTSTRAP_USERNAME
+
+        yml = yaml.safe_load(tmp_paths["authelia"].read_text())
+        assert list(yml["users"]) == ["cuffel.gregory"]
+
+    def test_finalize_without_bootstrap_account(self, client, tmp_paths, fake_redis):
+        """Absent ou renomme, la finalisation se passe sans rien supprimer."""
+        assert self._create_first_admin(client).status_code == 200
+
+        r = client.post("/setup/finalize")
+        assert r.status_code == 200, r.text
+        assert r.json()["bootstrap_removed"] is None
+
+        yml = yaml.safe_load(tmp_paths["authelia"].read_text())
+        assert list(yml["users"]) == ["cuffel.gregory"]
+
     def test_finalize_refused_without_admin(self, client, tmp_paths, fake_redis):
         """Finaliser sans admin actif = 400 (invariant lockout)."""
         # Pas de POST create-admin avant

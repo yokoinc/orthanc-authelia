@@ -212,8 +212,12 @@ fi
 # ---------------------------------------------------------------------------
 # Le template contient EXAMPLE_HASH_REPLACE_THIS qui n'est pas un hash argon2
 # parsable : Authelia refuse de demarrer ("argon2 decode error"). On genere
-# un hash reel avec un mot de passe aleatoire jamais affiche — ces comptes
-# de demo sont donc inutilisables, et le setup wizard cree le vrai admin.
+# un hash reel avec un mot de passe aleatoire jamais affiche ni conserve.
+#
+# Ce compte d'amorcage n'existe que parce qu'Authelia refuse aussi de demarrer
+# sur une base sans utilisateur ("users: non zero value required"). Il est
+# desactive et sans groupe ; la finalisation du wizard le supprime une fois le
+# vrai administrateur cree.
 USERS_DB="services/authelia/config/users_database.yml"
 if grep -q 'EXAMPLE_HASH_REPLACE_THIS' "$USERS_DB" 2>/dev/null; then
     info "Generation d'un hash argon2id (via l'image Authelia)…"
@@ -236,7 +240,7 @@ content = content.replace(
 with open(path, "w") as f:
     f.write(content)
 PYEOF
-        ok "users_database.yml : hash argon2id valide (comptes demo inutilisables)"
+        ok "users_database.yml : hash argon2id valide (compte d'amorcage inactif)"
     else
         warn "Generation du hash echouee — Authelia refusera de demarrer."
         warn "Lance manuellement :"
