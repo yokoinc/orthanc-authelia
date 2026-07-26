@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, defineAsyncComponent } from 'vue'
 import { api } from '../api.js'
+import { t } from '../i18n.js'
 import { useUiStore } from '../stores/ui.js'
 
 // Lazy-load des tabs : le bundle initial reste minimal, chaque onglet
@@ -10,12 +11,12 @@ const OrthancTab     = defineAsyncComponent(() => import('../components/tabs/Ort
 const HealthTab      = defineAsyncComponent(() => import('../components/tabs/HealthTab.vue'))
 
 const tabs = [
-  { id: 'users',   label: 'Users',          icon: 'fa-users',       comp: UsersTab },
-  { id: 'orthanc', label: 'Orthanc config', icon: 'fa-server',      comp: OrthancTab },
-  { id: 'health',  label: 'Health',         icon: 'fa-heart-pulse', comp: HealthTab },
+  { id: 'users',   label: t('tab_users', 'Utilisateurs'),        icon: 'fa-users',       comp: UsersTab },
+  { id: 'orthanc', label: t('tab_orthanc', 'Configuration Orthanc'), icon: 'fa-server',      comp: OrthancTab },
+  { id: 'health',  label: t('tab_health', 'État'),               icon: 'fa-heart-pulse', comp: HealthTab },
 ]
 const active = ref('users')
-const currentTab = () => tabs.find((t) => t.id === active.value).comp
+const currentTab = () => tabs.find((onglet) => onglet.id === active.value).comp
 
 // URLs runtime (servies par nginx, pas bundled par Vite)
 const logoUrl = '/auth/static/orthanc-logo-official.png'
@@ -44,20 +45,20 @@ onMounted(async () => {
       </div>
       <nav>
         <a href="/ui/app/" class="link">
-          <i class="fa-solid fa-arrow-left"></i><span>Retour à Orthanc Explorer</span>
+          <i class="fa-solid fa-arrow-left"></i><span>{{ t('nav_back_to_explorer', 'Retour à Orthanc Explorer') }}</span>
         </a>
         <a href="/auth/tokens/manage" class="link">
-          <i class="fa-solid fa-share-nodes"></i><span>Token Manager</span>
+          <i class="fa-solid fa-share-nodes"></i><span>{{ t('nav_token_manager', 'Liens de partage') }}</span>
         </a>
         <span class="link link--active" role="link" aria-current="page">
-          <i class="fa-solid fa-shield-halved"></i><span>Administration</span>
+          <i class="fa-solid fa-shield-halved"></i><span>{{ t('nav_administration', 'Administration') }}</span>
         </span>
       </nav>
     </aside>
 
     <main class="main">
       <header class="header">
-        <h1>Administration</h1>
+        <h1>{{ t('admin_title', 'Administration') }}</h1>
         <div class="user">
           <i class="fa-solid fa-user"></i>
           <span>{{ adminUsername }}</span>
@@ -66,13 +67,13 @@ onMounted(async () => {
 
       <nav class="tabs" role="tablist">
         <button
-          v-for="t in tabs" :key="t.id"
-          :class="['tab', { 'tab--active': active === t.id }]"
-          @click="active = t.id"
+          v-for="onglet in tabs" :key="onglet.id"
+          :class="['tab', { 'tab--active': active === onglet.id }]"
+          @click="active = onglet.id"
           role="tab"
-          :aria-selected="active === t.id"
+          :aria-selected="active === onglet.id"
         >
-          <i :class="['fa-solid', t.icon]"></i> {{ t.label }}
+          <i :class="['fa-solid', onglet.icon]"></i> {{ onglet.label }}
         </button>
       </nav>
 
@@ -80,7 +81,7 @@ onMounted(async () => {
         <Suspense>
           <component :is="currentTab()" />
           <template #fallback>
-            <div class="loading">Chargement…</div>
+            <div class="loading">{{ t('loading', 'Chargement…') }}</div>
           </template>
         </Suspense>
       </section>

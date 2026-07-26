@@ -2,6 +2,8 @@
 // le header X-CSRF-Token depuis le cookie orthanc_admin_csrf pose par le
 // backend au rendu initial de la page admin.
 
+import { t } from './i18n.js'
+
 function csrfToken() {
   const match = document.cookie
     .split('; ')
@@ -33,9 +35,11 @@ export async function api(path, opts = {}) {
     // refuse, redirection vers une autre origine bloquee par CORS. Le message
     // natif ("Failed to fetch") n'aide personne.
     throw new Error(
-      `Impossible de joindre le serveur (${path}). Vérifie que la stack tourne ` +
-      `et que le certificat de ${window.location.origin} est accepté par le navigateur. ` +
-      `Détail technique : ${e.message}`,
+      t(
+        'api_unreachable',
+        "Impossible de joindre le serveur ({path}). Vérifier que la pile tourne et que le certificat de {origin} est accepté par le navigateur. Détail technique : {detail}",
+        { path, origin: window.location.origin, detail: e.message },
+      ),
     )
   }
 
@@ -48,19 +52,26 @@ export async function api(path, opts = {}) {
     // cause probable plutot que de recracher le HTML brut.
     if (r.status === 401 || r.status === 403) {
       throw new Error(
-        'Session expirée ou droits insuffisants. Reconnecte-toi, ' +
-        'et vérifie que ton compte appartient au groupe "admins".',
+        t(
+          'api_session_expired',
+          'Session expirée ou droits insuffisants. Se reconnecter, et vérifier que le compte appartient au groupe « admin ».',
+        ),
       )
     }
     throw new Error(
-      `Réponse inattendue du serveur (HTTP ${r.status}, contenu non-JSON). ` +
-      `L'URL ${path} a probablement été interceptée par une redirection.`,
+      t(
+        'api_unexpected_response',
+        "Réponse inattendue du serveur (HTTP {status}, contenu non JSON). L'URL {path} a probablement été interceptée par une redirection.",
+        { status: r.status, path },
+      ),
     )
   }
 
   if (!r.ok) {
     const detail = data.detail || data.message
-    throw new Error(detail || `Le serveur a répondu HTTP ${r.status}.`)
+    throw new Error(
+      detail || t('api_http_error', 'Le serveur a répondu HTTP {status}.', { status: r.status }),
+    )
   }
   return data
 }

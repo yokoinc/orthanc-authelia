@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { api } from '../../api.js'
+import { t } from '../../i18n.js'
 import { useUiStore } from '../../stores/ui.js'
 
 const ui = useUiStore()
@@ -13,7 +14,7 @@ async function load() {
     const data = await api('/console/api/admin/health')
     checks.value = data.checks
   } catch (e) {
-    ui.notify('Erreur health : ' + e.message, 'err')
+    ui.notify(t('health_error', 'Erreur lors du diagnostic : {detail}', { detail: e.message }), 'err')
   } finally {
     loading.value = false
   }
@@ -24,23 +25,27 @@ onMounted(load)
 
 <template>
   <div>
-    <h2>État des composants</h2>
+    <h2>{{ t('health_title', 'État des composants') }}</h2>
 
-    <div v-if="loading" class="loading">Chargement…</div>
+    <div v-if="loading" class="loading">{{ t('loading', 'Chargement…') }}</div>
 
     <table v-else class="table">
       <thead>
-        <tr><th>Composant</th><th>Statut</th><th>Détail</th></tr>
+        <tr>
+          <th>{{ t('health_col_component', 'Composant') }}</th>
+          <th>{{ t('health_col_status', 'Statut') }}</th>
+          <th>{{ t('health_col_detail', 'Détail') }}</th>
+        </tr>
       </thead>
       <tbody>
         <tr v-for="(info, name) in checks" :key="name">
           <td><strong>{{ name }}</strong></td>
           <td>
             <span v-if="info.ok" class="ok">
-              <i class="fa-solid fa-check"></i> OK
+              <i class="fa-solid fa-check"></i> {{ t('health_ok', 'OK') }}
             </span>
             <span v-else class="err">
-              <i class="fa-solid fa-xmark"></i> KO
+              <i class="fa-solid fa-xmark"></i> {{ t('health_ko', 'En échec') }}
             </span>
           </td>
           <td class="mono">{{ info.detail }}</td>
@@ -49,7 +54,7 @@ onMounted(load)
     </table>
 
     <button class="btn" @click="load">
-      <i class="fa-solid fa-rotate"></i> Rafraîchir
+      <i class="fa-solid fa-rotate"></i> {{ t('refresh', 'Rafraîchir') }}
     </button>
   </div>
 </template>

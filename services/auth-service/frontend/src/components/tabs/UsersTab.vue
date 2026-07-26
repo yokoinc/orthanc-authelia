@@ -1,6 +1,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { api } from '../../api.js'
+import { t } from '../../i18n.js'
 import { useUiStore } from '../../stores/ui.js'
 
 const ui = useUiStore()
@@ -18,7 +19,7 @@ async function load() {
     const data = await api('/console/api/admin/users')
     users.value = data.users
   } catch (e) {
-    ui.notify('Erreur chargement users : ' + e.message, 'err')
+    ui.notify(t('users_load_error', 'Erreur au chargement des utilisateurs : {detail}', { detail: e.message }), 'err')
   } finally {
     loading.value = false
   }
@@ -27,7 +28,7 @@ async function load() {
 async function addUser() {
   try {
     await api('/console/api/admin/users', { method: 'POST', body: { ...newUser } })
-    ui.notify('User cree, Authelia reload dans ~2s', 'ok')
+    ui.notify(t('users_created', 'Utilisateur créé. Authelia le prendra en compte dans quelques secondes.'), 'ok')
     Object.assign(newUser, {
       username: '', displayname: '', email: '', password: '',
       groups: ['doctor'],
@@ -40,10 +41,10 @@ async function addUser() {
 }
 
 async function deleteUser(username) {
-  if (!confirm(`Supprimer l'utilisateur "${username}" ?`)) return
+  if (!confirm(t('users_delete_confirm', 'Supprimer l\'utilisateur « {username} » ?', { username }))) return
   try {
     await api(`/console/api/admin/users/${encodeURIComponent(username)}`, { method: 'DELETE' })
-    ui.notify(`${username} supprime`, 'ok')
+    ui.notify(t('users_deleted', '{username} a été supprimé.', { username }), 'ok')
     load()
   } catch (e) {
     ui.notify(e.message, 'err')
@@ -61,13 +62,19 @@ onMounted(load)
 
 <template>
   <div>
-    <h2>Utilisateurs Authelia</h2>
+    <h2>{{ t('users_title', 'Utilisateurs') }}</h2>
 
-    <div v-if="loading" class="loading">Chargement…</div>
+    <div v-if="loading" class="loading">{{ t('loading', 'Chargement…') }}</div>
 
     <table v-else class="table">
       <thead>
-        <tr><th>Login</th><th>Nom</th><th>Email</th><th>Groupes</th><th></th></tr>
+        <tr>
+          <th>{{ t('users_col_login', 'Identifiant') }}</th>
+          <th>{{ t('users_col_name', 'Nom') }}</th>
+          <th>{{ t('users_col_email', 'Adresse e-mail') }}</th>
+          <th>{{ t('users_col_groups', 'Groupes') }}</th>
+          <th></th>
+        </tr>
       </thead>
       <tbody>
         <tr v-for="u in users" :key="u.username">
@@ -82,26 +89,26 @@ onMounted(load)
             >{{ g }}</span>
           </td>
           <td class="right">
-            <button class="btn btn--sm" @click="deleteUser(u.username)" title="Supprimer">
+            <button class="btn btn--sm" @click="deleteUser(u.username)" :title="t('delete', 'Supprimer')">
               <i class="fa-solid fa-trash"></i>
             </button>
           </td>
         </tr>
         <tr v-if="!users.length">
-          <td colspan="5" class="loading">Aucun user</td>
+          <td colspan="5" class="loading">{{ t('users_empty', 'Aucun utilisateur') }}</td>
         </tr>
       </tbody>
     </table>
 
     <details :open="showAddForm" @toggle="showAddForm = $event.target.open">
-      <summary>+ Ajouter un utilisateur</summary>
+      <summary>{{ t('users_add', '+ Ajouter un utilisateur') }}</summary>
       <form class="add-form" @submit.prevent="addUser">
-        <div class="row"><label>Login</label><input v-model="newUser.username" required pattern="[a-zA-Z0-9._-]{3,32}"></div>
-        <div class="row"><label>Nom affiché</label><input v-model="newUser.displayname" required></div>
-        <div class="row"><label>Email</label><input v-model="newUser.email" type="email" required></div>
-        <div class="row"><label>Mot de passe</label><input v-model="newUser.password" type="password" required minlength="12"></div>
+        <div class="row"><label>{{ t('users_col_login', 'Identifiant') }}</label><input v-model="newUser.username" required pattern="[a-zA-Z0-9._-]{3,32}"></div>
+        <div class="row"><label>{{ t('setup_displayname_label', 'Nom affiché') }}</label><input v-model="newUser.displayname" required></div>
+        <div class="row"><label>{{ t('setup_email_label', 'Adresse e-mail') }}</label><input v-model="newUser.email" type="email" required></div>
+        <div class="row"><label>{{ t('setup_password_label', 'Mot de passe') }}</label><input v-model="newUser.password" type="password" required minlength="12"></div>
         <div class="row">
-          <label>Groupes</label>
+          <label>{{ t('users_col_groups', 'Groupes') }}</label>
           <div class="groups">
             <label v-for="g in ['admin', 'doctor', 'external']" :key="g" class="chk">
               <input type="checkbox" :checked="newUser.groups.includes(g)" @change="toggleGroup(g)">
@@ -109,7 +116,7 @@ onMounted(load)
             </label>
           </div>
         </div>
-        <button type="submit" class="btn btn--primary">Créer</button>
+        <button type="submit" class="btn btn--primary">{{ t('create', 'Créer') }}</button>
       </form>
     </details>
   </div>

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { api } from '../../api.js'
+import { t } from '../../i18n.js'
 import { useUiStore } from '../../stores/ui.js'
 
 const ui = useUiStore()
@@ -26,7 +27,7 @@ async function load() {
     fields.value = { ...data.editable }
     originalFields.value = JSON.parse(JSON.stringify(data.editable))
   } catch (e) {
-    ui.notify('Erreur chargement config : ' + e.message, 'err')
+    ui.notify(t('orthanc_load_error', 'Erreur au chargement de la configuration : {detail}', { detail: e.message }), 'err')
   } finally {
     loading.value = false
   }
@@ -38,7 +39,7 @@ async function save() {
     if (isModified(key)) changes[key] = fields.value[key]
   }
   if (!Object.keys(changes).length) {
-    ui.notify('Aucun changement a appliquer', 'ok')
+    ui.notify(t('orthanc_no_change', 'Aucun changement à appliquer.'), 'ok')
     return
   }
   saving.value = true
@@ -46,7 +47,7 @@ async function save() {
     const r = await api('/console/api/admin/orthanc/config', {
       method: 'PATCH', body: { changes },
     })
-    ui.notify(`Applique. Backup : ${r.backup}`, 'ok')
+    ui.notify(r.message || t('orthanc_applied', 'Enregistré. Sauvegarde : {backup}', { backup: r.backup }), 'ok')
     originalFields.value = JSON.parse(JSON.stringify(fields.value))
   } catch (e) {
     ui.notify(e.message, 'err')
@@ -60,14 +61,12 @@ onMounted(load)
 
 <template>
   <div>
-    <h2>Configuration Orthanc</h2>
+    <h2>{{ t('orthanc_title', 'Configuration Orthanc') }}</h2>
     <p class="note">
-      Édite directement <code>orthanc.json</code> (bind-mount). L'application
-      se fait par <code>POST /tools/reset</code>, sans process restart.
-      Backup <code>.bak</code> auto avant écriture.
+      {{ t('orthanc_note', "Modifie directement orthanc.json. Une sauvegarde est créée avant chaque écriture. Le redémarrage du conteneur Orthanc est nécessaire pour que les changements prennent effet.") }}
     </p>
 
-    <div v-if="loading" class="loading">Chargement…</div>
+    <div v-if="loading" class="loading">{{ t('loading', 'Chargement…') }}</div>
 
     <div v-else class="fields">
       <div v-for="(val, key) in fields" :key="key" class="row" :class="{ 'row--modified': isModified(key) }">
@@ -78,13 +77,15 @@ onMounted(load)
         </select>
         <input v-else-if="detectType(val) === 'number'" v-model.number="fields[key]" type="number">
         <input v-else v-model="fields[key]" type="text">
-        <span class="flag">{{ isModified(key) ? '● modifié' : '' }}</span>
+        <span class="flag">{{ isModified(key) ? t('modified', '● modifié') : '' }}</span>
       </div>
 
       <div class="toolbar">
         <button class="btn btn--primary" :disabled="saving" @click="save">
           <i class="fa-solid fa-check"></i>
-          {{ saving ? 'Application…' : 'Appliquer & recharger Orthanc' }}
+          {{ saving
+            ? t('orthanc_saving', 'Enregistrement…')
+            : t('orthanc_save', 'Enregistrer les modifications') }}
         </button>
       </div>
     </div>
