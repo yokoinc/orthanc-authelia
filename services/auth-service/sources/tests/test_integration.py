@@ -40,7 +40,14 @@ def tmp_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(admin_module, "AUTHELIA_YML", authelia)
     monkeypatch.setattr(admin_module, "ORTHANC_JSON", orthanc)
     monkeypatch.setattr(admin_module, "BACKUPS_DIR", backups)
-    return {"authelia": authelia, "orthanc": orthanc, "backups": backups}
+    env = tmp_path / ".env"
+    authelia_cfg = tmp_path / "configuration.yml"
+    monkeypatch.setattr(admin_module, "ENV_FILE", env)
+    monkeypatch.setattr(admin_module, "AUTHELIA_CONFIG", authelia_cfg)
+    return {
+        "authelia": authelia, "orthanc": orthanc, "backups": backups,
+        "env": env, "authelia_cfg": authelia_cfg,
+    }
 
 
 @pytest.fixture
@@ -728,3 +735,127 @@ class TestOrthancReloadRefused:
 
         assert r.status_code == 502
         assert _json.loads(tmp_paths["orthanc"].read_text())["Name"] == valid_orthanc_json["Name"]
+
+
+# ============================================================================
+# URL publique
+# ============================================================================
+
+CONFIG_TYPE = """\
+# Regles d'acces -- commentaire a preserver
+access_control:
+  rules:
+    - domain: pacs.localhost
+      policy: bypass
+    - domain: pacs.localhost
+      policy: one_factor
+session:
+  cookies:
+    - domain: pacs.localhost   # domaine du cookie, sans port
+      authelia_url: https://pacs.localhost:30443/auth
+      default_redirection_url: https://pacs.localhost:30443/ui/app/
+"""
+
+
+class TestPublicUrl:
+
+    def _prepare(self, tmp_paths):
+        tmp_paths["env"].write_text(
+            "TZ=Europe/Paris\n"
+            "PUBLIC_URL=https://pacs.localhost:30443\n"
+            "LOG_LEVEL=INFO\n"
+        )
+        tmp_paths["authelia_cfg"].write_text(CONFIG_TYPE)
+
+    def test_changement_met_a_jour_env_et_authelia(
+        self, client, tmp_paths, fake_redis, csrf_headers,
+    ):
+        """L'URL publique se propage au .env et a toute la config Authelia."""
+        self._prepare(tmp_paths)
+
+        r = client.post(
+            "/api/admin/network",
+            json={"public_url": "https://pacs.exemple.fr"},
+            headers=csrf_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["restart_required"] is True
+
+        env = tmp_paths["env"].read_text()
+        assert "PUBLIC_URL=https://pacs.exemple.fr" in env
+        # Les autres variables survivent
+        assert "TZ=Europe/Paris" in env
+        assert "LOG_LEVEL=INFO" in env
+
+        cfg = tmp_paths["authelia_cfg"].read_text()
+        assert "pacs.localhost" not in cfg
+        assert cfg.count("domain: pacs.exemple.fr") == 3
+        assert "authelia_url: https://pacs.exemple.fr/auth" in cfg
+        # Le port disparait avec l'ancienne origine
+        assert ":30443" not in cfg
+        # Les commentaires sont preserves : un aller-retour YAML les perdrait
+        assert "commentaire a preserver" in cfg
+        assert "sans port" in cfg
+
+    def test_meme_url_ne_touche_a_rien(
+        self, client, tmp_paths, fake_redis, csrf_headers,
+    ):
+        """Reappliquer l'URL courante est un no-op, sans sauvegarde inutile."""
+        self._prepare(tmp_paths)
+        avant = tmp_paths["authelia_cfg"].read_text()
+
+        r = client.post(
+            "/api/admin/network",
+            json={"public_url": "https://pacs.localhost:30443"},
+            headers=csrf_headers,
+        )
+        assert r.status_code == 200
+        assert r.json()["unchanged"] is True
+        assert tmp_paths["authelia_cfg"].read_text() == avant
+
+    def test_env_absent_repond_503_avec_la_marche_a_suivre(
+        self, client, tmp_paths, fake_redis, csrf_headers,
+    ):
+        """Sans le montage du .env, l'erreur explique quoi faire."""
+        tmp_paths["authelia_cfg"].write_text(CONFIG_TYPE)
+        # .env volontairement absent
+
+        r = client.post(
+            "/api/admin/network",
+            json={"public_url": "https://pacs.exemple.fr"},
+            headers=csrf_headers,
+        )
+        assert r.status_code == 500
+        assert "PUBLIC_URL" in r.text
+
+    def test_config_authelia_modifiee_a_la_main_annule(
+        self, client, tmp_paths, fake_redis, csrf_headers,
+    ):
+        """Si l'ancien domaine est introuvable, on ne devine pas : on annule."""
+        tmp_paths["env"].write_text("PUBLIC_URL=https://pacs.localhost:30443\n")
+        tmp_paths["authelia_cfg"].write_text("session:\n  cookies: []\n")
+
+        r = client.post(
+            "/api/admin/network",
+            json={"public_url": "https://pacs.exemple.fr"},
+            headers=csrf_headers,
+        )
+        assert r.status_code == 500
+        assert "modifie a la main" in r.text
+        # Le .env n'a pas bouge : rien n'est applique a moitie
+        assert "PUBLIC_URL=https://pacs.localhost:30443" in tmp_paths["env"].read_text()
+
+    def test_rejets(self, client, tmp_paths, fake_redis, csrf_headers):
+        """https obligatoire, origine seule, hote pointe."""
+        self._prepare(tmp_paths)
+        for mauvaise in [
+            "http://pacs.exemple.fr",
+            "https://monpacs",
+            "https://pacs.exemple.fr/chemin",
+        ]:
+            r = client.post(
+                "/api/admin/network",
+                json={"public_url": mauvaise},
+                headers=csrf_headers,
+            )
+            assert r.status_code == 400, f"{mauvaise} aurait du etre refusee"

@@ -99,6 +99,13 @@ services:
       - ./services/orthanc/config:/host/orthanc-config:rw
       # Backups rotatifs (10 derniers) crees avant chaque ecriture
       - ./data/admin-backups:/host/backups:rw
+      # Le .env est monte en tant que FICHIER, pas via son dossier : monter la
+      # racine du projet donnerait au container un acces en ecriture au
+      # docker-compose.yml et aux scripts. auth-service ecrit donc sur place
+      # (pas de rename, impossible sur un mount de fichier).
+      # Sert au panel a changer l'URL publique ; sans ce montage l'API
+      # repond 503 avec la marche a suivre, le reste fonctionne.
+      - ./.env:/host/env/.env:rw
     environment:
       # Essential Configuration (from .env)
       - LANGUAGE=${LANGUAGE}

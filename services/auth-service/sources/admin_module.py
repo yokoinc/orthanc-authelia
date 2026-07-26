@@ -25,6 +25,8 @@ import yaml
 from argon2 import PasswordHasher
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
+from urllib.parse import urlparse
+
 from filelock import FileLock, Timeout
 from pydantic import BaseModel, EmailStr, Field
 from redis.exceptions import RedisError
@@ -61,6 +63,17 @@ ORTHANC_JSON = Path(
     os.getenv("ADMIN_ORTHANC_PATH", "/host/orthanc-config/orthanc.json")
 )
 BACKUPS_DIR = Path(os.getenv("ADMIN_BACKUPS_DIR", "/host/backups"))
+
+# configuration.yml vit dans le meme dossier que users_database.yml, deja
+# bind-monte : rien de plus a monter pour le lire ou l'ecrire.
+AUTHELIA_CONFIG = Path(
+    os.getenv("ADMIN_AUTHELIA_CONFIG_PATH", "/host/authelia-config/configuration.yml")
+)
+# Le .env, lui, vit a la racine du projet. Il est monte en tant que FICHIER,
+# pas via son dossier : monter la racine donnerait au container un acces en
+# ecriture au docker-compose.yml et aux scripts. Consequence, les ecritures
+# se font sur place (cf. _write_env_var).
+ENV_FILE = Path(os.getenv("ADMIN_ENV_PATH", "/host/env/.env"))
 
 SETUP_KEY = "orthanc_authelia:setup_completed"
 SETUP_FIRST_ADMIN_KEY = "orthanc_authelia:setup_first_admin_created"
@@ -128,6 +141,144 @@ async def _audit(event: str, actor: str, **fields: Any) -> None:
     for k, v in fields.items():
         entry[k] = str(v)
     await _r().xadd(AUDIT_STREAM, entry, maxlen=10000)
+
+
+# ============================================================================
+# Helpers : URL publique
+# ============================================================================
+
+def _normalise_public_url(raw: str) -> tuple[str, str]:
+    """Valide l'URL publique. Renvoie (origine, hote sans port).
+
+    L'origine sert aux redirections (port compris), l'hote au domaine des
+    cookies de session -- un cookie ne porte jamais de port.
+    """
+    parsed = urlparse(raw.strip())
+    if parsed.scheme != "https":
+        raise HTTPException(400, "l'URL publique doit commencer par https://")
+    if not parsed.hostname:
+        raise HTTPException(400, "hote manquant dans l'URL publique")
+    if parsed.path.strip("/"):
+        raise HTTPException(
+            400,
+            "indiquer l'origine seule, sans chemin "
+            "(exemple : https://pacs.exemple.fr)",
+        )
+    # RFC 6265 : un cookie pose sur un hote sans point n'est pas conservé par
+    # certains navigateurs. "localhost" fait exception, pas "monpacs".
+    if "." not in parsed.hostname and parsed.hostname != "localhost":
+        raise HTTPException(
+            400,
+            f"'{parsed.hostname}' n'a pas de point : les navigateurs "
+            "refuseront le cookie de session. Utiliser un nom complet "
+            "(pacs.exemple.fr) ou pacs.localhost.",
+        )
+    return f"https://{parsed.netloc}", parsed.hostname
+
+
+def _read_env_var(name: str) -> str:
+    """Lit une variable du .env. Chaine vide si absente ou fichier illisible."""
+    if not ENV_FILE.exists():
+        return ""
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith(f"{name}="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
+def _write_env_var(name: str, value: str) -> None:
+    """Remplace (ou ajoute) name=value dans le .env, en ecrivant SUR PLACE.
+
+    Pas de write-tmp + rename ici, contrairement au reste du module : le .env
+    est un bind-mount de fichier. Le rename echouerait (EBUSY) et, s'il
+    aboutissait, docker compose relirait l'ancien inode. On reecrit donc le
+    meme fichier, apres sauvegarde -- une ecriture interrompue laisserait
+    sinon un .env tronque, et la pile ne redemarrerait plus.
+    """
+    if not ENV_FILE.exists():
+        raise HTTPException(
+            503,
+            "le fichier .env n'est pas accessible depuis le container. "
+            "Ajouter le montage './.env:/host/env/.env:rw' au service "
+            "auth-service, puis recreer le container.",
+        )
+    _backup(ENV_FILE, tag="network")
+    lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
+    remplace = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith(f"{name}="):
+            lines[i] = f"{name}={value}"
+            remplace = True
+            break
+    if not remplace:
+        lines.append(f"{name}={value}")
+    ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _retarget_authelia_config(ancienne_origine: str, ancien_hote: str,
+                              origine: str, hote: str) -> int:
+    """Repointe configuration.yml vers la nouvelle URL publique.
+
+    Remplacement textuel, et non chargement/re-serialisation YAML : le
+    fichier est abondamment commente (regles d'acces, avertissements sur le
+    port des cookies) et un aller-retour via PyYAML effacerait tout.
+
+    Renvoie le nombre de substitutions effectuees.
+    """
+    if not AUTHELIA_CONFIG.exists():
+        raise HTTPException(503, "configuration.yml d'Authelia introuvable")
+    texte = AUTHELIA_CONFIG.read_text(encoding="utf-8")
+    total = texte.count(ancienne_origine) + texte.count(ancien_hote)
+    if not total:
+        raise HTTPException(
+            500,
+            f"aucune trace de '{ancien_hote}' dans configuration.yml : "
+            "le fichier a ete modifie a la main, changement annule",
+        )
+    _backup(AUTHELIA_CONFIG, tag="network")
+    # L'origine complete d'abord : sinon le remplacement de l'hote seul
+    # casserait "https://ancien:30443" en "https://nouveau:30443" avec un
+    # port qui n'a plus lieu d'etre.
+    texte = texte.replace(ancienne_origine, origine).replace(ancien_hote, hote)
+    _atomic_write(AUTHELIA_CONFIG, texte)
+    return total
+
+
+async def _apply_public_url(nouvelle: str, acteur: str) -> dict:
+    """Applique une nouvelle URL publique au .env et a la config Authelia."""
+    origine, hote = _normalise_public_url(nouvelle)
+    ancienne_origine = _read_env_var("PUBLIC_URL").rstrip("/")
+    if not ancienne_origine:
+        raise HTTPException(500, "PUBLIC_URL absente du .env, changement annule")
+    if ancienne_origine == origine:
+        return {"ok": True, "unchanged": True, "public_url": origine}
+
+    _, ancien_hote = _normalise_public_url(ancienne_origine)
+    substitutions = _retarget_authelia_config(
+        ancienne_origine, ancien_hote, origine, hote,
+    )
+    _write_env_var("PUBLIC_URL", origine)
+    await _audit(
+        "network.public_url.changed", actor=acteur,
+        old=ancienne_origine, new=origine, substitutions=substitutions,
+    )
+    return {
+        "ok": True,
+        "unchanged": False,
+        "public_url": origine,
+        "substitutions": substitutions,
+        "restart_required": True,
+        "message": (
+            f"URL publique enregistree : {origine}. Relancer la pile "
+            "(docker compose up -d) pour l'appliquer, puis se reconnecter "
+            f"sur {origine} — la session en cours est liee a l'ancien domaine."
+        ),
+    }
+
+
+class PublicUrlPayload(BaseModel):
+    public_url: str = Field(min_length=8, max_length=255)
 
 
 # ============================================================================
@@ -559,6 +710,51 @@ async def setup_finalize():
         bootstrap_removed=bootstrap_removed,
     )
     return {"ok": True, "admins": admins, "bootstrap_removed": bootstrap_removed}
+
+
+@router.get("/setup/network")
+async def setup_network_get():
+    """URL publique actuelle, pour preremplir le champ du wizard."""
+    return {
+        "public_url": _read_env_var("PUBLIC_URL"),
+        "editable": ENV_FILE.exists(),
+    }
+
+
+@router.post("/setup/network")
+async def setup_network(payload: PublicUrlPayload):
+    """Etape optionnelle du wizard : declarer l'URL publique definitive.
+
+    A appeler AVANT finalize. Le changement ne prend effet qu'au redemarrage
+    de la pile, et invalide la session en cours puisque le cookie est lie a
+    l'ancien domaine.
+    """
+    if (await _r().get(SETUP_KEY)) == "1":
+        raise HTTPException(
+            409, "setup deja finalise, utiliser /api/admin/network",
+        )
+    return await _apply_public_url(payload.public_url, acteur="wizard")
+
+
+@router.get("/api/admin/network")
+async def admin_network_get(admin: AdminUser = Depends(require_admin)):
+    """URL publique actuelle et possibilite de la modifier."""
+    return {
+        "public_url": _read_env_var("PUBLIC_URL"),
+        "editable": ENV_FILE.exists(),
+    }
+
+
+@router.post("/api/admin/network")
+async def admin_network(
+    payload: PublicUrlPayload, admin: AdminUser = Depends(require_admin),
+):
+    """Change l'URL publique apres l'installation.
+
+    Meme consequence que pendant le wizard : redemarrage necessaire, et
+    reconnexion sur la nouvelle adresse.
+    """
+    return await _apply_public_url(payload.public_url, acteur=admin.username)
 
 
 # ============================================================================
