@@ -1,5 +1,5 @@
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { api } from '../api.js'
 import { useUiStore } from '../stores/ui.js'
 
@@ -11,8 +11,33 @@ const form = reactive({
   email: '',
   password: '',
   password2: '',
+  publicUrl: '',
 })
 const submitting = ref(false)
+// Renseigne quand le domaine a change : on affiche la marche a suivre
+// au lieu de rediriger vers une adresse qui ne repondra plus.
+const termine = ref('')
+
+// URL de depart, pour ne declencher un changement que si l'utilisateur y touche.
+const urlInitiale = ref('')
+const urlModifiable = ref(false)
+
+onMounted(async () => {
+  try {
+    const r = await api('/console/api/setup/network')
+    urlInitiale.value = r.public_url || ''
+    form.publicUrl = r.public_url || ''
+    urlModifiable.value = r.editable
+  } catch {
+    // Champ purement optionnel : s'il est indisponible, le wizard doit
+    // rester utilisable pour creer l'administrateur.
+    urlModifiable.value = false
+  }
+})
+
+const urlChangee = computed(
+  () => form.publicUrl.trim() !== '' && form.publicUrl.trim() !== urlInitiale.value,
+)
 
 const passwordsMatch = computed(
   () => form.password === form.password2 && form.password.length >= 12,
@@ -46,8 +71,27 @@ async function submit() {
         groups: ['admin'],
       },
     })
+    // L'URL publique se change avant la finalisation, tant que la fenetre de
+    // setup est ouverte. Elle ne prend effet qu'au redemarrage de la pile.
+    let nouvelleUrl = null
+    if (urlChangee.value) {
+      const r = await api('/console/api/setup/network', {
+        method: 'POST',
+        body: { public_url: form.publicUrl.trim() },
+      })
+      if (!r.unchanged) nouvelleUrl = r.public_url
+    }
+
     await api('/console/api/setup/finalize', { method: 'POST' })
-    ui.notify('Admin cree, redirection vers /auth/admin…', 'ok')
+
+    if (nouvelleUrl) {
+      // Pas de redirection : l'adresse courante ne repondra plus apres le
+      // redemarrage, et le cookie de session est lie a l'ancien domaine.
+      termine.value = nouvelleUrl
+      submitting.value = false
+      return
+    }
+    ui.notify('Administrateur cree, redirection…', 'ok')
     setTimeout(() => { window.location.href = '/console/' }, 1500)
   } catch (e) {
     ui.notify(e.message, 'err')
@@ -67,7 +111,14 @@ async function submit() {
       Ce compte pourra ensuite gérer les autres users depuis le hub Admin.
     </p>
 
-    <form @submit.prevent="submit">
+    <div v-if="termine" class="fini">
+      <p><strong>Installation terminée.</strong></p>
+      <p>Relancer la pile pour appliquer le nouveau domaine :</p>
+      <pre>docker compose up -d</pre>
+      <p>Puis se connecter sur <a :href="termine">{{ termine }}</a>.</p>
+    </div>
+
+    <form v-else @submit.prevent="submit">
       <label for="username">Login</label>
       <input
         id="username" v-model="form.username" required
@@ -100,6 +151,23 @@ async function submit() {
       >
       <div v-if="form.password2 && !passwordsMatch" class="hint hint--err">
         Les mots de passe ne correspondent pas.
+      </div>
+
+      <label for="publicUrl">URL publique</label>
+      <input
+        id="publicUrl" v-model="form.publicUrl" :disabled="!urlModifiable"
+        placeholder="https://pacs.exemple.fr"
+      >
+      <div v-if="!urlModifiable" class="hint">
+        Non modifiable ici : le fichier .env n'est pas monté dans le conteneur.
+      </div>
+      <div v-else-if="urlChangee" class="hint hint--warn">
+        Le domaine changera. Il faudra relancer la pile puis se reconnecter sur
+        cette adresse — la session en cours est liée à l'ancien domaine.
+      </div>
+      <div v-else class="hint">
+        Adresse par laquelle le PACS sera joint. À laisser telle quelle pour
+        rester en local ; modifiable plus tard depuis le panel.
       </div>
 
       <div v-if="blockers.length" class="blockers">
@@ -159,6 +227,20 @@ input:focus { border-color: var(--oe2-accent); outline: none; }
   margin-top: 4px;
 }
 .hint--err { color: #ff8080; }
+.hint--warn { color: #e8c98a; }
+.fini {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.fini pre {
+  background: var(--oe2-nav-sub-bg);
+  border: 1px solid var(--oe2-border-subtle);
+  padding: 8px 10px;
+  border-radius: 3px;
+  font-size: 12px;
+  overflow-x: auto;
+}
+.fini a { color: var(--oe2-accent); }
 .blockers {
   margin-top: 20px;
   padding: 10px 12px;
