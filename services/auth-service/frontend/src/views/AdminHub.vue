@@ -37,30 +37,35 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="hub">
-    <aside class="sidebar">
-      <div class="brand">
-        <img :src="logoUrl" alt="Orthanc" class="logo">
-        <div class="brand-name">Orthanc</div>
-      </div>
-      <nav>
-        <a href="/ui/app/" class="link">
-          <i class="fa-solid fa-arrow-left"></i><span>{{ t('nav_back_to_explorer', 'Retour à Orthanc Explorer') }}</span>
+  <div class="oe2-app">
+    <aside class="oe2-sidebar">
+      <a href="/ui/app/" class="oe2-sidebar__brand" :title="t('nav_back_to_explorer', 'Retour à Orthanc Explorer')">
+        <img :src="logoUrl" alt="Orthanc" class="oe2-sidebar__logo">
+      </a>
+      <div class="oe2-sidebar__brand-name">Orthanc</div>
+
+      <nav class="oe2-sidebar__nav" :aria-label="t('nav_administration', 'Administration')">
+        <a href="/ui/app/" class="oe2-sidebar__link">
+          <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
+          <span>{{ t('nav_back_to_explorer', 'Retour à Orthanc Explorer') }}</span>
         </a>
-        <a href="/auth/tokens/manage" class="link">
-          <i class="fa-solid fa-share-nodes"></i><span>{{ t('nav_token_manager', 'Liens de partage') }}</span>
+        <a href="/auth/tokens/manage" class="oe2-sidebar__link">
+          <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
+          <span>{{ t('nav_token_manager', 'Liens de partage') }}</span>
         </a>
-        <span class="link link--active" role="link" aria-current="page">
-          <i class="fa-solid fa-shield-halved"></i><span>{{ t('nav_administration', 'Administration') }}</span>
+        <!-- <span> plutot qu'<a href="#"> : evite le saut en haut de page au clic. -->
+        <span class="oe2-sidebar__link active" role="link" aria-current="page">
+          <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
+          <span>{{ t('nav_administration', 'Administration') }}</span>
         </span>
       </nav>
     </aside>
 
-    <main class="main">
-      <header class="header">
-        <h1>{{ t('admin_title', 'Administration') }}</h1>
-        <div class="user">
-          <i class="fa-solid fa-user"></i>
+    <main class="oe2-main">
+      <header class="oe2-main__header">
+        <h1 class="oe2-main__title">{{ t('admin_title', 'Administration') }}</h1>
+        <div class="oe2-main__user">
+          <i class="fa-solid fa-user" aria-hidden="true"></i>
           <span>{{ adminUsername }}</span>
         </div>
       </header>
@@ -86,111 +91,38 @@ onMounted(async () => {
         </Suspense>
       </section>
 
-      <div class="version">auth-service v{{ imageVersion }}</div>
+      <div class="oe2-main__version">auth-service v{{ imageVersion }}</div>
     </main>
   </div>
 </template>
 
 <style scoped>
-.hub {
-  display: flex;
-  min-height: 100vh;
-}
-.sidebar {
-  width: 260px;
-  background: var(--oe2-nav-bg);
-  border-right: 1px solid var(--oe2-border-subtle);
-  display: flex;
-  flex-direction: column;
-}
-.brand {
-  padding: 20px 16px 12px;
-  border-bottom: 1px solid var(--oe2-border-subtle);
-  text-align: center;
-}
-.logo {
-  height: 48px;
-  filter: brightness(50);
-}
-.brand-name {
-  font-size: 14px;
-  margin-top: 8px;
-}
-nav .link {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  color: var(--oe2-nav-color);
-  text-decoration: none;
-  line-height: 35px;
-  font-size: 13px;
-  border-left: 3px solid transparent;
-}
-nav .link:hover, nav .link--active {
-  background: #4f5b69;
-  border-left-color: var(--oe2-accent-orange);
-}
-.main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  background: var(--oe2-nav-bg);
-}
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--oe2-border-subtle);
-}
-h1 {
-  font-size: 18px;
-  font-weight: 400;
-  margin: 0;
-}
-.user {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  color: var(--oe2-muted);
-  font-size: 12px;
-}
+/* La mise en page (barre laterale, en-tete, pied) vient d'oe2-shared.css,
+   comme pour le gestionnaire de partages : c'est ce qui garantit une police,
+   des couleurs et des espacements identiques a Orthanc Explorer. Ne subsiste
+   ici que la barre d'onglets, absente du systeme partage. */
+
 .tabs {
   display: flex;
   gap: 4px;
-  padding: 0 16px;
   border-bottom: 1px solid var(--oe2-border-subtle);
+  margin-bottom: 16px;
 }
 .tab {
+  padding: 8px 14px;
   background: transparent;
   border: none;
-  padding: 10px 14px;
-  color: var(--oe2-muted);
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  cursor: pointer;
   border-bottom: 2px solid transparent;
+  color: var(--oe2-muted);
+  font-family: var(--oe2-font-stack);
+  font-size: var(--oe2-fs-small);
+  cursor: pointer;
 }
+.tab:hover { color: var(--oe2-nav-color); }
 .tab--active {
   color: var(--oe2-nav-color);
   border-bottom-color: var(--oe2-accent-orange);
 }
-.panel {
-  flex: 1;
-  padding: 20px 16px;
-}
-.loading {
-  color: var(--oe2-muted);
-  padding: 20px;
-  text-align: center;
-}
-.version {
-  padding: 12px 16px;
-  font-size: 11px;
-  color: var(--oe2-muted);
-  text-align: right;
-  opacity: 0.6;
-}
+.panel { padding: 0 16px; }
+.loading { color: var(--oe2-muted); text-align: center; padding: 20px; }
 </style>
