@@ -72,6 +72,20 @@ else
     S1=$(openssl rand -hex 32)
     S2=$(openssl rand -hex 32)
     S3=$(openssl rand -hex 32)
+
+    # Authelia chiffre sa base de sessions avec STORAGE_ENCRYPTION_KEY. Si la
+    # base existe deja, en generer une nouvelle la rend illisible :
+    #   "the configured encryption key does not appear to be valid for this
+    #    database"
+    # et Authelia refuse de demarrer. On conserve donc la cle precedente.
+    if [[ -f services/authelia/config/db.sqlite3 ]]; then
+        EXISTING_KEY=$(grep '^AUTHELIA_STORAGE_ENCRYPTION_KEY=' .env 2>/dev/null | cut -d= -f2-)
+        if [[ -n ${EXISTING_KEY:-} ]]; then
+            S2=$EXISTING_KEY
+            warn "Base Authelia existante : cle de chiffrement conservee"
+            warn "  (pour repartir de zero : supprimer services/authelia/config/db.sqlite3)"
+        fi
+    fi
     # PostgreSQL n'applique POSTGRES_PASSWORD qu'a l'initialisation de son
     # volume. Si le volume existe deja, en generer un nouveau rendrait la base
     # inaccessible ("password authentication failed for user orthanc") : on
