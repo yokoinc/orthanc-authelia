@@ -79,7 +79,12 @@ services:
   # =============================================================================
   
   auth-service:
+    # L'image publiee est utilisee si elle est disponible ; sinon elle est
+    # construite depuis le depot. Un clone frais demarre donc meme sans acces
+    # au registre. `docker compose build auth-service` pour forcer.
     image: registry.yokoinc.ovh/orthanc-auth-service:1.0.16
+    build:
+      context: ./services/auth-service
     container_name: orthanc-auth-service
     restart: unless-stopped
     volumes:
@@ -229,7 +234,13 @@ services:
   # =============================================================================
   
   ohif:
+    # Idem : image publiee, ou construction locale a defaut. Ce build est
+    # long (~15 min), OHIF etant compile depuis ses sources -- l'image
+    # officielle ohif/app ne peut pas servir sous /ohif/, son chemin de base
+    # etant fige au moment du build.
     image: registry.yokoinc.ovh/orthanc-ohif:3.11.0
+    build:
+      context: ./services/ohif
     container_name: orthanc-ohif
     restart: unless-stopped
     volumes:
@@ -247,7 +258,10 @@ services:
     # Image >= 1.1.0 no longer bakes the nginx config in: the templates are
     # bind-mounted from the host (see volumes below). Tags before 1.1.0 will
     # NOT start with these mounts because they expect the templates baked in.
+    # Idem : image publiee, ou construction locale a defaut.
     image: registry.yokoinc.ovh/orthanc-nginx:1.1.0
+    build:
+      context: ./services/nginx
     container_name: orthanc-nginx
     restart: unless-stopped
     ports:
