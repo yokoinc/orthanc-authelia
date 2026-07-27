@@ -79,7 +79,12 @@ else
     #    database"
     # et Authelia refuse de demarrer. On conserve donc la cle precedente.
     if [[ -f services/authelia/config/db.sqlite3 ]]; then
-        EXISTING_KEY=$(grep '^AUTHELIA_STORAGE_ENCRYPTION_KEY=' .env 2>/dev/null | cut -d= -f2-)
+        # || true indispensable : sur une installation neuve le .env
+        # n'existe pas encore alors que la base, elle, peut etre la.
+        # 2>/dev/null masque le message de grep mais pas son code de
+        # retour ; sous set -e l'affectation echoue et le script meurt
+        # sans rien afficher.
+        EXISTING_KEY=$(grep '^AUTHELIA_STORAGE_ENCRYPTION_KEY=' .env 2>/dev/null | cut -d= -f2- || true)
         if [[ -n ${EXISTING_KEY:-} ]]; then
             S2=$EXISTING_KEY
             warn "Base Authelia existante : cle de chiffrement conservee"
@@ -92,7 +97,8 @@ else
     # conserve alors celui du .env precedent.
     PG_PASS=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
     if docker volume inspect orthanc_postgres_data >/dev/null 2>&1; then
-        EXISTING_PG=$(grep '^POSTGRES_PASSWORD=' .env 2>/dev/null | cut -d= -f2-)
+        # Meme piege : le volume PostgreSQL peut exister sans .env.
+        EXISTING_PG=$(grep '^POSTGRES_PASSWORD=' .env 2>/dev/null | cut -d= -f2- || true)
         if [[ -n ${EXISTING_PG:-} ]]; then
             PG_PASS=$EXISTING_PG
             warn "Volume PostgreSQL existant : mot de passe conserve"
