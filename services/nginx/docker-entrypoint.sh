@@ -18,7 +18,25 @@ set -e
 PUBLIC_URL=${PUBLIC_URL:-https://localhost}
 DOMAIN=$(echo "$PUBLIC_URL" | sed -E 's#^https?://##; s#:[0-9]+$##; s#/.*$##')
 SSL_MODE=${SSL_MODE:-selfsigned}
-export PUBLIC_URL DOMAIN
+
+# HSTS et certificat auto-signe ne vont pas ensemble.
+#
+# Une fois la directive enregistree, les navigateurs refusent d'afficher
+# l'exception de certificat : plus de bouton "Continuer quand meme", le site
+# devient inaccessible et le rechargement force n'y change rien. includeSubDomains
+# etend le blocage a tout *.localhost. L'utilisateur voit une page vide sans
+# comprendre pourquoi, et purger l'enregistrement demande de passer par
+# chrome://net-internals/#hsts.
+#
+# max-age=0 ordonne au navigateur d'oublier la directive : les postes deja
+# pieges se debloquent d'eux-memes au premier chargement.
+if [ "$SSL_MODE" = "selfsigned" ]; then
+    HSTS="max-age=0"
+else
+    HSTS="max-age=63072000; includeSubDomains; preload"
+fi
+
+export PUBLIC_URL DOMAIN HSTS
 
 echo "Starting nginx configuration with environment variables..."
 echo "PUBLIC_URL: $PUBLIC_URL"
@@ -64,7 +82,7 @@ fi
 
 # Process main nginx configuration
 echo "Processing nginx.conf template..."
-envsubst '$DOMAIN $PUBLIC_URL' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf
+envsubst '$DOMAIN $PUBLIC_URL $HSTS' < /etc/nginx/templates/nginx.conf.template > /etc/nginx/nginx.conf
 
 # Process configuration files in conf.d
 echo "Processing conf.d templates..."
@@ -74,7 +92,7 @@ for template in /etc/nginx/conf.d.templates/*.conf; do
     if [ -f "$template" ]; then
         filename=$(basename "$template")
         echo "Processing $filename..."
-        envsubst '$DOMAIN $PUBLIC_URL' < "$template" > "/etc/nginx/conf.d/$filename"
+        envsubst '$DOMAIN $PUBLIC_URL $HSTS' < "$template" > "/etc/nginx/conf.d/$filename"
     fi
 done
 
