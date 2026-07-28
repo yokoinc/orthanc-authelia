@@ -183,6 +183,27 @@ fi
 
 # --- Acces authentifie -----------------------------------------------------
 etape "Acces authentifie"
+
+# Attendre qu'Orthanc reponde avant de verifier quoi que ce soit. La page de
+# connexion, seule condition d'attente jusqu'ici, ne prouve que la
+# disponibilite de nginx et d'Authelia : sur une installation neuve Orthanc
+# doit encore creer son schema PostgreSQL et charger ses plugins, ce qui
+# prend nettement plus longtemps. Sans cette attente le test rendait des 502
+# et signalait une regression inexistante.
+info "attente d'Orthanc (90 s max)"
+orthanc_pret=0
+for _ in $(seq 1 45); do
+    if [[ "$(curl -ks -o /dev/null -m 5 -b "$BISCUITS" -w '%{http_code}' "${URL}/system")" == "200" ]]; then
+        orthanc_pret=1; break
+    fi
+    sleep 2
+done
+if [[ $orthanc_pret -eq 1 ]]; then
+    ok "Orthanc pret"
+else
+    echec "Orthanc ne repond pas apres 90 s"
+    (cd "$TRAVAIL" && compose logs --tail 15 orthanc 2>&1 | tail -15)
+fi
 verifier() {
     local chemin=$1 attendu=$2
     local code
