@@ -51,7 +51,18 @@ nettoyer() {
     fi
     etape "Nettoyage"
     (cd "$TRAVAIL" && compose down -v >/dev/null 2>&1) && ok "pile supprimee"
-    rm -rf "$TRAVAIL" && ok "dossier temporaire supprime"
+    # Les conteneurs ecrivent en root dans le dossier monte (base Authelia,
+    # configuration generee, verrous) : un rm lance par l'utilisateur bute
+    # dessus. On repasse par un conteneur, qui a les droits.
+    if ! rm -rf "$TRAVAIL" 2>/dev/null; then
+        docker run --rm -v /tmp:/tmp-hote alpine \
+            rm -rf "/tmp-hote/$(basename "$TRAVAIL")" >/dev/null 2>&1
+    fi
+    if [[ -d "$TRAVAIL" ]]; then
+        echec "dossier temporaire non supprime : $TRAVAIL"
+    else
+        ok "dossier temporaire supprime"
+    fi
     return $code
 }
 trap nettoyer EXIT
