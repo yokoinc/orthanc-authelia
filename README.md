@@ -9,7 +9,7 @@ Medical PACS solution based on Orthanc with Authelia authentication (SSO, 2FA, R
 ORTHANC-AUTHELIA is a complete Picture Archiving and Communication System (PACS) for small to medium healthcare structures. It combines:
 - **Orthanc PACS** - Industry-standard DICOM server with PostgreSQL storage
 - **Authelia** - Modern authentication with SSO and 2FA
-- **OHIF Viewer v3.12.0** - Professional medical imaging viewer
+- **OHIF Viewer v3.11.0** - Professional medical imaging viewer
 - **Custom Auth-Service** - Token-based external sharing with OE2-themed management UI
 - **Multiple Viewers** - OHIF, Stone Web Viewer, and VolView for different use cases
 
@@ -22,8 +22,8 @@ Component versions as defined in `docker-compose.yml` (keep this table in sync w
 | Orthanc PACS | `orthancteam/orthanc` | `26.6.1` |
 | Authelia | `authelia/authelia` | `4.39.20` |
 | Redis | `redis` | `8.0-alpine` |
-| OHIF Viewer | `registry.yokoinc.ovh/orthanc-ohif` | `3.12.0` |
-| Nginx | `registry.yokoinc.ovh/orthanc-nginx` | `1.1.1` |
+| OHIF Viewer | `registry.yokoinc.ovh/orthanc-ohif` | `3.11.0` |
+| Nginx | `registry.yokoinc.ovh/orthanc-nginx` | `1.1.0` |
 | Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.0.15` |
 
 > **PostgreSQL** is not part of this stack — Orthanc connects to an **external** PostgreSQL instance over the `database` network (see [Database Setup Guide](docs/DATABASE_SETUP.md)).
@@ -102,14 +102,22 @@ cd orthanc-authelia
 
 À partir de là :
 
-1. **Setup wizard** — https://localhost:30443/auth/ui/setup
-   Créer le compte administrateur. Accessible sans authentification uniquement au premier démarrage ; la porte se ferme dès que le wizard est finalisé.
+1. **Assistant d'installation** — https://localhost:30443/console/setup
+   Créer le compte administrateur. Accessible sans authentification uniquement au premier démarrage ; la porte se ferme dès que l'assistant est finalisé.
 2. **Orthanc Explorer** — https://localhost:30443/
-   Login avec le compte qui vient d'être créé.
-3. **Hub d'administration** — https://localhost:30443/auth/ui/admin
-   Gestion des utilisateurs, configuration Orthanc, health checks. Réservé au groupe `admins`.
+   Connexion avec le compte qui vient d'être créé.
+3. **Panel d'administration** — https://localhost:30443/console/
+   Gestion des utilisateurs, configuration Orthanc, état des composants. Réservé au groupe `admin`.
 
-Le certificat TLS est auto-généré et self-signed : accepter l'avertissement du navigateur au premier accès.
+Le certificat TLS est auto-généré et auto-signé : accepter l'avertissement du navigateur au premier accès.
+
+> **Certificat auto-signé et HSTS.** En `SSL_MODE=selfsigned`, la pile n'envoie
+> volontairement pas de HSTS (`max-age=0`). Les deux sont incompatibles : une
+> fois la directive enregistrée, les navigateurs refusent d'afficher l'exception
+> de certificat et le site devient inaccessible, page vide sans explication. Si
+> tu as visité le site à une époque où le HSTS était encore émis, purge-le une
+> fois via `chrome://net-internals/#hsts`, section « Delete domain security
+> policies ».
 
 ### Interface d'administration
 
@@ -117,11 +125,13 @@ Le hub admin est une application Vue 3 (`services/auth-service/frontend/`) compi
 
 | Onglet | Ce qu'il fait | Mécanisme |
 |---|---|---|
-| **Users** | CRUD des comptes Authelia | Écrit `users_database.yml`, hot-reload en ~1s |
-| **Orthanc config** | ~40 paramètres de `orthanc.json` | Écrit le JSON, puis `POST /tools/reset` |
-| **Health** | État de Redis, Orthanc, fichiers de config | Lecture seule |
+| **Utilisateurs** | Création et suppression des comptes Authelia | Écrit `users_database.yml`, relu à chaud en quelques secondes |
+| **Configuration Orthanc** | ~40 paramètres de `orthanc.json` | Écrit le JSON ; un redémarrage du conteneur Orthanc est nécessaire pour appliquer |
+| **État** | Redis, Orthanc, fichiers de configuration | Lecture seule |
 
-Chaque écriture crée un backup rotatif dans `data/admin-backups/` (10 derniers conservés). Aucune opération ne nécessite d'accès au socket Docker : Authelia surveille son fichier de users, Orthanc expose un endpoint de rechargement à chaud.
+Chaque écriture crée une sauvegarde rotative dans `data/admin-backups/` (les 10 dernières sont conservées). Aucune opération ne demande l'accès au socket Docker : Authelia surveille son fichier d'utilisateurs et le relit seul.
+
+L'assistant permet également de déclarer l'URL publique (`PUBLIC_URL`), ce qui met à jour `.env` et la configuration Authelia d'un seul geste. Le changement prend effet au redémarrage de la pile, et impose de se reconnecter sur la nouvelle adresse — le cookie de session étant lié à l'ancien domaine.
 
 Pour développer le frontend avec hot-reload :
 
@@ -171,6 +181,7 @@ Default ports: `30080` (HTTP) and `30443` (HTTPS)
 - **Orthanc Explorer 2**: `https://your-domain/ui/` (PACS administration)
 - **Stone Web Viewer**: `https://your-domain/stone-webviewer/` (advanced viewer)
 - **VolView**: `https://your-domain/volview/` (3D volumetric viewer)
+- **Panel d'administration**: `https://your-domain/console/` (groupe `admin`)
 - **Token Management**: `https://your-domain/auth/tokens/manage` (admin only)
 - **External Shares**: `https://your-domain/share/?token=xxx` (no auth required)
 - **Programmatic Upload**: `POST https://your-domain/api-upload/instances` (HTTP Basic auth, see [Programmatic Upload Endpoint](#programmatic-upload-endpoint))
@@ -284,30 +295,30 @@ Request flow for `POST /api-upload/instances`:
 
 ## Docker Registry
 
-Custom images hosted at `registry.yokoinc.ovh`:
+Trois images sont publiées sur `registry.yokoinc.ovh` :
 
-- `orthanc-nginx:1.1.1` - Nginx with SSL auto-generation
-- `orthanc-ohif:3.12.0` - OHIF viewer with French translation
-- `orthanc-auth-service:1.0.16` - Custom authentication service
+- `orthanc-nginx:1.1.0` — nginx, génération du certificat, authentification déléguée
+- `orthanc-ohif:3.11.0` — visionneuse OHIF servie sous `/ohif/`
+- `orthanc-auth-service:1.0.16` — service d'authentification, panel et partages
 
-### Using Your Own Registry
+**Aucun accès à ce registre n'est nécessaire.** Chaque service déclare à la fois
+`image:` et `build:` : l'image publiée est utilisée si elle est disponible, et
+construite depuis le dépôt sinon. Un clone frais démarre donc sans rien tirer.
 
-Build images locally:
+Pour forcer la construction locale :
+
 ```bash
-# Auth-Service
-cd services/auth-service/sources
-docker build -t your-registry/orthanc-auth-service:1.0.16 .
-
-# Nginx
-cd services/nginx
-docker build -t your-registry/orthanc-nginx:1.1.1 .
-
-# OHIF (long build ~15min)
-cd services/ohif/docker
-docker build -t your-registry/orthanc-ohif:3.12.0 .
+docker compose build                 # les trois
+docker compose build nginx           # un seul
 ```
 
-Update `docker-compose.yml` with your registry URLs.
+Le build d'OHIF prend une quinzaine de minutes la première fois : la visionneuse
+est compilée depuis ses sources. C'est indispensable — OHIF fige son chemin de
+base dans le bundle au moment du build, et l'image officielle `ohif/app`, prévue
+pour être servie à la racine, ne fonctionne pas sous `/ohif/`.
+
+Pour publier sur ton propre registre, remplacer les `image:` du
+`docker-compose.yml` puis `docker compose build && docker compose push`.
 
 ## Documentation
 
@@ -327,21 +338,32 @@ Detailed guides available in `docs/`:
 ### Quick Checks
 
 ```bash
-# Check all services are running
-docker-compose ps
+# Etat des services
+docker compose ps
 
-# View logs
-docker-compose logs -f
+# Journaux
+docker compose logs -f
 
-# Restart services
-docker-compose restart
+# Redemarrage
+docker compose restart
 
-# Check SSL certificates
+# Certificats
 docker exec orthanc-nginx ls -la /etc/nginx/ssl/
+```
+
+Pour valider une installation complète sans toucher à celle qui tourne :
+
+```bash
+./scripts/e2e-test.sh
 ```
 
 ### Common Issues
 
+- **Page blanche, le site ne répond plus** : le plus souvent un HSTS enregistré
+  alors que le certificat est auto-signé — le navigateur refuse alors toute
+  exception. Purger via `chrome://net-internals/#hsts`. Vérifier d'abord côté
+  serveur avec `curl -k https://votre-domaine/auth/` : s'il répond 200, le
+  problème est bien dans le navigateur.
 - **Can't login**: Run `./manage-authelia-users.sh` and restart Authelia
 - **Database connection failed**: Verify PostgreSQL is on `database` network
 - **Port conflicts**: Change ports in `docker-compose.yml`
