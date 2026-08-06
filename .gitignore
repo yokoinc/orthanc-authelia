@@ -225,11 +225,12 @@ site/
 # CI/CD and Deployment
 # ===============================================
 
-# CI/CD artifacts
-.github/
-.gitlab-ci.yml
-.travis.yml
-circle.yml
+# Artefacts de CI
+#
+# Les fichiers de CONFIGURATION des chaines d'integration (.github/workflows,
+# .gitlab-ci.yml...) ne figurent volontairement plus ici : ce sont des sources,
+# pas des artefacts, et les ignorer rendait toute integration continue
+# impossible -- le workflow ne pouvait meme pas etre ajoute au depot.
 
 # Deployment scripts (may contain sensitive info)
 deploy.sh

@@ -1,0 +1,115 @@
+name: Tests
+
+# Chaque poussee et chaque proposition de fusion. Sans cela, les tests ne
+# tournent que si quelqu'un pense a les lancer -- et c'est precisement ce qui a
+# laisse sept tests casses passer inapercus pendant des jours.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unitaires:
+    name: Tests unitaires
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Construire l'image auth-service
+        run: docker build -t auth-service-test services/auth-service
+
+      # Les dependances de test ne sont pas dans l'image de production : elles
+      # sont figees dans requirements-dev.txt pour que la CI et le poste de
+      # developpement executent exactement la meme chose.
+      - name: Lancer la suite
+        run: |
+          docker run --rm --entrypoint sh \
+            -e AUTH_USERNAME=ci -e AUTH_PASSWORD=mot-de-passe-ci-1234 \
+            -e ORTHANC_ADMIN_USER=ci -e ORTHANC_ADMIN_PASS=ci \
+            -v "$PWD/services/auth-service/sources:/src" -w /src \
+            auth-service-test \
+            -c 'pip install -q -r requirements-dev.txt && python -m pytest tests/ -q'
+
+  images:
+    name: Construction des images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # nginx et auth-service seulement : le build d'OHIF compile la
+      # visionneuse depuis ses sources et prend une quinzaine de minutes, ce
+      # qui n'a pas sa place a chaque poussee. Il reste couvert par le test de
+      # bout en bout, lance a la main.
+      - name: nginx
+        run: docker build -t nginx-test services/nginx
+
+      - name: auth-service
+        run: docker build -t auth-service-test services/auth-service
+
+  coherence:
+    name: Coherence du depot
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scripts executables
+        # Un script versionne en 100644 fait echouer le ./bootstrap.sh
+        # documente, sans que cela se voie sur le poste ou le bit existe
+        # localement.
+        run: |
+          manquants=$(git ls-files -s '*.sh' | awk '$1 != "100755" {print $4}')
+          if [ -n "$manquants" ]; then
+            echo "Scripts non executables dans le depot :"
+            echo "$manquants"
+            exit 1
+          fi
+          echo "Tous les scripts sont executables."
+
+      - name: Syntaxe des scripts
+        run: |
+          for f in $(git ls-files '*.sh'); do
+            bash -n "$f" || exit 1
+          done
+          echo "Syntaxe correcte."
+
+      - name: Traductions synchronisees
+        # Une cle presente dans une langue et absente de l'autre passe
+        # inapercue jusqu'a ce qu'un utilisateur tombe sur un libelle brut.
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          from pathlib import Path
+          d = Path('services/auth-service/sources/translations')
+          fr = json.loads((d / 'fr.json').read_text(encoding='utf-8'))
+          en = json.loads((d / 'en.json').read_text(encoding='utf-8'))
+          code = 0
+          for section in ('ui', 'js'):
+              ecart = set(fr.get(section, {})) ^ set(en.get(section, {}))
+              if ecart:
+                  print(f"section {section} desynchronisee : {sorted(ecart)}")
+                  code = 1
+          if not code:
+              print(f"fr et en couvrent les memes cles ({len(fr['ui'])} en ui).")
+          sys.exit(code)
+          PY
+
+      - name: Liens du README
+        # Le dossier docs/ avait perdu neuf guides sans que les huit liens du
+        # README cessent de pointer vers eux.
+        run: |
+          manquants=""
+          for f in $(grep -oE '\(docs/[A-Za-z_.-]+\)' README.md | tr -d '()' | sort -u); do
+            [ -f "$f" ] || manquants="$manquants $f"
+          done
+          if [ -n "$manquants" ]; then
+            echo "Liens morts dans le README :$manquants"
+            exit 1
+          fi
+          echo "Tous les liens du README resolvent."
+
+      - name: Compose valide
+        run: |
+          cp docker-compose.yml.example docker-compose.yml
+          docker compose config >/dev/null
+          echo "docker-compose.yml.example est valide."
