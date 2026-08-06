@@ -121,17 +121,22 @@ Le certificat TLS est auto-généré et auto-signé : accepter l'avertissement d
 
 ### Interface d'administration
 
-Le hub admin est une application Vue 3 (`services/auth-service/frontend/`) compilée par Vite et embarquée dans l'image auth-service au build. Trois onglets :
+Le panel est une application Vue 3 (`services/auth-service/frontend/`) compilée par Vite et embarquée dans l'image auth-service au build. Six onglets :
 
 | Onglet | Ce qu'il fait | Mécanisme |
 |---|---|---|
-| **Utilisateurs** | Création et suppression des comptes Authelia | Écrit `users_database.yml`, relu à chaud en quelques secondes |
-| **Configuration Orthanc** | ~40 paramètres de `orthanc.json` | Écrit le JSON ; un redémarrage du conteneur Orthanc est nécessaire pour appliquer |
+| **Utilisateurs** | Créer, modifier, désactiver et supprimer les comptes ; changer un mot de passe | Écrit `users_database.yml`, relu à chaud par Authelia en quelques secondes |
+| **Configuration Orthanc** | ~40 paramètres de `orthanc.json`, rangés par thème et documentés | Écrit le JSON ; un redémarrage du conteneur Orthanc est nécessaire pour appliquer |
+| **Équipements** | Déclarer les modalités DICOM (scanner, IRM…) et tester leur connectivité par C-ECHO | Passe par l'API d'Orthanc ; effet immédiat, sans redémarrage |
 | **État** | Redis, Orthanc, fichiers de configuration | Lecture seule |
+| **Maintenance** | Adresse publique de la pile, et restauration d'une sauvegarde | Écrit `.env` ; restaure un fichier depuis `data/admin-backups/` |
+| **Journal** | Qui a fait quoi et quand : comptes, configuration, sauvegardes, requêtes rejetées | Lit le flux d'audit dans Redis |
 
 Chaque écriture crée une sauvegarde rotative dans `data/admin-backups/` (les 10 dernières sont conservées). Aucune opération ne demande l'accès au socket Docker : Authelia surveille son fichier d'utilisateurs et le relit seul.
 
-L'assistant permet également de déclarer l'URL publique (`PUBLIC_URL`), ce qui met à jour `.env` et la configuration Authelia d'un seul geste. Le changement prend effet au redémarrage de la pile, et impose de se reconnecter sur la nouvelle adresse — le cookie de session étant lié à l'ancien domaine.
+Deux garde-fous méritent d'être connus. On ne peut ni supprimer, ni désactiver, ni retirer du groupe `admin` le dernier administrateur actif : la pile se retrouverait sans personne pour l'administrer, et la seule issue serait d'éditer `users_database.yml` à la main. Et l'assistant de première installation se ferme définitivement une fois finalisé — il ne peut pas servir à créer un second administrateur.
+
+L'onglet Maintenance permet aussi de changer l'URL publique (`PUBLIC_URL`), ce qui met à jour `.env` et la configuration Authelia d'un seul geste. Le changement prend effet au redémarrage de la pile, et impose de se reconnecter sur la nouvelle adresse — le cookie de session étant lié à l'ancien domaine.
 
 Pour développer le frontend avec hot-reload :
 
@@ -278,6 +283,8 @@ curl -u "$UPLOAD_USER:$UPLOAD_PASSWORD" \
      -H "Content-Type: application/zip" \
      https://your-domain/api-upload/instances
 ```
+
+Les identifiants sont ceux générés par `bootstrap.sh` dans `.env` (`UPLOAD_USER` / `UPLOAD_PASSWORD`). L'endpoint ne demande pas de session Authelia — c'est la voie des scripts — mais il refuse les requêtes non authentifiées : il accepte des données médicales, le laisser ouvert permettrait à quiconque sur le réseau d'alimenter la base.
 
 Note: if your reverse proxy or CDN enforces a body size limit smaller than your typical DICOM payload (e.g. Cloudflare Free/Pro caps at 100 MB), upload files individually rather than as a single archive.
 
