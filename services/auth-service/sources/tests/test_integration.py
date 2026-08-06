@@ -134,7 +134,7 @@ def valid_authelia_yml(tmp_paths):
                 "displayname": "Gregory Cuffel",
                 "email": "cuffel.gregory@gmail.com",
                 "password": hasher.hash("initial-admin-password"),
-                "groups": ["admin", "doctors"],
+                "groups": ["admin", "doctor"],
             },
         },
     }
@@ -859,3 +859,170 @@ class TestPublicUrl:
                 headers=csrf_headers,
             )
             assert r.status_code == 400, f"{mauvaise} aurait du etre refusee"
+
+
+class TestModalites:
+    """Equipements DICOM : declaration, suppression, test de connectivite.
+
+    Ces routes passent par l'API d'Orthanc, simulee ici. Elles n'etaient
+    couvertes que par le test de bout en bout, lance a la main : la CI
+    n'execute que les tests unitaires, un changement les cassant serait donc
+    passe au vert.
+    """
+
+    def test_liste_rassemble_les_configurations(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml,
+    ):
+        """Orthanc ne renvoie que des noms : la route doit joindre les details."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/modalities").respond(json=["SCANNER-1"])
+            mock.get("/modalities/SCANNER-1/configuration").respond(
+                json={"AET": "SCANNER1", "Host": "192.0.2.10", "Port": 104},
+            )
+            r = client.get("/api/admin/modalities")
+
+        assert r.status_code == 200, r.text
+        equipements = r.json()["modalities"]
+        assert len(equipements) == 1
+        assert equipements[0] == {
+            "name": "SCANNER-1", "aet": "SCANNER1",
+            "host": "192.0.2.10", "port": 104,
+        }
+
+    def test_declaration(self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers):
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            route = mock.put("/modalities/IRM-1").respond(status_code=200, json={})
+            r = client.put("/api/admin/modalities/IRM-1", json={
+                "aet": "IRM1", "host": "192.0.2.20", "port": 104,
+            }, headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert route.called
+        # L'operation doit laisser une trace : declarer un equipement autorise
+        # une machine tierce a deposer des examens.
+        entrees = fake_redis.sync.xrange("admin:audit")
+        assert any(e[1].get("event") == "orthanc.modality.saved" for e in entrees)
+
+    def test_titre_ae_trop_long_refuse(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        """16 caracteres au maximum : au-dela l'equipement refuse l'association
+        sans indiquer pourquoi, autant le dire tout de suite."""
+        r = client.put("/api/admin/modalities/TROP-LONG", json={
+            "aet": "A" * 17, "host": "192.0.2.30", "port": 104,
+        }, headers=csrf_headers)
+        assert r.status_code == 422
+
+    def test_port_hors_bornes_refuse(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        r = client.put("/api/admin/modalities/PORT-KO", json={
+            "aet": "OK", "host": "192.0.2.30", "port": 70000,
+        }, headers=csrf_headers)
+        assert r.status_code == 422
+
+    def test_suppression(self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers):
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            route = mock.delete("/modalities/IRM-1").respond(status_code=200, json={})
+            r = client.delete("/api/admin/modalities/IRM-1", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert route.called
+
+    def test_echo_joignable(self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers):
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.post("/modalities/IRM-1/echo").respond(status_code=200, json={})
+            r = client.post("/api/admin/modalities/IRM-1/echo", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert r.json()["reachable"] is True
+
+    def test_echo_injoignable_ne_leve_pas_derreur(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        """Un equipement muet est un resultat, pas une panne : la route repond
+        200 en signalant l'echec, pour que l'interface l'affiche."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.post("/modalities/IRM-1/echo").respond(
+                status_code=500, text="TCP Initialization Error",
+            )
+            r = client.post("/api/admin/modalities/IRM-1/echo", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert r.json()["reachable"] is False
+        assert "TCP" in r.json()["detail"]
+
+
+class TestModificationUtilisateur:
+    """Modification d'un compte, et garde-fou anti-verrouillage.
+
+    Sans ces routes, changer le groupe de quelqu'un imposait de supprimer son
+    compte et de le recreer -- en lui faisant perdre son mot de passe.
+    """
+
+    def test_modification_partielle(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        """Les champs absents ne doivent pas etre ecrases."""
+        r = client.patch("/api/admin/users/cuffel.gregory", json={
+            "displayname": "Docteur Cuffel",
+        }, headers=csrf_headers)
+        assert r.status_code == 200, r.text
+
+        yml = yaml.safe_load(tmp_paths["authelia"].read_text())
+        infos = yml["users"]["cuffel.gregory"]
+        assert infos["displayname"] == "Docteur Cuffel"
+        assert infos["email"] == "cuffel.gregory@gmail.com"   # inchange
+        assert "admin" in infos["groups"]                     # inchange
+
+    def test_changement_de_groupes(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        # Un second administrateur, sans quoi l'invariant bloquerait.
+        data = yaml.safe_load(tmp_paths["authelia"].read_text())
+        data["users"]["autre.admin"] = dict(
+            data["users"]["cuffel.gregory"], displayname="Autre", email="a@b.fr",
+        )
+        tmp_paths["authelia"].write_text(yaml.safe_dump(data))
+
+        r = client.patch("/api/admin/users/cuffel.gregory", json={
+            "groups": ["doctor"],
+        }, headers=csrf_headers)
+        assert r.status_code == 200, r.text
+
+        yml = yaml.safe_load(tmp_paths["authelia"].read_text())
+        assert yml["users"]["cuffel.gregory"]["groups"] == ["doctor"]
+
+    def test_refus_de_degrader_le_dernier_admin(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        """Se retirer du groupe admin quand on est le seul laisserait la pile
+        sans personne pour l'administrer. Refus attendu en 400 -- et non en
+        500, qui ne distingue pas un refus deliberé d'une panne."""
+        r = client.patch("/api/admin/users/cuffel.gregory", json={
+            "groups": ["doctor"],
+        }, headers=csrf_headers)
+        assert r.status_code == 400
+        assert "admin" in r.text.lower()
+
+    def test_refus_de_desactiver_le_dernier_admin(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        r = client.patch("/api/admin/users/cuffel.gregory", json={
+            "disabled": True,
+        }, headers=csrf_headers)
+        assert r.status_code == 400
+
+    def test_utilisateur_inconnu(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        r = client.patch("/api/admin/users/fantome", json={
+            "displayname": "X",
+        }, headers=csrf_headers)
+        assert r.status_code == 404
+
+    def test_aucun_champ_fourni(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        r = client.patch("/api/admin/users/cuffel.gregory", json={}, headers=csrf_headers)
+        assert r.status_code == 400
