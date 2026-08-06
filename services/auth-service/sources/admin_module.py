@@ -530,6 +530,15 @@ class UserUpdatePayload(BaseModel):
     disabled: bool | None = None
 
 
+class ModalityPayload(BaseModel):
+    """Equipement DICOM distant : scanner, IRM, station de post-traitement."""
+    # Le titre AE est plafonne a 16 caracteres par la norme DICOM ; au-dela,
+    # l'equipement refuse l'association sans expliquer pourquoi.
+    aet: str = Field(..., min_length=1, max_length=16)
+    host: str = Field(..., min_length=1, max_length=255)
+    port: int = Field(..., ge=1, le=65535)
+
+
 class PasswordChangePayload(BaseModel):
     new_password: str = Field(..., min_length=12)
 
@@ -631,6 +640,23 @@ async def _reload_orthanc() -> None:
             headers={"Remote-User": "admin"},
         )
         r.raise_for_status()
+
+
+async def _orthanc(methode: str, chemin: str, **kwargs: Any) -> httpx.Response:
+    """Appelle l'API d'Orthanc avec le compte de service.
+
+    Remote-User: admin est indispensable -- le plugin Authorization le lit
+    pour determiner le profil. Sans lui l'appel passe pour anonyme, profil
+    qui n'a que la permission d'import.
+    """
+    _require_orthanc_creds()
+    async with httpx.AsyncClient(timeout=15) as client:
+        return await client.request(
+            methode, f"{ORTHANC_URL}{chemin}",
+            auth=(ORTHANC_USER, ORTHANC_PASS),
+            headers={"Remote-User": "admin"},
+            **kwargs,
+        )
 
 
 class OrthancConfigPayload(BaseModel):
@@ -1062,6 +1088,90 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
 # ============================================================================
 # Route : rollback backup
 # ============================================================================
+
+@router.get("/api/admin/modalities")
+async def list_modalities(admin: AdminUser = Depends(require_admin)):
+    """Equipements DICOM declares, avec leur configuration.
+
+    Orthanc ne renvoie que les noms ; la configuration de chacun demande un
+    appel supplementaire. On les rassemble ici pour que l'affichage n'ait pas
+    a enchainer les requetes.
+    """
+    r = await _orthanc("GET", "/modalities")
+    if r.status_code != 200:
+        raise HTTPException(r.status_code, f"Orthanc: {r.text[:200]}")
+
+    equipements = []
+    for nom in r.json():
+        detail = await _orthanc("GET", f"/modalities/{nom}/configuration")
+        cfg = detail.json() if detail.status_code == 200 else {}
+        equipements.append({
+            "name": nom,
+            "aet": cfg.get("AET", ""),
+            "host": cfg.get("Host", ""),
+            "port": cfg.get("Port", 0),
+        })
+    equipements.sort(key=lambda e: e["name"].lower())
+    return {"modalities": equipements}
+
+
+@router.put("/api/admin/modalities/{name}")
+async def upsert_modality(
+    name: str,
+    payload: ModalityPayload,
+    admin: AdminUser = Depends(require_admin),
+):
+    """Declare ou met a jour un equipement.
+
+    DicomModalitiesInDatabase etant actif, la declaration est enregistree en
+    base et prend effet immediatement : ni redemarrage, ni reecriture de
+    orthanc.json.
+    """
+    if "/" in name or not name.strip():
+        raise HTTPException(400, "nom invalide")
+
+    r = await _orthanc(
+        "PUT", f"/modalities/{name}",
+        json={"AET": payload.aet, "Host": payload.host, "Port": payload.port},
+    )
+    if r.status_code not in (200, 201):
+        raise HTTPException(r.status_code, f"Orthanc: {r.text[:200]}")
+
+    await _audit(
+        "orthanc.modality.saved", admin.username,
+        target=name, aet=payload.aet, host=payload.host, port=payload.port,
+    )
+    return {"ok": True}
+
+
+@router.delete("/api/admin/modalities/{name}")
+async def delete_modality(name: str, admin: AdminUser = Depends(require_admin)):
+    r = await _orthanc("DELETE", f"/modalities/{name}")
+    if r.status_code != 200:
+        raise HTTPException(r.status_code, f"Orthanc: {r.text[:200]}")
+    await _audit("orthanc.modality.deleted", admin.username, target=name)
+    return {"ok": True}
+
+
+@router.post("/api/admin/modalities/{name}/echo")
+async def echo_modality(name: str, admin: AdminUser = Depends(require_admin)):
+    """Test de connectivite (C-ECHO).
+
+    Declarer un equipement ne dit pas s'il repond. Cet appel evite d'avoir a
+    diagnostiquer plus tard un transfert qui echoue faute d'adresse ou de port
+    corrects.
+    """
+    r = await _orthanc("POST", f"/modalities/{name}/echo", json={})
+    joignable = r.status_code == 200
+    await _audit(
+        "orthanc.modality.echo", admin.username,
+        target=name, result="ok" if joignable else "echec",
+    )
+    return {
+        "reachable": joignable,
+        "detail": "" if joignable else r.text[:200],
+    }
+
 
 @router.get("/api/admin/audit")
 async def read_audit(
