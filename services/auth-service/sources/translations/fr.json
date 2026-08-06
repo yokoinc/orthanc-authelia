@@ -139,7 +139,10 @@
     "users_change_password": "Changer le mot de passe",
     "users_new_password": "Nouveau mot de passe",
     "users_password_hint": "12 caractères minimum",
-    "users_password_changed": "Mot de passe modifié pour {username}."
+    "users_password_changed": "Mot de passe modifié pour {username}.",
+    "users_edit": "Modifier",
+    "users_updated": "{username} a été modifié.",
+    "users_disable": "Désactiver ce compte"
   },
   "js": {
     "expired": "Expiré",

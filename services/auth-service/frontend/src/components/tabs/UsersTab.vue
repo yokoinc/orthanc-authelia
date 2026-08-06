@@ -40,6 +40,57 @@ async function addUser() {
   }
 }
 
+// Modification d'un compte : meme principe de ligne depliante que le mot de
+// passe, pour ne pas quitter le tableau.
+const editionPour = ref('')
+const edition = reactive({ displayname: '', email: '', groups: [], disabled: false })
+const envoiEdition = ref(false)
+
+function ouvrirEdition(u) {
+  if (editionPour.value === u.username) {
+    editionPour.value = ''
+    return
+  }
+  editionPour.value = u.username
+  motDePassePour.value = ''
+  Object.assign(edition, {
+    displayname: u.displayname || '',
+    email: u.email || '',
+    groups: [...(u.groups || [])],
+    disabled: !!u.disabled,
+  })
+}
+
+function basculerGroupeEdition(g) {
+  const i = edition.groups.indexOf(g)
+  if (i >= 0) edition.groups.splice(i, 1)
+  else edition.groups.push(g)
+}
+
+async function enregistrerEdition() {
+  envoiEdition.value = true
+  try {
+    await api(`/console/api/admin/users/${encodeURIComponent(editionPour.value)}`, {
+      method: 'PATCH',
+      body: {
+        displayname: edition.displayname,
+        email: edition.email,
+        groups: edition.groups,
+        disabled: edition.disabled,
+      },
+    })
+    ui.notify(t('users_updated', '{username} a été modifié.', { username: editionPour.value }), 'ok')
+    editionPour.value = ''
+    load()
+  } catch (e) {
+    // Le serveur refuse de laisser la pile sans administrateur actif : le
+    // message explique ce qui bloque, il ne faut pas le masquer.
+    ui.notify(e.message, 'err')
+  } finally {
+    envoiEdition.value = false
+  }
+}
+
 // Changement de mot de passe : saisie en ligne plutot qu'un prompt(), qui
 // afficherait le mot de passe en clair et ne permet aucune validation.
 const motDePassePour = ref('')
@@ -126,6 +177,13 @@ onMounted(load)
           <td class="right">
             <button
               class="oe2-btn oe2-btn--secondary"
+              :title="t('users_edit', 'Modifier')"
+              @click="ouvrirEdition(u)"
+            >
+              <i class="fa-solid fa-pen"></i>
+            </button>
+            <button
+              class="oe2-btn oe2-btn--secondary"
               :title="t('users_change_password', 'Changer le mot de passe')"
               @click="ouvrirMotDePasse(u.username)"
             >
@@ -134,6 +192,48 @@ onMounted(load)
             <button class="oe2-btn oe2-btn--danger" @click="deleteUser(u.username)" :title="t('delete', 'Supprimer')">
               <i class="fa-solid fa-trash"></i>
             </button>
+          </td>
+        </tr>
+        <tr v-if="editionPour === u.username" :key="u.username + '-edit'">
+          <td colspan="6" class="edit-ligne">
+            <div class="champ">
+              <label>{{ t('setup_displayname_label', 'Nom affiché') }}</label>
+              <input v-model="edition.displayname" maxlength="100">
+            </div>
+            <div class="champ">
+              <label>{{ t('setup_email_label', 'Adresse e-mail') }}</label>
+              <input v-model="edition.email" type="email">
+            </div>
+            <div class="champ">
+              <label>{{ t('users_col_groups', 'Groupes') }}</label>
+              <div class="groups">
+                <label v-for="g in ['admin', 'doctor', 'external']" :key="g" class="chk">
+                  <input
+                    type="checkbox" :checked="edition.groups.includes(g)"
+                    @change="basculerGroupeEdition(g)"
+                  >
+                  {{ g }}
+                </label>
+              </div>
+            </div>
+            <div class="champ">
+              <label class="chk">
+                <input type="checkbox" v-model="edition.disabled">
+                {{ t('users_disable', 'Désactiver ce compte') }}
+              </label>
+            </div>
+            <div class="champ">
+              <button
+                class="oe2-btn oe2-btn--primary"
+                :disabled="envoiEdition"
+                @click="enregistrerEdition"
+              >
+                {{ envoiEdition ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
+              </button>
+              <button class="oe2-btn oe2-btn--ghost" @click="editionPour = ''">
+                {{ t('cancel', 'Annuler') }}
+              </button>
+            </div>
           </td>
         </tr>
         <tr v-if="motDePassePour === u.username" :key="u.username + '-pwd'">
@@ -188,6 +288,19 @@ onMounted(load)
 .etat { font-size: 11px; }
 .etat--on { color: var(--oe2-success); }
 .etat--off { color: var(--oe2-muted); }
+.edit-ligne {
+  background: var(--oe2-nav-sub-bg);
+  display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
+}
+.edit-ligne .champ { display: flex; flex-direction: column; gap: 3px; }
+.edit-ligne label { color: var(--oe2-muted); font-size: 11px; }
+.edit-ligne input[type=text], .edit-ligne input[type=email], .edit-ligne input:not([type]) {
+  background: var(--oe2-nav-bg);
+  border: 1px solid var(--oe2-border-subtle);
+  color: var(--oe2-nav-color);
+  padding: 5px 8px; border-radius: 3px;
+  font-family: var(--oe2-font-stack); font-size: var(--oe2-fs-small);
+}
 .pwd-ligne {
   background: var(--oe2-nav-sub-bg);
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;

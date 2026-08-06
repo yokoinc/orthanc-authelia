@@ -497,6 +497,11 @@ def _write_authelia(data: dict) -> None:
             _atomic_write(AUTHELIA_YML, serialized)
     except Timeout as e:
         raise HTTPException(423, "fichier verrouille par un autre admin, retry dans 5s") from e
+    except ValueError as e:
+        # Violation d'invariant : refus deliberé, pas une panne. Sans cette
+        # conversion, supprimer ou desactiver le dernier administrateur
+        # renvoyait une erreur 500 au lieu d'expliquer ce qui bloque.
+        raise HTTPException(400, str(e)) from e
 
 
 class UserCreatePayload(BaseModel):
@@ -510,6 +515,19 @@ class UserCreatePayload(BaseModel):
     # cree via l'API sans groupe explicite tombait en lecture seule, sans
     # message. Meme piege que le groupe 'admins' corrige auparavant.
     groups: list[str] = Field(default_factory=lambda: ["doctor"])
+
+
+class UserUpdatePayload(BaseModel):
+    """Modification partielle : seuls les champs fournis sont appliques.
+
+    None signifie "ne pas toucher", ce qui permet de changer les groupes sans
+    reenvoyer le nom et l'e-mail, et de desactiver un compte sans rien
+    reecrire d'autre.
+    """
+    displayname: str | None = Field(None, min_length=1, max_length=100)
+    email: EmailStr | None = None
+    groups: list[str] | None = None
+    disabled: bool | None = None
 
 
 class PasswordChangePayload(BaseModel):
@@ -799,6 +817,52 @@ async def add_user(payload: UserCreatePayload, admin: AdminUser = Depends(requir
     _write_authelia(data)
     await _audit("authelia.user.added", admin.username, target=payload.username)
     return {"ok": True, "reload": "auto (~2s via watch)"}
+
+
+@router.patch("/api/admin/users/{username}")
+async def update_user(
+    username: str,
+    payload: UserUpdatePayload,
+    admin: AdminUser = Depends(require_admin),
+):
+    """Modifie un compte existant sans toucher a son mot de passe.
+
+    Jusqu'ici le panel ne savait que creer et supprimer : changer le groupe de
+    quelqu'un imposait de detruire son compte et de le recreer, ce qui lui
+    faisait perdre son mot de passe au passage.
+
+    L'invariant "au moins un administrateur actif" est verifie a l'ecriture :
+    se retirer du groupe admin ou se desactiver soi-meme alors qu'on est le
+    dernier est donc refuse avec un message explicite.
+    """
+    data = _load_authelia()
+    if username not in data.get("users", {}):
+        raise HTTPException(404, "user inconnu")
+
+    infos = data["users"][username]
+    modifies = []
+    if payload.displayname is not None:
+        infos["displayname"] = payload.displayname
+        modifies.append("displayname")
+    if payload.email is not None:
+        infos["email"] = str(payload.email)
+        modifies.append("email")
+    if payload.groups is not None:
+        infos["groups"] = payload.groups
+        modifies.append("groups")
+    if payload.disabled is not None:
+        infos["disabled"] = payload.disabled
+        modifies.append("disabled")
+
+    if not modifies:
+        raise HTTPException(400, "aucun champ a modifier")
+
+    _write_authelia(data)
+    await _audit(
+        "authelia.user.updated", admin.username, target=username,
+        fields=",".join(modifies),
+    )
+    return {"ok": True, "modified": modifies}
 
 
 @router.patch("/api/admin/users/{username}/password")
