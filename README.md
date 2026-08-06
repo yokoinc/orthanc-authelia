@@ -149,7 +149,22 @@ Pour désactiver la fonction, laisser `DOCKER_PROXY_URL` vide dans `.env` et ret
 
 Deux garde-fous méritent d'être connus. On ne peut ni supprimer, ni désactiver, ni retirer du groupe `admin` le dernier administrateur actif : la pile se retrouverait sans personne pour l'administrer, et la seule issue serait d'éditer `users_database.yml` à la main. Et l'assistant de première installation se ferme définitivement une fois finalisé — il ne peut pas servir à créer un second administrateur.
 
-Le même onglet fixe le viewer proposé par défaut lorsqu'on partage un examen depuis Explorer — OHIF, Stone Web Viewer ou VolView (`SHARE_DEFAULT_VIEWER`). Contrairement à l'URL publique, ce réglage prend effet immédiatement : la valeur est relue dans `.env` à chaque appel, et Explorer redemande ces réglages chaque fois qu'on ouvre le menu de partage. Une valeur inconnue est ignorée au profit d'OHIF plutôt que de casser le menu. Le choix reste modifiable au cas par cas au moment du partage.
+Le même onglet fixe le viewer proposé par défaut lorsqu'on partage un examen depuis Explorer — OHIF, Stone Web Viewer ou VolView. Contrairement à l'URL publique, ce réglage prend effet immédiatement : la valeur est relue à chaque appel, et Explorer redemande ces réglages chaque fois qu'on ouvre le menu de partage. Une valeur inconnue est ignorée au profit d'OHIF plutôt que de casser le menu. Le choix reste modifiable au cas par cas au moment du partage.
+
+#### Où vit quel réglage
+
+Deux emplacements, et la frontière entre les deux n'est pas affaire de goût :
+
+| | `.env` | `data/app-settings/settings.json` |
+|---|---|---|
+| Contenu | Secrets, identifiants, `PUID`/`PGID`, `SSL_MODE`, `PUBLIC_URL` | Préférences applicatives (viewer par défaut) |
+| Lu par | Docker Compose, **avant** qu'un conteneur démarre | auth-service, en fonctionnement |
+| Modifié par | `bootstrap.sh`, et le panel pour `PUBLIC_URL` | Le panel |
+| Prise en compte | Au redémarrage de la pile | Immédiate |
+
+Un réglage que seul auth-service consulte n'a rien à faire dans le `.env` : l'y mettre oblige à monter ce fichier en écriture dans le conteneur, à le réécrire sur place — un `rename` échoue sur un bind-mount de fichier — et mélange des préférences d'interface avec des mots de passe. Le fichier de réglages, lui, ne contient aucun secret, s'écrit de façon atomique, et un test le vérifie.
+
+Les installations antérieures ne cassent pas : un réglage absent du fichier est repris de l'ancienne variable d'environnement, et la première modification depuis le panel le fait basculer.
 
 L'onglet Maintenance permet aussi de changer l'URL publique (`PUBLIC_URL`), ce qui met à jour `.env` et la configuration Authelia d'un seul geste. Le changement prend effet au redémarrage de la pile, et impose de se reconnecter sur la nouvelle adresse — le cookie de session étant lié à l'ancien domaine.
 
