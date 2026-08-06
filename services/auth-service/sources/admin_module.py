@@ -12,6 +12,7 @@ Prerequis env vars : ORTHANC_ADMIN_USER, ORTHANC_ADMIN_PASS, ORTHANC_URL, REDIS_
 
 import json
 import asyncio
+import logging
 import os
 import secrets as pysecrets
 import shutil
@@ -74,7 +75,27 @@ AUTHELIA_CONFIG = Path(
 # pas via son dossier : monter la racine donnerait au container un acces en
 # ecriture au docker-compose.yml et aux scripts. Consequence, les ecritures
 # se font sur place (cf. _write_env_var).
+# Journal du module. auth_service configure le logging au demarrage ; on se
+# rattache a sa hierarchie pour que le niveau defini par LOG_LEVEL s'applique
+# aussi ici.
+logger = logging.getLogger("auth-service.admin")
+
 ENV_FILE = Path(os.getenv("ADMIN_ENV_PATH", "/host/env/.env"))
+
+# Reglages applicatifs, par opposition aux variables d'amorcage.
+#
+# Le .env n'a de raison d'etre que pour ce que docker compose doit connaitre
+# AVANT qu'un container demarre : secrets, identifiants, PUID/PGID, SSL_MODE.
+# Un reglage que seul auth-service lit, une fois en marche, n'a rien a y faire
+# -- l'y mettre oblige a monter le .env en ecriture, a le reecrire sur place
+# faute de pouvoir faire un rename sur un bind-mount de fichier, et melange des
+# preferences d'interface avec des mots de passe.
+#
+# Ce fichier-ci vit dans un dossier monte, s'ecrit de facon atomique, et ne
+# contient aucun secret.
+SETTINGS_FILE = Path(
+    os.getenv("ADMIN_SETTINGS_PATH", "/host/app-settings/settings.json")
+)
 
 SETUP_KEY = "orthanc_authelia:setup_completed"
 SETUP_FIRST_ADMIN_KEY = "orthanc_authelia:setup_first_admin_created"
@@ -182,6 +203,57 @@ def _normalise_public_url(raw: str) -> tuple[str, str]:
             "(pacs.exemple.fr) ou pacs.localhost.",
         )
     return f"https://{parsed.netloc}", parsed.hostname
+
+
+def _lire_reglages() -> dict[str, Any]:
+    """Contenu du fichier de reglages. Dict vide s'il n'existe pas encore."""
+    if not SETTINGS_FILE.exists():
+        return {}
+    try:
+        return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        # Un fichier de preferences illisible ne doit pas empecher le service
+        # de demarrer : on repart des valeurs par defaut en le signalant.
+        logger.warning("reglages illisibles (%s), valeurs par defaut", e)
+        return {}
+
+
+def _lire_reglage(nom: str, variable_env: str = "", defaut: Any = None) -> Any:
+    """Valeur d'un reglage, avec reprise de l'ancienne variable d'environnement.
+
+    `variable_env` permet aux installations anterieures de continuer a
+    fonctionner : le reglage vivait dans le .env, il y est relu tant qu'il n'a
+    pas ete redefini depuis le panel. La premiere ecriture le fait basculer
+    dans le fichier de reglages, et la ligne du .env devient sans effet.
+    """
+    reglages = _lire_reglages()
+    if nom in reglages:
+        return reglages[nom]
+    if variable_env:
+        ancienne = _read_env_var(variable_env)
+        if ancienne:
+            return ancienne
+    return defaut
+
+
+def _ecrire_reglage(nom: str, valeur: Any) -> None:
+    """Ecrit un reglage. Le fichier et son dossier sont crees au besoin."""
+    try:
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise HTTPException(
+            503,
+            f"dossier de reglages inaccessible ({e}). Verifier le montage "
+            f"'./data/app-settings:/host/app-settings:rw' sur auth-service.",
+        ) from e
+
+    reglages = _lire_reglages()
+    reglages[nom] = valeur
+    # Meme precaution que pour les autres fichiers du panel : ecriture dans un
+    # temporaire du meme dossier, puis rename. Une coupure laisse l'ancien
+    # fichier intact plutot qu'un JSON tronque.
+    _atomic_write(SETTINGS_FILE, json.dumps(reglages, indent=2,
+                                            ensure_ascii=False) + "\n")
 
 
 def _read_env_var(name: str) -> str:
@@ -1087,11 +1159,13 @@ class SharingPayload(BaseModel):
 @router.get("/api/admin/sharing")
 async def admin_sharing_get(admin: AdminUser = Depends(require_admin)):
     """Viewer preselectionne quand on partage un examen."""
-    actuel = _read_env_var("SHARE_DEFAULT_VIEWER")
+    actuel = _lire_reglage("share_default_viewer", "SHARE_DEFAULT_VIEWER")
     return {
         "default_viewer": actuel if actuel in VIEWERS_PARTAGE else VIEWERS_PARTAGE[0],
         "available": list(VIEWERS_PARTAGE),
-        "editable": ENV_FILE.exists(),
+        # Le dossier est monte, donc inscriptible : contrairement au .env, il
+        # n'y a pas de cas ou le reglage serait en lecture seule.
+        "editable": True,
     }
 
 
@@ -1110,7 +1184,7 @@ async def admin_sharing_put(
             f"viewer inconnu : {payload.default_viewer}. "
             f"Attendu : {', '.join(VIEWERS_PARTAGE)}",
         )
-    _write_env_var("SHARE_DEFAULT_VIEWER", payload.default_viewer)
+    _ecrire_reglage("share_default_viewer", payload.default_viewer)
     await _audit("sharing.default_viewer.updated", admin.username,
                  viewer=payload.default_viewer)
     return {"ok": True, "default_viewer": payload.default_viewer}

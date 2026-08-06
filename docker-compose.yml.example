@@ -108,6 +108,11 @@ services:
       - ./services/orthanc/config:/host/orthanc-config:rw
       # Backups rotatifs (10 derniers) crees avant chaque ecriture
       - ./data/admin-backups:/host/backups:rw
+      # Reglages applicatifs modifiables depuis le panel (viewer par defaut,
+      # langue). Volontairement separes du .env, qui ne doit contenir que ce
+      # que docker compose exige AVANT de demarrer un container : secrets,
+      # identifiants, PUID/PGID, SSL_MODE.
+      - ./data/app-settings:/host/app-settings:rw
       # Le .env est monte en tant que FICHIER, pas via son dossier : monter la
       # racine du projet donnerait au container un acces en ecriture au
       # docker-compose.yml et aux scripts. auth-service ecrit donc sur place

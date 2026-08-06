@@ -628,12 +628,20 @@ class TestViewerParDefaut:
 
     @pytest.fixture
     def env_temporaire(self, tmp_path, monkeypatch):
-        """Un .env isole, pour ne pas toucher celui de l'installation."""
+        """Un .env isole, et un fichier de reglages absent.
+
+        Le fichier de reglages est explicitement pointe vers un chemin
+        inexistant : ces cas-ci verifient la reprise de l'ancienne variable
+        d'environnement, il ne faut pas qu'un fichier de reglages tramant
+        dans l'image de test la court-circuite.
+        """
         import admin_module
 
         fichier = tmp_path / ".env"
         fichier.write_text("PUBLIC_URL=https://exemple.fr\n", encoding="utf-8")
         monkeypatch.setattr(admin_module, "ENV_FILE", fichier)
+        monkeypatch.setattr(admin_module, "SETTINGS_FILE",
+                            tmp_path / "absent" / "settings.json")
         return fichier
 
     def test_absent_du_env_repli_sur_ohif(self, env_temporaire):
@@ -685,3 +693,88 @@ class TestViewerParDefaut:
         monkeypatch.setattr(admin_module, "ENV_FILE",
                             Path("/chemin/qui/n/existe/pas/.env"))
         assert auth_service._default_share_viewer() == "ohif-viewer-publication"
+
+
+# ============================================================================
+# Magasin de reglages applicatifs
+# ============================================================================
+
+class TestMagasinReglages:
+    """Les reglages que seul le panel utilise vivent hors du .env.
+
+    Le .env n'a de raison d'etre que pour ce que docker compose doit connaitre
+    avant de demarrer un container. Y loger une preference d'interface oblige
+    a le monter en ecriture, a le reecrire sur place, et melange des libelles
+    avec des mots de passe.
+    """
+
+    @pytest.fixture
+    def reglages(self, tmp_path, monkeypatch):
+        import admin_module
+
+        fichier = tmp_path / "app-settings" / "settings.json"
+        monkeypatch.setattr(admin_module, "SETTINGS_FILE", fichier)
+        monkeypatch.setattr(admin_module, "ENV_FILE", tmp_path / ".env")
+        return fichier
+
+    def test_ecriture_puis_lecture(self, reglages):
+        from admin_module import _ecrire_reglage, _lire_reglage
+        _ecrire_reglage("share_default_viewer", "stone-viewer-publication")
+        assert _lire_reglage("share_default_viewer") == "stone-viewer-publication"
+
+    def test_dossier_cree_au_besoin(self, reglages):
+        """Une installation neuve n'a pas encore le fichier."""
+        from admin_module import _ecrire_reglage
+        assert not reglages.parent.exists()
+        _ecrire_reglage("langue", "fr")
+        assert reglages.exists()
+
+    def test_plusieurs_reglages_coexistent(self, reglages):
+        from admin_module import _ecrire_reglage, _lire_reglage
+        _ecrire_reglage("a", 1)
+        _ecrire_reglage("b", "deux")
+        assert (_lire_reglage("a"), _lire_reglage("b")) == (1, "deux")
+
+    def test_reprise_de_l_ancienne_variable(self, reglages, tmp_path):
+        """Une installation existante a le reglage dans son .env : il doit
+        continuer a s'appliquer tant qu'on ne l'a pas redefini."""
+        from admin_module import _lire_reglage
+        (tmp_path / ".env").write_text(
+            "SHARE_DEFAULT_VIEWER=stone-viewer-publication\n", encoding="utf-8")
+        assert _lire_reglage("share_default_viewer",
+                             "SHARE_DEFAULT_VIEWER") == "stone-viewer-publication"
+
+    def test_le_fichier_prime_sur_le_env(self, reglages, tmp_path):
+        """Apres la premiere ecriture, la ligne du .env devient inerte."""
+        from admin_module import _ecrire_reglage, _lire_reglage
+        (tmp_path / ".env").write_text(
+            "SHARE_DEFAULT_VIEWER=stone-viewer-publication\n", encoding="utf-8")
+        _ecrire_reglage("share_default_viewer", "volview-viewer-publication")
+        assert _lire_reglage("share_default_viewer",
+                             "SHARE_DEFAULT_VIEWER") == "volview-viewer-publication"
+
+    def test_fichier_illisible_ne_casse_rien(self, reglages):
+        """Un JSON corrompu doit degrader vers les valeurs par defaut, pas
+        empecher le service de repondre."""
+        from admin_module import _lire_reglage
+        reglages.parent.mkdir(parents=True)
+        reglages.write_text("{ceci n'est pas du JSON", encoding="utf-8")
+        assert _lire_reglage("share_default_viewer", defaut="ohif") == "ohif"
+
+    def test_ecriture_atomique(self, reglages):
+        """Aucun fichier temporaire ne doit subsister apres l'ecriture."""
+        from admin_module import _ecrire_reglage
+        _ecrire_reglage("a", 1)
+        restes = [f.name for f in reglages.parent.iterdir()
+                  if f.name != "settings.json"]
+        assert restes == [], restes
+
+    def test_aucun_secret_dans_le_fichier(self, reglages):
+        """Garde-fou de conception : ce fichier n'est pas un coffre. Il vit
+        dans data/, echappe au .gitignore des secrets, et pourrait etre
+        recopie sans precaution."""
+        from admin_module import _ecrire_reglage
+        _ecrire_reglage("share_default_viewer", "ohif-viewer-publication")
+        contenu = reglages.read_text(encoding="utf-8").lower()
+        for interdit in ("password", "secret", "token", "_key"):
+            assert interdit not in contenu, interdit

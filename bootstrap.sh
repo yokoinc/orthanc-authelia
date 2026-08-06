@@ -216,12 +216,18 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Dossier des backups admin (rotatifs, crees avant chaque ecriture de config)
+# Dossiers ecrits par le panel d'administration
 # ---------------------------------------------------------------------------
-if [[ ! -d data/admin-backups ]]; then
-    mkdir -p data/admin-backups
-    ok "data/admin-backups/ cree"
-fi
+# Les creer ICI et pas ailleurs : si un dossier bind-monte n'existe pas sur
+# l'hote, Docker le cree lui-meme, et il appartient alors a root. Les
+# containers tournent sous PUID/PGID (voir .env) et echouent a y ecrire, avec
+# un "Permission denied" qui n'a plus rien a voir avec sa cause.
+for dossier in data/admin-backups data/app-settings; do
+    if [[ ! -d "$dossier" ]]; then
+        mkdir -p "$dossier"
+        ok "$dossier/ cree"
+    fi
+done
 
 # ---------------------------------------------------------------------------
 # Configs Authelia + Orthanc
@@ -347,7 +353,7 @@ Etapes suivantes :
 
 Repartir de zero :
   docker compose down -v
-  rm -rf .env docker-compose.yml data/admin-backups \\
+  rm -rf .env docker-compose.yml data/admin-backups data/app-settings \\
          services/authelia/config/{configuration.yml,users_database.yml} \\
          services/orthanc/config/orthanc.json
   ./bootstrap.sh

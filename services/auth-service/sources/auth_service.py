@@ -468,8 +468,8 @@ VIEWER_PARTAGE_DEFAUT = "ohif-viewer-publication"
 def _default_share_viewer() -> str:
     """Viewer preselectionne quand on partage un examen depuis Explorer.
 
-    Lu dans le .env a chaque appel plutot qu'au demarrage : le fichier est
-    monte dans le container, et Explorer redemande ces reglages a chaque
+    Lu dans les reglages a chaque appel plutot qu'au demarrage : le fichier
+    est monte dans le container, et Explorer redemande ces reglages a chaque
     ouverture du menu de partage. Un changement depuis le panel prend donc
     effet sans recreer quoi que ce soit.
 
@@ -477,10 +477,10 @@ def _default_share_viewer() -> str:
     qu'un menu de partage casse par une faute de frappe.
     """
     try:
-        from admin_module import _read_env_var
+        from admin_module import _lire_reglage
 
-        choisi = _read_env_var("SHARE_DEFAULT_VIEWER")
-    except Exception:  # noqa: BLE001 - .env illisible ne doit rien casser
+        choisi = _lire_reglage("share_default_viewer", "SHARE_DEFAULT_VIEWER")
+    except Exception:  # noqa: BLE001 - reglages illisibles ne cassent rien
         return VIEWER_PARTAGE_DEFAUT
 
     if choisi in VIEWERS_PARTAGE:
