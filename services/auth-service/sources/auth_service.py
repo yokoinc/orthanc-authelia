@@ -644,7 +644,26 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
 
     if "admin" in group_list:
         user_name = TRANSLATIONS["ui"]["administrator"]
-        permissions = ["view", "download", "upload", "delete", "modify", "anonymize", "share", "send", "settings", "edit-labels"]
+        # Liste complete des permissions reconnues par le plugin Authorization,
+        # relevee dans les motifs qu'il enregistre au demarrage.
+        #
+        # "all" ne suffit pas : plusieurs routes exigent nommement une
+        # permission qu'elle ne couvre pas. La creation et la suppression de
+        # modalites, par exemple, imposent "admin-permissions" --
+        #   put    ^/modalities/(.*)$ - admin-permissions
+        #   delete ^/modalities/(.*)$ - admin-permissions
+        # et "all" n'y figure pas. Un administrateur qui avait tous les autres
+        # droits ne pouvait donc pas declarer un equipement DICOM, sans autre
+        # explication qu'un 403.
+        #
+        # Manquaient egalement : audit-logs (journaux d'Orthanc), worklists
+        # (listes de travail) et la gestion des taches, elle aussi rangee sous
+        # admin-permissions.
+        permissions = [
+            "all", "admin-permissions", "audit-logs", "worklists",
+            "view", "download", "upload", "delete", "modify", "anonymize",
+            "share", "send", "settings", "edit-labels", "q-r-remote-modalities",
+        ]
     elif "doctor" in group_list:
         user_name = TRANSLATIONS["ui"]["doctor"]
         permissions = ["view", "download", "upload", "share", "send", "edit-labels"]
