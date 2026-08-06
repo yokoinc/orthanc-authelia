@@ -14,6 +14,46 @@ const enregistrementUrl = ref(false)
 
 const urlModifiee = computed(() => url.value !== urlInitiale.value && url.value.length > 7)
 
+// --- Liens de partage ------------------------------------------------------
+// Viewer preselectionne quand on partage un examen depuis Explorer. Les
+// libelles restent ici : le serveur ne connait que les identifiants, et c'est
+// l'interface qui les traduit.
+const VIEWERS = [
+  { id: 'ohif-viewer-publication', libelle: 'OHIF' },
+  { id: 'stone-viewer-publication', libelle: 'Stone Web Viewer' },
+  { id: 'volview-viewer-publication', libelle: 'VolView' },
+]
+const viewer = ref('')
+const viewerInitial = ref('')
+const viewerModifiable = ref(false)
+const enregistrementViewer = ref(false)
+
+async function chargerPartage() {
+  try {
+    const d = await api('/console/api/admin/sharing')
+    viewer.value = d.default_viewer
+    viewerInitial.value = d.default_viewer
+    viewerModifiable.value = d.editable
+  } catch (e) {
+    ui.notify(e.message, 'err')
+  }
+}
+
+async function enregistrerViewer() {
+  enregistrementViewer.value = true
+  try {
+    await api('/console/api/admin/sharing', {
+      method: 'PUT', body: { default_viewer: viewer.value },
+    })
+    viewerInitial.value = viewer.value
+    ui.notify(t('sharing_saved', 'Viewer par défaut enregistré.'), 'ok')
+  } catch (e) {
+    ui.notify(e.message, 'err')
+  } finally {
+    enregistrementViewer.value = false
+  }
+}
+
 // --- Sauvegardes -----------------------------------------------------------
 const sauvegardes = ref([])
 const chargement = ref(true)
@@ -95,7 +135,7 @@ async function restaurer(nom) {
   }
 }
 
-onMounted(charger)
+onMounted(() => { charger(); chargerPartage() })
 </script>
 
 <template>
@@ -120,6 +160,27 @@ onMounted(charger)
     </div>
     <div v-if="!urlModifiable" class="avert">
       {{ t('network_readonly', "Le fichier .env n'est pas accessible : l'adresse ne peut pas être modifiée depuis le panel.") }}
+    </div>
+
+    <h2 class="espace">{{ t('sharing_title', 'Liens de partage') }}</h2>
+    <p class="note">
+      {{ t('sharing_note', "Viewer proposé par défaut quand on partage un examen depuis Orthanc Explorer. Le choix reste modifiable au cas par cas au moment du partage. Prend effet immédiatement.") }}
+    </p>
+
+    <div class="ligne">
+      <select v-model="viewer" :disabled="!viewerModifiable">
+        <option v-for="v in VIEWERS" :key="v.id" :value="v.id">{{ v.libelle }}</option>
+      </select>
+      <button
+        class="oe2-btn oe2-btn--primary"
+        :disabled="viewer === viewerInitial || enregistrementViewer || !viewerModifiable"
+        @click="enregistrerViewer"
+      >
+        {{ enregistrementViewer ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
+      </button>
+    </div>
+    <div v-if="!viewerModifiable" class="avert">
+      {{ t('sharing_readonly', "Le fichier .env n'est pas accessible : le viewer par défaut ne peut pas être modifié depuis le panel.") }}
     </div>
 
     <div class="entete espace">
@@ -170,6 +231,11 @@ h2 { font-size: var(--oe2-fs-body); margin: 0 0 6px; font-weight: 400; }
 .entete { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .note { color: var(--oe2-muted); font-size: var(--oe2-fs-small); margin: 0 0 12px; max-width: 70ch; }
 .ligne { display: flex; gap: 8px; align-items: center; }
+.ligne select {
+    /* Meme gabarit que les champs texte voisins, sans s'etirer sur
+       toute la ligne : la liste est courte. */
+    min-width: 220px;
+}
 .ligne input {
   flex: 1; max-width: 420px;
   background: var(--oe2-nav-sub-bg);

@@ -454,6 +454,45 @@ def render_file_not_found_template(title: str, message: str) -> HTMLResponse:
                              extra_content="")
     return HTMLResponse(content=content, status_code=404)
 
+# Viewers proposables par defaut sur un lien de partage. "viewer-instant-link"
+# n'en fait pas partie : ce n'est pas une publication mais un lien construit
+# directement par Explorer, sans page de partage.
+VIEWERS_PARTAGE = (
+    "ohif-viewer-publication",
+    "stone-viewer-publication",
+    "volview-viewer-publication",
+)
+VIEWER_PARTAGE_DEFAUT = "ohif-viewer-publication"
+
+
+def _default_share_viewer() -> str:
+    """Viewer preselectionne quand on partage un examen depuis Explorer.
+
+    Lu dans le .env a chaque appel plutot qu'au demarrage : le fichier est
+    monte dans le container, et Explorer redemande ces reglages a chaque
+    ouverture du menu de partage. Un changement depuis le panel prend donc
+    effet sans recreer quoi que ce soit.
+
+    Une valeur inconnue est ignoree : mieux vaut un viewer qui fonctionne
+    qu'un menu de partage casse par une faute de frappe.
+    """
+    try:
+        from admin_module import _read_env_var
+
+        choisi = _read_env_var("SHARE_DEFAULT_VIEWER")
+    except Exception:  # noqa: BLE001 - .env illisible ne doit rien casser
+        return VIEWER_PARTAGE_DEFAUT
+
+    if choisi in VIEWERS_PARTAGE:
+        return choisi
+    if choisi:
+        logger.warning(
+            "SHARE_DEFAULT_VIEWER=%r inconnu, repli sur %s",
+            choisi, VIEWER_PARTAGE_DEFAUT,
+        )
+    return VIEWER_PARTAGE_DEFAUT
+
+
 @app.get("/settings/roles")
 def get_settings_roles(username: str = Depends(verify_basic_auth)):
     # Return roles and permissions adapted to our PACS environment
@@ -482,7 +521,7 @@ def get_settings_roles(username: str = Depends(verify_basic_auth)):
             "volview-viewer-publication",
             "viewer-instant-link"
         ],
-        "default-viewer": "ohif-viewer-publication",
+        "default-viewer": _default_share_viewer(),
         "share-durations": [0, 7, 15, 30, 90, 365],
         "default-share-duration": 15
     }

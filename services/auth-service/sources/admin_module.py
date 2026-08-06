@@ -1067,6 +1067,55 @@ async def setup_network(payload: PublicUrlPayload):
     return await _apply_public_url(payload.public_url, acteur="wizard")
 
 
+# ============================================================================
+# Route : /api/admin/sharing (viewer par defaut des liens de partage)
+# ============================================================================
+
+# Les libelles restent cote frontend, qui les traduit ; ici on ne garde que ce
+# qui doit etre valide au serveur.
+VIEWERS_PARTAGE = (
+    "ohif-viewer-publication",
+    "stone-viewer-publication",
+    "volview-viewer-publication",
+)
+
+
+class SharingPayload(BaseModel):
+    default_viewer: str
+
+
+@router.get("/api/admin/sharing")
+async def admin_sharing_get(admin: AdminUser = Depends(require_admin)):
+    """Viewer preselectionne quand on partage un examen."""
+    actuel = _read_env_var("SHARE_DEFAULT_VIEWER")
+    return {
+        "default_viewer": actuel if actuel in VIEWERS_PARTAGE else VIEWERS_PARTAGE[0],
+        "available": list(VIEWERS_PARTAGE),
+        "editable": ENV_FILE.exists(),
+    }
+
+
+@router.put("/api/admin/sharing")
+async def admin_sharing_put(
+    payload: SharingPayload, admin: AdminUser = Depends(require_admin),
+):
+    """Change le viewer preselectionne.
+
+    Pas de redemarrage : Explorer redemande ces reglages a chaque ouverture du
+    menu de partage, et la valeur est relue dans le .env a chaque appel.
+    """
+    if payload.default_viewer not in VIEWERS_PARTAGE:
+        raise HTTPException(
+            400,
+            f"viewer inconnu : {payload.default_viewer}. "
+            f"Attendu : {', '.join(VIEWERS_PARTAGE)}",
+        )
+    _write_env_var("SHARE_DEFAULT_VIEWER", payload.default_viewer)
+    await _audit("sharing.default_viewer.updated", admin.username,
+                 viewer=payload.default_viewer)
+    return {"ok": True, "default_viewer": payload.default_viewer}
+
+
 @router.get("/api/admin/network")
 async def admin_network_get(admin: AdminUser = Depends(require_admin)):
     """URL publique actuelle et possibilite de la modifier."""

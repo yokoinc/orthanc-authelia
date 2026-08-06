@@ -14,6 +14,7 @@ Executer avec :
 
 import asyncio
 import json
+from pathlib import Path
 
 import pytest
 
@@ -610,3 +611,77 @@ class TestEcritureNonDestructive:
         out = _ecrire_changements(source, {"Name": "PACS Cuffel"})
         assert out.count("//") == avant
         assert self._relire(out)["Name"] == "PACS Cuffel"
+
+
+# ============================================================================
+# Viewer par defaut des liens de partage
+# ============================================================================
+
+class TestViewerParDefaut:
+    """Le viewer preselectionne quand on partage un examen.
+
+    La valeur est lue dans le .env a chaque appel, et non au demarrage : c'est
+    ce qui permet au changement de prendre effet sans recreer le container,
+    Explorer redemandant ces reglages a chaque ouverture du menu de partage.
+    Ces tests verrouillent ce comportement et le repli sur une valeur sure.
+    """
+
+    @pytest.fixture
+    def env_temporaire(self, tmp_path, monkeypatch):
+        """Un .env isole, pour ne pas toucher celui de l'installation."""
+        import admin_module
+
+        fichier = tmp_path / ".env"
+        fichier.write_text("PUBLIC_URL=https://exemple.fr\n", encoding="utf-8")
+        monkeypatch.setattr(admin_module, "ENV_FILE", fichier)
+        return fichier
+
+    def test_absent_du_env_repli_sur_ohif(self, env_temporaire):
+        """Une installation existante n'a pas la variable : elle doit marcher."""
+        import auth_service
+        assert auth_service._default_share_viewer() == "ohif-viewer-publication"
+
+    def test_valeur_du_env_prise_en_compte(self, env_temporaire):
+        import auth_service
+        env_temporaire.write_text(
+            "SHARE_DEFAULT_VIEWER=stone-viewer-publication\n", encoding="utf-8")
+        assert auth_service._default_share_viewer() == "stone-viewer-publication"
+
+    def test_valeur_inconnue_ignoree(self, env_temporaire):
+        """Une faute de frappe ne doit pas casser le menu de partage."""
+        import auth_service
+        env_temporaire.write_text("SHARE_DEFAULT_VIEWER=nimporte-quoi\n",
+                                  encoding="utf-8")
+        assert auth_service._default_share_viewer() == "ohif-viewer-publication"
+
+    def test_lien_instantane_refuse(self, env_temporaire):
+        """viewer-instant-link n'est pas une publication : Explorer construit
+        l'URL lui-meme, il n'y a pas de page de partage a servir."""
+        import auth_service
+        env_temporaire.write_text("SHARE_DEFAULT_VIEWER=viewer-instant-link\n",
+                                  encoding="utf-8")
+        assert auth_service._default_share_viewer() == "ohif-viewer-publication"
+
+    def test_relu_a_chaque_appel(self, env_temporaire):
+        """Le point qui compte : pas de valeur figee au chargement du module."""
+        import auth_service
+
+        env_temporaire.write_text("SHARE_DEFAULT_VIEWER=volview-viewer-publication\n",
+                                  encoding="utf-8")
+        premier = auth_service._default_share_viewer()
+
+        env_temporaire.write_text("SHARE_DEFAULT_VIEWER=stone-viewer-publication\n",
+                                  encoding="utf-8")
+        second = auth_service._default_share_viewer()
+
+        assert premier == "volview-viewer-publication"
+        assert second == "stone-viewer-publication"
+
+    def test_env_illisible_repli(self, monkeypatch):
+        """Sans .env accessible, le menu de partage doit rester utilisable."""
+        import admin_module
+        import auth_service
+
+        monkeypatch.setattr(admin_module, "ENV_FILE",
+                            Path("/chemin/qui/n/existe/pas/.env"))
+        assert auth_service._default_share_viewer() == "ohif-viewer-publication"
