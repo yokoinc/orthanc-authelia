@@ -46,16 +46,41 @@ echo "SSL_MODE: $SSL_MODE"
 # Create SSL directory if it doesn't exist
 mkdir -p /etc/nginx/ssl
 
-# Generate self-signed certificates if they don't exist
+# Certificat auto-signe : le generer s'il manque, et le refaire si le domaine
+# a change.
+#
+# Le second cas n'est pas theorique. Le certificat vit dans un volume nomme,
+# donc il survit a toute recreation du container ; changer PUBLIC_URL depuis
+# le panel laissait un certificat au nom de l'ancien domaine, valable un an.
+# Le navigateur ne se plaint alors plus d'une auto-signature -- ce qui
+# s'accepte -- mais d'un certificat emis pour un autre site, ce qui ressemble
+# a une interception et se diagnostique beaucoup moins bien.
+apk add --no-cache openssl 2>/dev/null || true
+
+BESOIN_CERT=0
 if [ ! -f /etc/nginx/ssl/cert.pem ] || [ ! -f /etc/nginx/ssl/key.pem ]; then
-    echo "SSL certificates not found. Generating self-signed certificates..."
-    apk add --no-cache openssl 2>/dev/null || true
+    echo "SSL certificates not found."
+    BESOIN_CERT=1
+elif [ "$SSL_MODE" = "selfsigned" ]; then
+    # Ne comparer QUE en mode auto-signe : un certificat fourni par
+    # l'exploitant (Let's Encrypt, autorite interne) peut legitimement porter
+    # un autre nom -- joker, SAN multiples -- et ne doit jamais etre ecrase.
+    CN_ACTUEL=$(openssl x509 -in /etc/nginx/ssl/cert.pem -noout -subject 2>/dev/null \
+                | sed -n 's/.*CN *= *\([^,/]*\).*/\1/p' | tr -d ' ')
+    if [ -n "$CN_ACTUEL" ] && [ "$CN_ACTUEL" != "$DOMAIN" ]; then
+        echo "Certificate is for '${CN_ACTUEL}' but domain is now '${DOMAIN}'."
+        BESOIN_CERT=1
+    fi
+fi
+
+if [ "$BESOIN_CERT" = "1" ]; then
+    echo "Generating self-signed certificate for ${DOMAIN}..."
     openssl req -x509 -newkey rsa:2048 -nodes \
         -keyout /etc/nginx/ssl/key.pem \
         -out /etc/nginx/ssl/cert.pem \
         -days 365 \
         -subj "/CN=${DOMAIN}/O=Auto-Generated/C=FR" 2>/dev/null
-    echo "Self-signed certificates generated."
+    echo "Self-signed certificate generated for ${DOMAIN}."
 fi
 
 # Generate htpasswd for the programmatic upload endpoint (/api-upload/)

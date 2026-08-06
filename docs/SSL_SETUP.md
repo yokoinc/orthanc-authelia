@@ -22,7 +22,32 @@ The nginx service supports three SSL modes, configured via the `SSL_MODE` variab
 - Automatically generated on first start
 - 365-day validity period
 - Stored in Docker volume `orthanc_nginx_ssl`
+- **Regenerated when the domain changes** (see below)
 - Best for: Development, internal networks, behind Cloudflare Tunnel
+
+#### Changing the domain
+
+The certificate lives in a named volume, so it outlives any container
+recreation. Changing `PUBLIC_URL` — from the admin panel or by editing
+`.env` — therefore used to leave a certificate issued for the *previous*
+domain, valid for a year. Browsers then reject it not for being self-signed,
+which a user can accept, but as being issued for another site — which looks
+like an interception and is far harder to diagnose.
+
+The entrypoint now compares the certificate's CN with the current domain and
+reissues it when they differ. Two safeguards apply:
+
+- The comparison runs **only** when `SSL_MODE=selfsigned`. A certificate you
+  supplied — Let's Encrypt, internal CA — may legitimately carry a different
+  name (wildcard, multiple SANs) and is never overwritten. Verified: starting
+  with `SSL_MODE=letsencrypt` and a `*.example.com` certificate against an
+  unrelated domain leaves it untouched.
+- An unchanged domain reissues nothing, so restarts don't silently rotate the
+  certificate under clients that pinned it.
+
+After a domain change, expect to accept the new certificate once — and note
+that your session is gone regardless, since the Authelia cookie was bound to
+the old domain.
 
 ### 2. Disabled SSL
 
