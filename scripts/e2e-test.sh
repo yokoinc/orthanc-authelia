@@ -247,7 +247,7 @@ else
 fi
 
 verifier_panel() {
-    local methode=$1 chemin=$2 corps=$3 libelle=$4
+    local methode=$1 chemin=$2 corps=$3 libelle=$4 attendu=${5:-200}
     local code
     if [[ -n "$corps" ]]; then
         code=$(curl -ks -o /tmp/e2e-panel.json -m 20 -b "$BISCUITS" -w '%{http_code}' \
@@ -257,15 +257,28 @@ verifier_panel() {
         code=$(curl -ks -o /tmp/e2e-panel.json -m 20 -b "$BISCUITS" -w '%{http_code}' \
             -X "$methode" "${URL}${chemin}" -H "X-CSRF-Token: ${JETON}")
     fi
-    if [[ "$code" == "200" ]]; then
-        ok "$(printf '%-32s %s' "$libelle" "$code")"
+    if [[ "$code" == "$attendu" ]]; then
+        ok "$(printf '%-38s %s' "$libelle" "$code")"
     else
-        echec "$(printf '%-32s %s : %s' "$libelle" "$code" "$(head -c 90 /tmp/e2e-panel.json)")"
+        echec "$(printf '%-38s %s (attendu %s) : %s' "$libelle" "$code" "$attendu" "$(head -c 80 /tmp/e2e-panel.json)")"
     fi
 }
 
 verifier_panel GET /console/api/admin/backups '' 'liste des sauvegardes'
 verifier_panel GET /console/api/admin/network '' 'adresse publique (lecture)'
+
+verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
+    '{"displayname":"Admin E2E renomme"}' 'modification de compte'
+
+# Garde-fou : l'administrateur du wizard est le seul compte. Se retirer du
+# groupe admin, ou se desactiver, laisserait la pile sans personne pour
+# l'administrer. Le serveur doit refuser avec un 400 explicite -- et non une
+# erreur 500, ce qui etait le cas avant que les violations d'invariant soient
+# converties.
+verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
+    '{"groups":["doctor"]}' 'refus de perdre le dernier admin' 400
+verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
+    '{"disabled":true}' 'refus de desactiver le dernier admin' 400
 
 # L'administrateur cree par le wizard est le seul compte : changer son mot de
 # passe n'affecte rien d'autre que la session de ce test, supprimee ensuite.
