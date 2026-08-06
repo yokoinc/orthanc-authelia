@@ -56,14 +56,31 @@
     --oe2-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 
     /* Typographie */
-    --oe2-font-stack: Avenir, Helvetica, Arial, sans-serif;
+    /* Reprise exacte de --bs-font-sans-serif d'OE2 (Bootstrap 5.3.3). La pile
+       precedente commencait par Avenir, absente de Windows comme de Linux :
+       le navigateur retombait sur Arial, sans rapport avec ce qu'affiche
+       Explorer. */
+    --oe2-font-stack: system-ui, -apple-system, 'Segoe UI', Roboto,
+        'Helvetica Neue', 'Noto Sans', 'Liberation Sans', Arial, sans-serif;
     --oe2-font-mono: 'Courier New', Consolas, monospace;
-    --oe2-fs-body: 14px;
-    --oe2-fs-small: 12px;
-    --oe2-fs-tiny: 11px;
-    --oe2-fs-title: 16px;
-    --oe2-fw-thin: 200;
+
+    /* Echelle relative calee sur celle de Bootstrap : le corps de texte vaut
+       1rem, comme dans Explorer. Les tailles etaient auparavant figees en
+       pixels autour d'un corps a 14px, soit une interface systematiquement
+       plus petite que celle d'a cote. */
+    --oe2-fs-body: 1rem;          /* 16px - identique a Explorer */
+    --oe2-fs-medium: 0.875rem;    /* 14px */
+    --oe2-fs-small: 0.8125rem;    /* 13px */
+    --oe2-fs-tiny: 0.75rem;       /* 12px */
+    --oe2-fs-micro: 0.6875rem;    /* 11px - badges, mentions */
+    --oe2-fs-title: 1.25rem;      /* 20px */
+    --oe2-line-height: 1.5;       /* --bs-body-line-height */
+
+    /* OE2 affiche son corps de texte en graisse normale. Le 200 precedent
+       donnait un rendu delave, surtout sur fond sombre. */
+    --oe2-fw-thin: 400;
     --oe2-fw-regular: 400;
+    --oe2-fw-medium: 500;         /* .orthanc-name p d'OE2 */
 
     /* Spacing / rayons */
     --oe2-radius: 3px;
@@ -95,6 +112,7 @@ body {
     font-family: var(--oe2-font-stack);
     font-size: var(--oe2-fs-body);
     font-weight: var(--oe2-fw-thin);
+    line-height: var(--oe2-line-height);
     background-color: var(--oe2-body-bg);
     color: var(--oe2-body-color);
     min-height: 100vh;
@@ -167,7 +185,7 @@ body {
        de l'interface qui est en Avenir 14px. C'est ce qui donnait a nos
        pages un menu visiblement different. */
     font-family: verdana, sans-serif;
-    font-size: 12px;
+    font-size: var(--oe2-fs-small);
     font-weight: 200;
 }
 
@@ -215,7 +233,7 @@ body {
 
 .oe2-sidebar__link-count {
     margin-left: auto;
-    font-size: 12px;
+    font-size: var(--oe2-fs-small);
     color: var(--oe2-muted);
     font-weight: var(--oe2-fw-thin);
 }
@@ -225,7 +243,7 @@ body {
    par personne, on la met dans le contenu principal a la place. */
 .oe2-main__version {
     padding: 12px 16px 8px;
-    font-size: 11px;
+    font-size: var(--oe2-fs-tiny);
     color: var(--oe2-muted);
     text-align: right;
     opacity: 0.6;
@@ -251,13 +269,13 @@ body {
 }
 
 .oe2-main__title {
-    font-size: 18px;
+    font-size: var(--oe2-fs-title);
     font-weight: var(--oe2-fw-regular);
     margin: 0;
 }
 
 .oe2-main__user {
-    font-size: 13px;
+    font-size: var(--oe2-fs-medium);
     color: var(--oe2-muted);
     display: flex;
     align-items: center;
@@ -286,7 +304,7 @@ body {
 }
 
 .oe2-section__title {
-    font-size: 14px;
+    font-size: var(--oe2-fs-body);
     font-weight: var(--oe2-fw-regular);
     color: var(--oe2-body-color);
     margin: 0;
@@ -399,7 +417,7 @@ body {
     text-align: center;
     padding: 40px 20px;
     color: var(--oe2-muted);
-    font-size: 13px;
+    font-size: var(--oe2-fs-medium);
     font-weight: var(--oe2-fw-thin);
 }
 
@@ -434,11 +452,11 @@ body {
 }
 
 .oe2-modal .modal-title {
-    font-size: 14px;
+    font-size: var(--oe2-fs-body);
     font-weight: var(--oe2-fw-regular);
 }
 
-.oe2-modal .modal-body { padding: 16px; font-size: 13px; }
+.oe2-modal .modal-body { padding: 16px; font-size: var(--oe2-fs-medium); }
 
 .oe2-modal .modal-footer {
     background-color: var(--oe2-table-filter-bg);
@@ -455,7 +473,7 @@ body {
     background-color: rgba(209, 155, 61, 0.12);
     border: 1px solid var(--oe2-warning);
     color: var(--oe2-warning);
-    font-size: 12px;
+    font-size: var(--oe2-fs-small);
     padding: 8px 12px;
     border-radius: var(--oe2-radius);
 }
@@ -468,12 +486,12 @@ body {
     border: 1px solid var(--oe2-border);
     font-family: var(--oe2-font-stack);
     font-weight: var(--oe2-fw-thin);
-    font-size: 13px;
+    font-size: var(--oe2-fs-medium);
     border-radius: var(--oe2-radius);
 }
 
 .oe2-toast .toast-header {
-    font-size: 12px;
+    font-size: var(--oe2-fs-small);
     font-weight: var(--oe2-fw-regular);
     padding: 8px 12px;
     border-bottom: 1px solid var(--oe2-separator);
@@ -531,14 +549,14 @@ body {
 .oe2-centered__icon--success { color: var(--oe2-success); }
 
 .oe2-centered__title {
-    font-size: 18px;
+    font-size: var(--oe2-fs-title);
     font-weight: var(--oe2-fw-regular);
     margin: 0 0 12px 0;
     color: var(--oe2-body-color);
 }
 
 .oe2-centered__message {
-    font-size: 13px;
+    font-size: var(--oe2-fs-medium);
     color: var(--oe2-muted);
     line-height: 1.5;
     margin: 0 0 20px 0;
@@ -550,7 +568,7 @@ body {
     gap: 6px;
     color: var(--oe2-link);
     text-decoration: none;
-    font-size: 13px;
+    font-size: var(--oe2-fs-medium);
 }
 
 .oe2-centered__link:hover {
@@ -613,7 +631,7 @@ body {
         gap: 8px;
         padding: 0 12px 8px;
     }
-    .oe2-main__title { font-size: 16px; }
+    .oe2-main__title { font-size: var(--oe2-fs-title); }
 
     /* Tables: scroll horizontal si trop de colonnes */
     .oe2-table-wrapper,
@@ -645,7 +663,7 @@ body {
 .tokens-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 12px;
+    font-size: var(--oe2-fs-small);
     font-variant-numeric: tabular-nums;
 }
 
@@ -657,7 +675,7 @@ body {
     padding: 4px 8px;
     line-height: 1.2rem;
     border-bottom: 1px solid var(--oe2-separator);
-    font-size: 11px;
+    font-size: var(--oe2-fs-tiny);
     text-transform: uppercase;
     letter-spacing: 0.3px;
 }
@@ -694,7 +712,7 @@ body {
     text-align: center;
     padding: 40px 20px;
     color: var(--oe2-muted);
-    font-size: 13px;
+    font-size: var(--oe2-fs-medium);
     font-weight: var(--oe2-fw-thin);
 }
 .empty-state i, .loading-state i {
@@ -739,8 +757,8 @@ body {
 
 /* Resource cell (patient, meta) — densite serree */
 .resource-cell { display: flex; flex-direction: column; gap: 1px; }
-.patient-name { font-weight: var(--oe2-fw-regular); color: var(--oe2-body-color); font-size: 12px; line-height: 1.2; }
-.resource-meta { font-size: 10px; color: var(--oe2-muted); line-height: 1.2; }
+.patient-name { font-weight: var(--oe2-fw-regular); color: var(--oe2-body-color); font-size: var(--oe2-fs-small); line-height: 1.2; }
+.resource-meta { font-size: var(--oe2-fs-micro); color: var(--oe2-muted); line-height: 1.2; }
 .resource-id {
     font-family: var(--oe2-font-mono);
     font-size: var(--oe2-fs-tiny);
@@ -813,7 +831,7 @@ body {
    `font-size: 0` sur le parent evite tout heritage indesirable, et on set
    la taille sur le glyph directement. */
 .btn-action i {
-    font-size: 12px;
+    font-size: var(--oe2-fs-small);
     line-height: 1;
     width: 12px;
     height: 12px;
@@ -860,7 +878,7 @@ body {
     justify-content: space-between;
     padding: var(--oe2-space-2) var(--oe2-space-3) var(--oe2-space-3);
     margin-top: var(--oe2-space-3);
-    font-size: 14px;
+    font-size: var(--oe2-fs-body);
     font-weight: var(--oe2-fw-regular);
 }
 .section-title .count {

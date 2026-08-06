@@ -11,6 +11,30 @@
   "DicomServerEnabled": true,
   "DicomAet": "ORTHANC",
   "DicomCheckCalledAet": false,
+
+  // --- Qui a le droit de dialoguer en DICOM ---------------------------------
+  // Ces quatre reglages etaient laisses implicites : Orthanc appliquait ses
+  // valeurs par defaut, dont DicomAlwaysAllowStore a true -- n'importe quel
+  // equipement, meme non declare, pouvait alors deposer des examens. Sur un
+  // PACS cela ne doit pas dependre d'une valeur par defaut qu'on ignore.
+  //
+  // Les equipements autorises se declarent dans l'onglet Equipements du panel
+  // d'administration (ou dans "DicomModalities" ci-dessous).
+
+  // Repondre aux tests de connectivite, y compris d'un equipement inconnu :
+  // sans risque, et indispensable pour diagnostiquer un raccordement.
+  "DicomAlwaysAllowEcho": true,
+
+  // Refuser les examens d'un equipement non declare. C'est le reglage qui
+  // protege reellement la base : le laisser a true reviendrait a accepter
+  // n'importe quel envoi arrivant sur le port DICOM.
+  "DicomAlwaysAllowStore": false,
+
+  // Refuser recherches et transferts aux equipements non declares. Ce sont
+  // deja les valeurs par defaut d'Orthanc ; elles figurent ici pour que la
+  // politique se lise d'un coup d'oeil.
+  "DicomAlwaysAllowFind": false,
+  "DicomAlwaysAllowMove": false,
   "DicomCheckModalityHost": false,
   "RemoteAccessAllowed": true,
   "AuthenticationEnabled": false,

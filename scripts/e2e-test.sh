@@ -443,6 +443,52 @@ else
     printf '      %s\n' $etrangers
 fi
 
+# --- Perimetre du proxy Docker ---------------------------------------------
+# Le socket Docker vaut root sur l'hote. Le proxy n'en expose qu'une operation,
+# le redemarrage d'un conteneur ; le reste doit etre refuse.
+#
+# Ce test n'est pas theorique : avec CONTAINERS=1, la variable POST=1 ouvrait
+# TOUT /containers/*, dont POST /containers/create. Un conteneur privilegie
+# montant la racine de l'hote etait alors accepte -- soit exactement l'evasion
+# que ce montage doit empecher. La regression tiendrait dans une seule ligne du
+# compose, sans rien casser de visible : d'ou cette verification.
+etape "Perimetre du proxy Docker"
+if compose ps --services 2>/dev/null | grep -qx socket-proxy; then
+    interroge_proxy() {
+        # $1 = methode, $2 = chemin, $3 = corps JSON (facultatif)
+        local corps=()
+        [[ -n "${3:-}" ]] && corps=(-H 'Content-Type: application/json' -d "$3")
+        compose exec -T auth-service \
+            curl -s -o /dev/null -w '%{http_code}' -X "$1" \
+            "${corps[@]}" --max-time 20 \
+            "http://socket-proxy:2375$2" 2>/dev/null || echo "000"
+    }
+
+    code=$(interroge_proxy POST "/containers/create" \
+        '{"Image":"alpine","HostConfig":{"Privileged":true,"Binds":["/:/hote"]}}')
+    if [[ "$code" == "403" ]]; then
+        ok "creation de conteneur refusee (HTTP 403)"
+    else
+        echec "creation de conteneur privilegie ACCEPTEE (HTTP $code) -- evasion possible"
+    fi
+
+    code=$(interroge_proxy POST "/containers/orthanc-server/exec" '{"Cmd":["id"]}')
+    if [[ "$code" == "403" ]]; then
+        ok "exec dans un conteneur refuse (HTTP 403)"
+    else
+        echec "exec dans un conteneur ACCEPTE (HTTP $code)"
+    fi
+
+    code=$(interroge_proxy GET "/images/json")
+    if [[ "$code" == "403" ]]; then
+        ok "acces aux images refuse (HTTP 403)"
+    else
+        echec "acces aux images ACCEPTE (HTTP $code)"
+    fi
+else
+    ok "service socket-proxy absent, rien a verifier"
+fi
+
 # --- Bilan -----------------------------------------------------------------
 etape "Bilan"
 if [[ $ECHECS -eq 0 ]]; then

@@ -60,9 +60,9 @@ onMounted(load)
 </template>
 
 <style scoped>
-h2 { font-size: 14px; margin: 0 0 12px; font-weight: 400; }
+h2 { font-size: var(--oe2-fs-body); margin: 0 0 12px; font-weight: 400; }
 .loading { color: var(--oe2-muted); text-align: center; padding: 20px; }
-.table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 12px; }
+.table { width: 100%; border-collapse: collapse; font-size: var(--oe2-fs-small); margin-bottom: 12px; }
 .table th, .table td {
   padding: 6px 10px; text-align: left;
   /* Bleu clair comme les tableaux d'Orthanc, cf. --oe2-table-border. */
@@ -70,9 +70,9 @@ h2 { font-size: 14px; margin: 0 0 12px; font-weight: 400; }
 }
 .table th {
   color: var(--oe2-muted); text-transform: uppercase;
-  letter-spacing: 0.5px; font-weight: 400; font-size: 11px;
+  letter-spacing: 0.5px; font-weight: 400; font-size: var(--oe2-fs-tiny);
 }
 .ok  { color: var(--oe2-success); }
 .err { color: var(--oe2-danger); }
-.mono { font-family: var(--oe2-font-mono); font-size: 11px; color: var(--oe2-muted); }
+.mono { font-family: var(--oe2-font-mono); font-size: var(--oe2-fs-tiny); color: var(--oe2-muted); }
 </style>

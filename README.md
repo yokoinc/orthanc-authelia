@@ -25,6 +25,7 @@ Component versions as defined in `docker-compose.yml` (keep this table in sync w
 | OHIF Viewer | `registry.yokoinc.ovh/orthanc-ohif` | `3.11.0` |
 | Nginx | `registry.yokoinc.ovh/orthanc-nginx` | `1.1.0` |
 | Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.0.15` |
+| Socket proxy | `tecnativa/docker-socket-proxy` | `0.3.0` |
 
 > **PostgreSQL** is not part of this stack — Orthanc connects to an **external** PostgreSQL instance over the `database` network (see [Database Setup Guide](docs/DATABASE_SETUP.md)).
 
@@ -126,13 +127,25 @@ Le panel est une application Vue 3 (`services/auth-service/frontend/`) compilée
 | Onglet | Ce qu'il fait | Mécanisme |
 |---|---|---|
 | **Utilisateurs** | Créer, modifier, désactiver et supprimer les comptes ; changer un mot de passe | Écrit `users_database.yml`, relu à chaud par Authelia en quelques secondes |
-| **Configuration Orthanc** | ~40 paramètres de `orthanc.json`, rangés par thème et documentés | Écrit le JSON ; un redémarrage du conteneur Orthanc est nécessaire pour appliquer |
+| **Configuration Orthanc** | ~40 paramètres de `orthanc.json`, rangés par thème et documentés, et un bouton pour redémarrer Orthanc | Écrit le JSON ; le redémarrage applique les changements |
 | **Équipements** | Déclarer les modalités DICOM (scanner, IRM…) et tester leur connectivité par C-ECHO | Passe par l'API d'Orthanc ; effet immédiat, sans redémarrage |
 | **État** | Redis, Orthanc, fichiers de configuration | Lecture seule |
 | **Maintenance** | Adresse publique de la pile, et restauration d'une sauvegarde | Écrit `.env` ; restaure un fichier depuis `data/admin-backups/` |
 | **Journal** | Qui a fait quoi et quand : comptes, configuration, sauvegardes, requêtes rejetées | Lit le flux d'audit dans Redis |
 
-Chaque écriture crée une sauvegarde rotative dans `data/admin-backups/` (les 10 dernières sont conservées). Aucune opération ne demande l'accès au socket Docker : Authelia surveille son fichier d'utilisateurs et le relit seul.
+Chaque écriture crée une sauvegarde rotative dans `data/admin-backups/` (les 10 dernières sont conservées). La gestion des comptes ne demande aucun accès au socket Docker : Authelia surveille son fichier d'utilisateurs et le relit seul.
+
+#### Redémarrer Orthanc depuis le panel
+
+La configuration d'Orthanc, elle, ne se recharge pas à chaud. L'image `orthancteam` **génère** `/tmp/orthanc.json` au démarrage, en fusionnant ses valeurs par défaut, les fichiers de `/etc/orthanc/` et les variables `ORTHANC__*` ; c'est ce fichier que le processus lit. `POST /tools/reset` ne relit que le fichier généré, donc ne voit aucune modification de notre `orthanc.json`, qui n'en est que la source. Seul un redémarrage du conteneur, qui le régénère, applique un changement.
+
+À distance, un accès SSH n'est pas toujours disponible : sans issue depuis le panel, modifier la configuration y laisse l'exploitant bloqué. Le bouton **Redémarrer Orthanc** passe donc par un service dédié, `socket-proxy`, qui n'est joignable que depuis le réseau interne (aucun port publié). Le socket Docker n'est **pas** monté dans auth-service : le donner à un service exposé au web reviendrait à lui accorder l'équivalent de root sur l'hôte.
+
+Le périmètre du proxy est volontairement minuscule — `POST=1`, `ALLOW_RESTARTS=1`, et **tout le reste à 0**, `CONTAINERS` compris. Ce dernier point n'est pas cosmétique : avec `CONTAINERS=1`, `POST=1` ouvre l'intégralité de `/containers/*`, y compris `POST /containers/create`. Vérifié pendant la mise au point, un conteneur privilégié montant la racine de l'hôte était alors accepté (HTTP 201) — soit exactement l'évasion que ce montage doit empêcher. Avec `CONTAINERS=0`, `create` et `exec` répondent 403 et le redémarrage fonctionne toujours. `scripts/e2e-test.sh` rejoue ces trois vérifications, pour qu'un retour en arrière d'une ligne dans le compose ne passe pas inaperçu.
+
+La route attend qu'Orthanc réponde à nouveau avant de rendre la main, plutôt que de conclure dès que Docker a rendu la main : une configuration acceptée à l'écriture peut très bien empêcher Orthanc de redémarrer, et cela doit se voir tout de suite. Passé 60 secondes sans réponse, le panel renvoie vers les journaux du conteneur et la restauration d'une sauvegarde. Demande et résultat sont tracés dans le journal d'audit (`orthanc.restart.requested`, puis `orthanc.restarted` ou l'échec correspondant).
+
+Pour désactiver la fonction, laisser `DOCKER_PROXY_URL` vide dans `.env` et retirer le service `socket-proxy` du compose : le panel indique alors la commande à lancer à la main.
 
 Deux garde-fous méritent d'être connus. On ne peut ni supprimer, ni désactiver, ni retirer du groupe `admin` le dernier administrateur actif : la pile se retrouverait sans personne pour l'administrer, et la seule issue serait d'éditer `users_database.yml` à la main. Et l'assistant de première installation se ferme définitivement une fois finalisé — il ne peut pas servir à créer un second administrateur.
 

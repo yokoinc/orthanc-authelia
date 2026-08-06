@@ -117,7 +117,7 @@ onMounted(charger)
 
 <style scoped>
 .entete { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-h2 { font-size: 14px; margin: 0 0 6px; font-weight: 400; }
+h2 { font-size: var(--oe2-fs-body); margin: 0 0 6px; font-weight: 400; }
 .actions { display: flex; gap: 6px; align-items: center; }
 .actions input {
   background: var(--oe2-nav-sub-bg);
@@ -126,20 +126,20 @@ h2 { font-size: 14px; margin: 0 0 6px; font-weight: 400; }
   padding: 5px 8px; border-radius: 3px;
   font-family: var(--oe2-font-stack); font-size: var(--oe2-fs-small);
 }
-.note { color: var(--oe2-muted); font-size: 12px; margin: 0 0 12px; max-width: 80ch; }
+.note { color: var(--oe2-muted); font-size: var(--oe2-fs-small); margin: 0 0 12px; max-width: 80ch; }
 .loading { color: var(--oe2-muted); text-align: center; padding: 20px; }
-.table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.table { width: 100%; border-collapse: collapse; font-size: var(--oe2-fs-small); }
 .table th, .table td {
   padding: 5px 10px; text-align: left;
   border-bottom: 1px solid var(--oe2-separator);
 }
 .table th {
   color: var(--oe2-muted); text-transform: uppercase;
-  letter-spacing: 0.5px; font-weight: 400; font-size: 11px;
+  letter-spacing: 0.5px; font-weight: 400; font-size: var(--oe2-fs-tiny);
 }
 .date { white-space: nowrap; color: var(--oe2-muted); }
-.ev { font-family: var(--oe2-font-mono); font-size: 11px; }
-.det { color: var(--oe2-muted); font-size: 11px; }
+.ev { font-family: var(--oe2-font-mono); font-size: var(--oe2-fs-tiny); }
+.det { color: var(--oe2-muted); font-size: var(--oe2-fs-tiny); }
 .ic { width: 16px; margin-right: 8px; text-align: center; }
 .ic--ok { color: var(--oe2-success); }
 .ic--danger { color: var(--oe2-danger); }

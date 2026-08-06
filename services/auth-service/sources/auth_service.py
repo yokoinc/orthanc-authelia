@@ -978,6 +978,27 @@ async def token_test_interface(request: Request):
     except FileNotFoundError:
         return render_file_not_found_template(TRANSLATIONS["ui"]["test_page_not_found"], TRANSLATIONS["ui"]["test_page_not_found_message"])
 
+async def _server_name() -> str:
+    """Nom du serveur, tel qu'Orthanc l'applique reellement.
+
+    On interroge Orthanc plutot que de lire orthanc.json : le fichier peut
+    avoir ete modifie depuis le panel sans que le conteneur ait redemarre,
+    auquel cas il annonce un nom qui n'est pas encore en vigueur.
+
+    Orthanc indisponible ne doit pas empecher la page de s'afficher : on se
+    replie alors sur "Orthanc".
+    """
+    try:
+        from admin_module import _orthanc
+
+        reponse = await _orthanc("GET", "/system")
+        if reponse.status_code == 200:
+            return reponse.json().get("Name") or "Orthanc"
+    except Exception:  # noqa: BLE001 - une page d'UI ne casse pas pour si peu
+        logger.debug("Nom du serveur indisponible, repli sur 'Orthanc'")
+    return "Orthanc"
+
+
 @app.get("/tokens/manage")
 async def token_management_interface(request: Request):
     """Serve the token management web interface"""
@@ -1006,6 +1027,7 @@ async def token_management_interface(request: Request):
         # est aussi injecte automatiquement par render_template().
         ui_translations = TRANSLATIONS["ui"]
         template_vars = {
+            "SERVER_NAME": await _server_name(),
             "TITLE": ui_translations["title"],
             "REFRESH_BUTTON": ui_translations["refresh_button"],
             "ACTIVE_TOKENS": ui_translations["active_tokens"],

@@ -127,6 +127,10 @@ services:
       # Compte Orthanc dedie pour POST /tools/reset (reload config a chaud).
       # Genere par bootstrap.sh dans .env.
       - ORTHANC_URL=http://orthanc:8042
+      # Adresse du proxy Docker, pour le bouton de redemarrage du panel.
+      # Vide = fonction indisponible, le panel l'indique alors.
+      - DOCKER_PROXY_URL=http://socket-proxy:2375
+      - ORTHANC_CONTAINER=orthanc-server
       - ORTHANC_ADMIN_USER=${ORTHANC_ADMIN_USER:-}
       - ORTHANC_ADMIN_PASS=${ORTHANC_ADMIN_PASS:-}
       # Optional overrides (uncomment in .env if needed)
@@ -171,6 +175,65 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - REDIS_DB=0
+
+  # ---------------------------------------------------------------------------
+  # Redemarrage d'Orthanc depuis le panel
+  # ---------------------------------------------------------------------------
+  # Appliquer un changement de configuration Orthanc impose de redemarrer son
+  # conteneur : l'image regenere /tmp/orthanc.json au demarrage, et c'est ce
+  # fichier -- pas le notre -- que le processus lit. POST /tools/reset ne
+  # relit que le fichier genere, donc ne voit aucune modification.
+  #
+  # A distance, un acces SSH n'est pas toujours disponible : sans ce service,
+  # un changement de configuration laisse l'exploitant bloque dans son propre
+  # panel.
+  #
+  # Le socket Docker n'est PAS monte dans auth-service. Le donner a un service
+  # web reviendrait a lui accorder l'equivalent de root sur l'hote : il
+  # pourrait creer un conteneur privilegie, monter la racine et en sortir. Ce
+  # proxy n'expose que le strict necessaire, et n'est joignable que depuis le
+  # reseau interne -- aucun port n'est publie.
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    container_name: orthanc-socket-proxy
+    restart: unless-stopped
+    environment:
+      # Tout est refuse par defaut. On ouvre le strict minimum :
+      - POST=1            # sans quoi l'API entiere est en lecture seule
+      - ALLOW_RESTARTS=1  # containers/<id>/restart (et stop, kill)
+      #
+      # CONTAINERS reste a 0, et c'est essentiel : avec CONTAINERS=1, POST=1
+      # autorise TOUT /containers/*, dont POST /containers/create. Verifie --
+      # un conteneur privilegie montant la racine de l'hote etait accepte
+      # (201), soit exactement l'evasion que ce montage doit empecher. Avec
+      # CONTAINERS=0, create et exec repondent 403 et le redemarrage
+      # fonctionne toujours.
+      - CONTAINERS=0
+      # Explicitement refuses, pour que la lecture du fichier suffise a savoir
+      # ce qui est possible :
+      - EXEC=0            # pas d'execution de commande dans un conteneur
+      - IMAGES=0
+      - VOLUMES=0
+      - NETWORKS=0
+      - SERVICES=0
+      - SWARM=0
+      - SECRETS=0
+      - CONFIGS=0
+      - NODES=0
+      - TASKS=0
+      - PLUGINS=0
+      - SYSTEM=0
+      - INFO=0
+      - AUTH=0
+      - BUILD=0
+      - COMMIT=0
+      - DISTRIBUTION=0
+      - SESSION=0
+    volumes:
+      # En lecture seule : le proxy n'a pas a modifier le socket lui-meme.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - orthanc-network
 
   # =============================================================================
   # PACS CORE SERVICES

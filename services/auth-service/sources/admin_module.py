@@ -11,6 +11,7 @@ Prerequis env vars : ORTHANC_ADMIN_USER, ORTHANC_ADMIN_PASS, ORTHANC_URL, REDIS_
 """
 
 import json
+import asyncio
 import os
 import secrets as pysecrets
 import shutil
@@ -86,6 +87,13 @@ AUDIT_STREAM = "admin:audit"
 CSRF_COOKIE = "orthanc_admin_csrf"
 
 IMAGE_VERSION = os.getenv("IMAGE_VERSION", "dev")
+
+# Redemarrage d'Orthanc. Le socket Docker n'est pas monte ici : on passe par un
+# proxy qui n'autorise que le redemarrage d'un conteneur (voir socket-proxy
+# dans docker-compose). Vide = la fonction est indisponible et le panel le dit,
+# plutot que d'echouer a l'usage.
+DOCKER_PROXY_URL = os.getenv("DOCKER_PROXY_URL", "").rstrip("/")
+ORTHANC_CONTAINER = os.getenv("ORTHANC_CONTAINER", "orthanc-server")
 
 # argon2id parametres = defaults Authelia (compatibles avec ce qu'il verifie)
 _hasher = PasswordHasher(
@@ -734,8 +742,26 @@ async def admin_whoami(admin: AdminUser = Depends(require_admin)):
     premier appel authentifie du hub, donc le bon endroit pour l'emettre.
     """
     csrf = pysecrets.token_urlsafe(32)
+
+    # Nom du serveur, tel qu'Orthanc l'applique reellement. Le panel
+    # l'affichait en dur ("Orthanc") : renommer le serveur restait donc sans
+    # effet sur son propre panel, alors qu'Orthanc Explorer, lui, montrait le
+    # bon nom. On lit la valeur effective plutot que le fichier de
+    # configuration, qui peut avoir ete modifie sans redemarrage.
+    nom_serveur = ""
+    try:
+        r = await _orthanc("GET", "/system")
+        if r.status_code == 200:
+            nom_serveur = r.json().get("Name", "")
+    except Exception:  # noqa: BLE001 - Orthanc indisponible ne doit pas casser le panel
+        pass
+
     resp = JSONResponse(
-        {"username": admin.username, "image_version": IMAGE_VERSION},
+        {
+            "username": admin.username,
+            "image_version": IMAGE_VERSION,
+            "server_name": nom_serveur,
+        },
     )
     resp.set_cookie(
         CSRF_COOKIE, csrf,
@@ -1057,9 +1083,8 @@ async def update_orthanc_config(
                 "backup": backup.name,
                 "restart_required": True,
                 "message": (
-                    "Configuration enregistree. Orthanc ne peut pas la recharger "
-                    "a chaud (le plugin Authorization refuse /tools/reset) : "
-                    "redemarrer le conteneur pour l'appliquer — "
+                    "Configuration enregistree. Elle ne prendra effet qu'apres "
+                    "redemarrage d'Orthanc : utiliser le bouton Redemarrer, ou "
                     "docker compose restart orthanc"
                 ),
             }
@@ -1103,6 +1128,95 @@ async def update_orthanc_config(
         backup=backup.name,
     )
     return {"ok": True, "backup": backup.name}
+
+
+# ============================================================================
+# Route : /api/admin/orthanc/restart
+# ============================================================================
+
+@router.post("/api/admin/orthanc/restart")
+async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
+    """Redemarre le conteneur Orthanc et attend qu'il reponde a nouveau.
+
+    Un changement de configuration n'a d'effet qu'apres redemarrage : l'image
+    orthancteam GENERE /tmp/orthanc.json au demarrage (defauts de l'image +
+    /etc/orthanc/*.json + variables ORTHANC__*), et c'est ce fichier que le
+    processus lit. /tools/reset ne relit que le fichier genere, donc ne voit
+    aucune de nos modifications.
+
+    A distance, un acces SSH n'est pas toujours disponible : sans cette route,
+    modifier la configuration depuis le panel laisse l'exploitant bloque.
+
+    On attend le retour effectif d'Orthanc plutot que de repondre des que
+    Docker a rendu la main. Une configuration acceptee a l'ecriture peut tres
+    bien empecher Orthanc de redemarrer ; l'exploitant doit l'apprendre ici, et
+    non en decouvrant plus tard un PACS eteint.
+    """
+    if not DOCKER_PROXY_URL:
+        raise HTTPException(
+            503,
+            "Redemarrage indisponible : DOCKER_PROXY_URL n'est pas defini. "
+            "Activer le service socket-proxy, ou redemarrer manuellement "
+            "(docker compose restart orthanc).",
+        )
+
+    await _audit("orthanc.restart.requested", admin.username,
+                 container=ORTHANC_CONTAINER)
+
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            r = await client.post(
+                f"{DOCKER_PROXY_URL}/containers/{ORTHANC_CONTAINER}/restart",
+            )
+    except httpx.HTTPError as e:
+        await _audit("orthanc.restart.failed", admin.username, error=str(e))
+        raise HTTPException(
+            502, f"Proxy Docker injoignable : {e}",
+        ) from e
+
+    if r.status_code == 404:
+        await _audit("orthanc.restart.failed", admin.username,
+                     error="conteneur introuvable")
+        raise HTTPException(
+            502,
+            f"Conteneur '{ORTHANC_CONTAINER}' introuvable. Verifier "
+            f"ORTHANC_CONTAINER dans le fichier .env.",
+        )
+    if r.status_code not in (204, 304):
+        await _audit("orthanc.restart.failed", admin.username,
+                     error=f"HTTP {r.status_code}")
+        raise HTTPException(
+            502,
+            f"Le proxy Docker a refuse le redemarrage (HTTP {r.status_code}). "
+            f"Verifier ALLOW_RESTARTS sur le service socket-proxy.",
+        )
+
+    # Orthanc reouvre son port avant d'avoir fini de charger ses plugins : on
+    # interroge /system, qui ne repond qu'une fois le serveur reellement pret.
+    for _ in range(30):
+        await asyncio.sleep(2)
+        try:
+            sonde = await _orthanc("GET", "/system")
+            if sonde.status_code == 200:
+                await _audit("orthanc.restarted", admin.username,
+                             container=ORTHANC_CONTAINER)
+                return {
+                    "ok": True,
+                    "message": "Orthanc a redemarre, la configuration est appliquee.",
+                    "version": sonde.json().get("Version", ""),
+                }
+        except Exception:  # noqa: BLE001 - normal pendant le redemarrage
+            pass
+
+    await _audit("orthanc.restart.no_response", admin.username,
+                 container=ORTHANC_CONTAINER)
+    raise HTTPException(
+        504,
+        "Orthanc a ete redemarre mais ne repond pas apres 60 s. Sa "
+        "configuration l'empeche peut-etre de demarrer : consulter ses "
+        "journaux (docker compose logs orthanc) et, au besoin, restaurer une "
+        "sauvegarde depuis l'onglet Maintenance.",
+    )
 
 
 # ============================================================================
@@ -1296,6 +1410,8 @@ async def list_backups(admin: AdminUser = Depends(require_admin)):
     connus = {
         "orthanc.json.bak.": "orthanc",
         "users_database.yml.bak.": "authelia",
+        ".env.bak.": "env",
+        "configuration.yml.bak.": "authelia-config",
     }
 
     items = []
@@ -1317,6 +1433,40 @@ async def list_backups(admin: AdminUser = Depends(require_admin)):
 
     items.sort(key=lambda i: i["modified"], reverse=True)
     return {"backups": items}
+
+
+@router.post("/api/admin/backups")
+async def create_backup(admin: AdminUser = Depends(require_admin)):
+    """Sauvegarde volontaire des fichiers de configuration.
+
+    Jusqu'ici les copies n'etaient creees qu'en reaction a une ecriture du
+    panel : impossible de prendre un point de reprise avant une manipulation
+    risquee -- une montee de version, une edition manuelle d'un fichier --
+    alors que c'est precisement le moment ou on en veut un.
+    """
+    fichiers = [
+        (AUTHELIA_YML, "comptes"),
+        (ORTHANC_JSON, "configuration Orthanc"),
+        (ENV_FILE, "variables d'environnement"),
+        (AUTHELIA_CONFIG, "configuration Authelia"),
+    ]
+
+    faits, ignores = [], []
+    for chemin, libelle in fichiers:
+        if chemin and chemin.exists():
+            try:
+                dest = _backup(chemin, tag="manuel")
+                faits.append(dest.name)
+            except OSError as e:  # disque plein, droits insuffisants
+                ignores.append(f"{libelle} : {e}")
+        else:
+            ignores.append(f"{libelle} : fichier absent")
+
+    if not faits:
+        raise HTTPException(500, "aucun fichier n'a pu etre sauvegarde : " + " ; ".join(ignores))
+
+    await _audit("backup.created", admin.username, files=",".join(faits))
+    return {"ok": True, "created": faits, "skipped": ignores}
 
 
 @router.post("/api/admin/backups/restore")
@@ -1344,7 +1494,15 @@ async def restore_backup(
         reload = _reload_orthanc
     elif backup_name.startswith("users_database.yml.bak."):
         dest = AUTHELIA_YML
-        reload = None  # Authelia watch
+        reload = None  # Authelia relit son fichier tout seul
+    elif backup_name.startswith(".env.bak."):
+        # Restauree telle quelle : les variables ne sont relues qu'a la
+        # recreation des conteneurs, ce que l'interface signale.
+        dest = ENV_FILE
+        reload = None
+    elif backup_name.startswith("configuration.yml.bak."):
+        dest = AUTHELIA_CONFIG
+        reload = None  # Authelia surveille aussi ce fichier
     else:
         raise HTTPException(400, "type de backup non gere")
 

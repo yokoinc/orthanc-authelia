@@ -10,6 +10,11 @@ const fields = ref({})
 const originalFields = ref({})
 const loading = ref(true)
 const saving = ref(false)
+const restarting = ref(false)
+// Passe a true des qu'une modification est enregistree : elle reste sans
+// effet tant qu'Orthanc n'a pas redemarre, et rien ne le laisse voir
+// autrement -- le panel continuerait d'afficher la nouvelle valeur.
+const restartRequired = ref(false)
 const replies = ref({})
 
 const meta = ref({})
@@ -129,10 +134,29 @@ async function save() {
     })
     ui.notify(r.message || t('orthanc_applied', 'Enregistré. Sauvegarde : {backup}', { backup: r.backup }), 'ok')
     originalFields.value = JSON.parse(JSON.stringify(fields.value))
+    restartRequired.value = true
   } catch (e) {
     ui.notify(e.message, 'err')
   } finally {
     saving.value = false
+  }
+}
+
+async function restart() {
+  if (!confirm(t(
+    'orthanc_restart_confirm',
+    "Redémarrer Orthanc ? Les consultations et transferts en cours seront interrompus pendant une trentaine de secondes.",
+  ))) return
+  restarting.value = true
+  try {
+    const r = await api('/console/api/admin/orthanc/restart', { method: 'POST' })
+    ui.notify(r.message || t('orthanc_restarted', 'Orthanc a redémarré.'), 'ok')
+    restartRequired.value = false
+    await load()
+  } catch (e) {
+    ui.notify(e.message, 'err')
+  } finally {
+    restarting.value = false
   }
 }
 
@@ -170,6 +194,15 @@ onMounted(load)
 
           <div class="valeur">
             <select v-if="detectType(cle) === 'bool'" :id="'c-' + cle" v-model="fields[cle]">
+              <!-- Le parametre absent du fichier vaut null : sans cette option
+                   la liste n'avait rien a selectionner et s'affichait vide.
+                   La choisir revient a ne rien ecrire, donc a laisser Orthanc
+                   appliquer sa valeur par defaut. -->
+              <option :value="null">
+                {{ valeurDefaut(cle)
+                  ? t('orthanc_keep_default', 'Par défaut ({value})', { value: valeurDefaut(cle) })
+                  : t('orthanc_undefined', 'Non défini') }}
+              </option>
               <option :value="true">{{ t('yes', 'Oui') }}</option>
               <option :value="false">{{ t('no', 'Non') }}</option>
             </select>
@@ -197,6 +230,18 @@ onMounted(load)
         <span v-if="nbModifies" class="compteur">
           {{ t('orthanc_pending', '{count} paramètre(s) modifié(s)', { count: nbModifies }) }}
         </span>
+        <span v-else-if="restartRequired" class="compteur compteur--attente">
+          {{ t('orthanc_restart_pending', 'En attente de redémarrage pour prendre effet') }}
+        </span>
+        <button
+          class="oe2-btn" :class="{ 'oe2-btn--primary': restartRequired }"
+          :disabled="saving || restarting" @click="restart"
+        >
+          <i class="fa-solid fa-rotate-right"></i>
+          {{ restarting
+            ? t('orthanc_restarting', 'Redémarrage…')
+            : t('orthanc_restart', 'Redémarrer Orthanc') }}
+        </button>
         <button class="oe2-btn oe2-btn--primary" :disabled="saving || !nbModifies" @click="save">
           <i class="fa-solid fa-check"></i>
           {{ saving
@@ -209,13 +254,14 @@ onMounted(load)
 </template>
 
 <style scoped>
-h2 { font-size: 14px; margin: 0 0 6px; font-weight: 400; }
-.note { color: var(--oe2-muted); font-size: 12px; margin: 0 0 18px; max-width: 80ch; }
+h2 { font-size: var(--oe2-fs-body); margin: 0 0 6px; font-weight: 400; }
+.note { color: var(--oe2-muted); font-size: var(--oe2-fs-small); margin: 0 0 18px; max-width: 80ch; }
 .loading { color: var(--oe2-muted); text-align: center; padding: 20px; }
 
+.compteur--attente { color: var(--oe2-warn, #b26a00); }
 .groupe { margin-bottom: 22px; }
 .groupe h3 {
-  font-size: 12px; font-weight: 400; text-transform: uppercase;
+  font-size: var(--oe2-fs-small); font-weight: 400; text-transform: uppercase;
   letter-spacing: 0.5px; color: var(--oe2-accent-soft);
   margin: 0 0 8px; padding-bottom: 5px;
   border-bottom: 1px solid var(--oe2-separator);
@@ -230,10 +276,10 @@ h2 { font-size: 14px; margin: 0 0 6px; font-weight: 400; }
 .row--modified { border-left-color: var(--oe2-accent-orange); background: rgba(209, 155, 61, 0.07); }
 
 .intitule { display: flex; flex-direction: column; gap: 2px; }
-.intitule label { font-size: 12px; }
-.tech { font-family: var(--oe2-font-mono); font-size: 10px; color: var(--oe2-muted); }
+.intitule label { font-size: var(--oe2-fs-small); }
+.tech { font-family: var(--oe2-font-mono); font-size: var(--oe2-fs-micro); color: var(--oe2-muted); }
 .defaut { font-family: var(--oe2-font-stack); font-style: normal; color: var(--oe2-accent-soft); }
-.aide { font-size: 11px; color: var(--oe2-muted); max-width: 60ch; }
+.aide { font-size: var(--oe2-fs-tiny); color: var(--oe2-muted); max-width: 60ch; }
 
 .valeur { display: flex; align-items: center; gap: 8px; }
 .valeur input, .valeur select, .valeur textarea {
@@ -244,8 +290,8 @@ h2 { font-size: 14px; margin: 0 0 6px; font-weight: 400; }
   padding: 5px 8px; border-radius: 3px;
   font-family: var(--oe2-font-stack); font-size: var(--oe2-fs-small);
 }
-.valeur textarea { font-family: var(--oe2-font-mono); font-size: 11px; resize: vertical; }
-.flag { color: var(--oe2-accent-orange); font-size: 10px; white-space: nowrap; }
+.valeur textarea { font-family: var(--oe2-font-mono); font-size: var(--oe2-fs-tiny); resize: vertical; }
+.flag { color: var(--oe2-accent-orange); font-size: var(--oe2-fs-micro); white-space: nowrap; }
 
 .toolbar {
   position: sticky; bottom: 0;
@@ -254,7 +300,7 @@ h2 { font-size: 14px; margin: 0 0 6px; font-weight: 400; }
   background: var(--oe2-nav-bg);
   border-top: 1px solid var(--oe2-separator);
 }
-.compteur { font-size: 11px; color: var(--oe2-accent-orange); }
+.compteur { font-size: var(--oe2-fs-tiny); color: var(--oe2-accent-orange); }
 
 @media (max-width: 720px) {
   .row { grid-template-columns: 1fr; gap: 4px; }

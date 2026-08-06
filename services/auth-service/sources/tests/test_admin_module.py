@@ -12,6 +12,8 @@ Executer avec :
     python -m pytest tests/test_admin_module.py -v
 """
 
+import asyncio
+
 import pytest
 
 
@@ -286,3 +288,162 @@ class TestStripJsonComments:
         out = json.loads(_strip_json_comments(raw))
         assert out["Name"] == "Orthanc"
         assert out["Authorization"]["WebServiceRootUrl"] == "http://auth-service:8000"
+
+
+# ============================================================================
+# restart_orthanc : redemarrage via le proxy Docker
+# ============================================================================
+
+class TestRestartOrthanc:
+    """La route qui redemarre Orthanc depuis le panel.
+
+    Elle appelle un proxy qui n'expose que /containers/<id>/restart. Ce qui
+    compte ici : ne jamais annoncer un succes sans qu'Orthanc ait reellement
+    repondu -- une configuration acceptee a l'ecriture peut tres bien
+    l'empecher de redemarrer, et l'exploitant doit l'apprendre tout de suite.
+    """
+
+    @staticmethod
+    def _admin():
+        from admin_module import AdminUser
+        return AdminUser(username="admin", groups=["admin"])
+
+    @pytest.fixture(autouse=True)
+    def _sans_effets_de_bord(self, monkeypatch):
+        """Neutralise l'audit (Redis) et les attentes entre deux sondages."""
+        import admin_module
+
+        async def _audit_muet(*a, **k):
+            return None
+
+        async def _sans_attente(_):
+            return None
+
+        monkeypatch.setattr(admin_module, "_audit", _audit_muet)
+        monkeypatch.setattr(admin_module.asyncio, "sleep", _sans_attente)
+
+    def test_proxy_non_configure_repond_503(self, monkeypatch):
+        """Sans DOCKER_PROXY_URL la fonction est indisponible, pas cassee."""
+        import admin_module
+        from fastapi import HTTPException
+
+        monkeypatch.setattr(admin_module, "DOCKER_PROXY_URL", "")
+
+        with pytest.raises(HTTPException) as e:
+            _executer(admin_module.restart_orthanc(self._admin()))
+        assert e.value.status_code == 503
+        assert "DOCKER_PROXY_URL" in e.value.detail
+
+    def test_conteneur_introuvable(self, monkeypatch):
+        """404 du proxy = mauvais nom de conteneur : le dire explicitement."""
+        import admin_module
+        from fastapi import HTTPException
+
+        self._brancher_proxy(monkeypatch, 404)
+
+        with pytest.raises(HTTPException) as e:
+            _executer(admin_module.restart_orthanc(self._admin()))
+        assert e.value.status_code == 502
+        assert "ORTHANC_CONTAINER" in e.value.detail
+
+    def test_redemarrage_refuse_par_le_proxy(self, monkeypatch):
+        """403 = ALLOW_RESTARTS absent. Orienter vers la bonne cause."""
+        import admin_module
+        from fastapi import HTTPException
+
+        self._brancher_proxy(monkeypatch, 403)
+
+        with pytest.raises(HTTPException) as e:
+            _executer(admin_module.restart_orthanc(self._admin()))
+        assert e.value.status_code == 502
+        assert "ALLOW_RESTARTS" in e.value.detail
+
+    def test_succes_quand_orthanc_repond(self, monkeypatch):
+        """Le cas nominal : 204 du proxy puis /system qui repond 200."""
+        import admin_module
+
+        self._brancher_proxy(monkeypatch, 204)
+        self._brancher_system(monkeypatch, [200])
+
+        r = _executer(admin_module.restart_orthanc(self._admin()))
+        assert r["ok"] is True
+        assert r["version"] == "1.12.11"
+
+    def test_succes_apres_quelques_sondages(self, monkeypatch):
+        """Orthanc ouvre son port avant d'etre pret : on attend qu'il reponde."""
+        import admin_module
+
+        self._brancher_proxy(monkeypatch, 204)
+        self._brancher_system(monkeypatch, [502, 502, 200])
+
+        r = _executer(admin_module.restart_orthanc(self._admin()))
+        assert r["ok"] is True
+
+    def test_orthanc_ne_revient_pas(self, monkeypatch):
+        """Le point important : pas de faux succes si Orthanc reste muet."""
+        import admin_module
+        from fastapi import HTTPException
+
+        self._brancher_proxy(monkeypatch, 204)
+        self._brancher_system(monkeypatch, [502] * 40)
+
+        with pytest.raises(HTTPException) as e:
+            _executer(admin_module.restart_orthanc(self._admin()))
+        assert e.value.status_code == 504
+        assert "journaux" in e.value.detail
+
+    # --- outillage ---------------------------------------------------------
+
+    @staticmethod
+    def _brancher_proxy(monkeypatch, code: int):
+        """Remplace l'appel HTTP au proxy par une reponse au code voulu."""
+        import admin_module
+
+        monkeypatch.setattr(admin_module, "DOCKER_PROXY_URL", "http://proxy:2375")
+
+        class _Reponse:
+            status_code = code
+
+        class _Client:
+            def __init__(self, *a, **k):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, *a, **k):
+                return _Reponse()
+
+        monkeypatch.setattr(admin_module.httpx, "AsyncClient", _Client)
+
+    @staticmethod
+    def _brancher_system(monkeypatch, codes: list):
+        """Fait repondre /system selon la suite de codes donnee."""
+        import admin_module
+
+        restants = list(codes)
+
+        class _Reponse:
+            def __init__(self, code):
+                self.status_code = code
+
+            @staticmethod
+            def json():
+                return {"Name": "PACS", "Version": "1.12.11"}
+
+        async def _faux_orthanc(_methode, _chemin, **_k):
+            return _Reponse(restants.pop(0) if restants else 502)
+
+        monkeypatch.setattr(admin_module, "_orthanc", _faux_orthanc)
+
+
+def _executer(coro):
+    """Execute une coroutine dans une boucle neuve, fermee ensuite."""
+    boucle = asyncio.new_event_loop()
+    try:
+        return boucle.run_until_complete(coro)
+    finally:
+        boucle.close()

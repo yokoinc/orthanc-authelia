@@ -173,31 +173,31 @@ onMounted(charger)
 </template>
 
 <style scoped>
-h2 { font-size: 14px; margin: 0 0 6px; font-weight: 400; }
-.note { color: var(--oe2-muted); font-size: 12px; margin: 0 0 14px; max-width: 80ch; }
+h2 { font-size: var(--oe2-fs-body); margin: 0 0 6px; font-weight: 400; }
+.note { color: var(--oe2-muted); font-size: var(--oe2-fs-small); margin: 0 0 14px; max-width: 80ch; }
 .loading { color: var(--oe2-muted); text-align: center; padding: 20px; }
-.table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 12px; }
+.table { width: 100%; border-collapse: collapse; font-size: var(--oe2-fs-small); margin-bottom: 12px; }
 .table th, .table td {
   padding: 6px 10px; text-align: left;
   border-bottom: 1px solid var(--oe2-separator);
 }
 .table th {
   color: var(--oe2-muted); text-transform: uppercase;
-  letter-spacing: 0.5px; font-weight: 400; font-size: 11px;
+  letter-spacing: 0.5px; font-weight: 400; font-size: var(--oe2-fs-tiny);
 }
 .right { text-align: right; white-space: nowrap; }
-.mono { font-family: var(--oe2-font-mono); font-size: 11px; }
-.pastille { margin-left: 8px; font-size: 10px; padding: 1px 6px; border-radius: 2px; }
+.mono { font-family: var(--oe2-font-mono); font-size: var(--oe2-fs-tiny); }
+.pastille { margin-left: 8px; font-size: var(--oe2-fs-micro); padding: 1px 6px; border-radius: 2px; }
 .pastille--ok { background: rgba(40,167,69,0.2); color: #b6f0c0; }
 .pastille--ko { background: rgba(220,53,69,0.2); color: #ffb0b0; }
-summary { cursor: pointer; font-size: 12px; color: var(--oe2-link); margin-top: 6px; }
+summary { cursor: pointer; font-size: var(--oe2-fs-small); color: var(--oe2-link); margin-top: 6px; }
 .form {
   display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap;
   padding: 12px 8px; margin-top: 8px;
   background: var(--oe2-nav-sub-bg); border-radius: 3px;
 }
 .champ { display: flex; flex-direction: column; gap: 3px; }
-.champ label { color: var(--oe2-muted); font-size: 11px; }
+.champ label { color: var(--oe2-muted); font-size: var(--oe2-fs-tiny); }
 .champ input {
   background: var(--oe2-nav-bg);
   border: 1px solid var(--oe2-border-subtle);
@@ -205,5 +205,5 @@ summary { cursor: pointer; font-size: 12px; color: var(--oe2-link); margin-top: 
   padding: 5px 8px; border-radius: 3px;
   font-family: var(--oe2-font-stack); font-size: var(--oe2-fs-small);
 }
-.aide { font-size: 10px; color: var(--oe2-muted); }
+.aide { font-size: var(--oe2-fs-micro); color: var(--oe2-muted); }
 </style>

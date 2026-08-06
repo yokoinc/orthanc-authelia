@@ -29,6 +29,9 @@ const logoUrl = '/auth/static/orthanc-logo-official.png'
 
 const imageVersion = ref('dev')
 const adminUsername = ref('admin')
+// Nom du serveur, repris d'Orthanc. Le replier sur 'Orthanc' evite un
+// bandeau vide le temps de la reponse, ou si Orthanc est indisponible.
+const serverName = ref('Orthanc')
 
 onMounted(async () => {
   // Ces infos sont exposees par une nouvelle route /api/admin/whoami
@@ -36,6 +39,7 @@ onMounted(async () => {
     const meta = await api('/console/api/admin/whoami')
     imageVersion.value = meta.image_version || 'dev'
     adminUsername.value = meta.username || 'admin'
+    if (meta.server_name) serverName.value = meta.server_name
   } catch {
     // best effort — ne bloque pas le rendu
   }
@@ -48,16 +52,12 @@ onMounted(async () => {
       <a href="/ui/app/" class="oe2-sidebar__brand" :title="t('nav_back_to_explorer', 'Retour à Orthanc Explorer')">
         <img :src="logoUrl" alt="Orthanc" class="oe2-sidebar__logo">
       </a>
-      <div class="oe2-sidebar__brand-name">Orthanc</div>
+      <div class="oe2-sidebar__brand-name">{{ serverName }}</div>
 
       <nav class="oe2-sidebar__nav" :aria-label="t('nav_administration', 'Administration')">
         <a href="/ui/app/" class="oe2-sidebar__link">
           <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
           <span>{{ t('nav_back_to_explorer', 'Retour à Orthanc Explorer') }}</span>
-        </a>
-        <a href="/auth/tokens/manage" class="oe2-sidebar__link">
-          <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
-          <span>{{ t('nav_token_manager', 'Liens de partage') }}</span>
         </a>
         <!-- <span> plutot qu'<a href="#"> : evite le saut en haut de page au clic. -->
         <span class="oe2-sidebar__link active" role="link" aria-current="page">

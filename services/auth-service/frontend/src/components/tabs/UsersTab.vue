@@ -1,11 +1,27 @@
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { api } from '../../api.js'
 import { t } from '../../i18n.js'
 import { useUiStore } from '../../stores/ui.js'
 
 const ui = useUiStore()
 const users = ref([])
+
+// Le dernier administrateur actif ne doit etre ni supprime, ni retire de son
+// groupe, ni desactive : la pile se retrouverait sans personne pour
+// l'administrer, et la seule issue serait d'editer users_database.yml a la
+// main. Le serveur refuse deja ces operations, mais l'interface les proposait
+// quand meme -- on ne decouvrait le refus qu'apres coup.
+//
+// Le changement de mot de passe reste ouvert : sans lui, ce compte ne
+// pourrait plus jamais changer le sien.
+const adminsActifs = computed(
+  () => users.value.filter((u) => !u.disabled && (u.groups || []).includes('admin')),
+)
+
+function estDernierAdmin(u) {
+  return adminsActifs.value.length === 1 && adminsActifs.value[0].username === u.username
+}
 const loading = ref(true)
 const showAddForm = ref(false)
 const newUser = reactive({
@@ -174,11 +190,17 @@ onMounted(load)
             <span :class="u.disabled ? 'etat etat--off' : 'etat etat--on'">
               {{ u.disabled ? t('users_disabled', 'Désactivé') : t('users_enabled', 'Actif') }}
             </span>
+            <span v-if="estDernierAdmin(u)" class="protege">
+              <i class="fa-solid fa-lock"></i> {{ t('users_protected', 'protégé') }}
+            </span>
           </td>
           <td class="right">
             <button
               class="oe2-btn oe2-btn--secondary"
-              :title="t('users_edit', 'Modifier')"
+              :disabled="estDernierAdmin(u)"
+              :title="estDernierAdmin(u)
+                ? t('users_last_admin_locked', 'Dernier administrateur actif : ni modification ni suppression possibles. Créez un second administrateur pour débloquer.')
+                : t('users_edit', 'Modifier')"
               @click="ouvrirEdition(u)"
             >
               <i class="fa-solid fa-pen"></i>
@@ -190,7 +212,14 @@ onMounted(load)
             >
               <i class="fa-solid fa-key"></i>
             </button>
-            <button class="oe2-btn oe2-btn--danger" @click="deleteUser(u.username)" :title="t('delete', 'Supprimer')">
+            <button
+              class="oe2-btn oe2-btn--danger"
+              :disabled="estDernierAdmin(u)"
+              :title="estDernierAdmin(u)
+                ? t('users_last_admin_locked', 'Dernier administrateur actif : ni modification ni suppression possibles. Créez un second administrateur pour débloquer.')
+                : t('delete', 'Supprimer')"
+              @click="deleteUser(u.username)"
+            >
               <i class="fa-solid fa-trash"></i>
             </button>
           </td>
@@ -287,15 +316,16 @@ onMounted(load)
 </template>
 
 <style scoped>
-.etat { font-size: 11px; }
+.etat { font-size: var(--oe2-fs-tiny); }
 .etat--on { color: var(--oe2-success); }
 .etat--off { color: var(--oe2-muted); }
+.protege { margin-left: 8px; font-size: var(--oe2-fs-micro); color: var(--oe2-accent-soft); }
 .edit-ligne {
   background: var(--oe2-nav-sub-bg);
   display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
 }
 .edit-ligne .champ { display: flex; flex-direction: column; gap: 3px; }
-.edit-ligne label { color: var(--oe2-muted); font-size: 11px; }
+.edit-ligne label { color: var(--oe2-muted); font-size: var(--oe2-fs-tiny); }
 .edit-ligne input[type=text], .edit-ligne input[type=email], .edit-ligne input:not([type]) {
   background: var(--oe2-nav-bg);
   border: 1px solid var(--oe2-border-subtle);
@@ -307,7 +337,7 @@ onMounted(load)
   background: var(--oe2-nav-sub-bg);
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
-.pwd-ligne label { color: var(--oe2-muted); font-size: 11px; }
+.pwd-ligne label { color: var(--oe2-muted); font-size: var(--oe2-fs-tiny); }
 .pwd-ligne input {
   background: var(--oe2-nav-bg);
   border: 1px solid var(--oe2-border-subtle);
@@ -315,9 +345,9 @@ onMounted(load)
   padding: 5px 8px; border-radius: 3px;
   font-family: var(--oe2-font-stack); font-size: var(--oe2-fs-small);
 }
-h2 { font-size: 14px; margin: 0 0 12px; font-weight: 400; }
+h2 { font-size: var(--oe2-fs-body); margin: 0 0 12px; font-weight: 400; }
 .loading { color: var(--oe2-muted); text-align: center; padding: 20px; }
-.table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.table { width: 100%; border-collapse: collapse; font-size: var(--oe2-fs-small); }
 .table th, .table td {
   padding: 6px 10px; text-align: left;
   /* Bleu clair comme les tableaux d'Orthanc, cf. --oe2-table-border. */
@@ -325,24 +355,24 @@ h2 { font-size: 14px; margin: 0 0 12px; font-weight: 400; }
 }
 .table th {
   color: var(--oe2-muted); text-transform: uppercase;
-  letter-spacing: 0.5px; font-weight: 400; font-size: 11px;
+  letter-spacing: 0.5px; font-weight: 400; font-size: var(--oe2-fs-tiny);
 }
 .right { text-align: right; }
 .badge {
   display: inline-block; padding: 2px 6px; border-radius: 2px;
-  font-size: 10px; text-transform: uppercase; margin-right: 4px;
+  font-size: var(--oe2-fs-micro); text-transform: uppercase; margin-right: 4px;
 }
 .badge--admin { background: var(--oe2-accent-orange); color: white; }
 .badge--doctor { background: var(--oe2-label-bg); color: white; }
 details { margin-top: 20px; }
-summary { cursor: pointer; color: var(--oe2-accent-soft); font-size: 13px; }
+summary { cursor: pointer; color: var(--oe2-accent-soft); font-size: var(--oe2-fs-medium); }
 .add-form { margin-top: 12px; max-width: 520px; }
-.row { display: grid; grid-template-columns: 140px 1fr; gap: 8px 12px; margin: 8px 0; align-items: center; font-size: 12px; }
-.row label { color: var(--oe2-muted); font-size: 11px; text-transform: uppercase; }
+.row { display: grid; grid-template-columns: 140px 1fr; gap: 8px 12px; margin: 8px 0; align-items: center; font-size: var(--oe2-fs-small); }
+.row label { color: var(--oe2-muted); font-size: var(--oe2-fs-tiny); text-transform: uppercase; }
 .row input {
   background: var(--oe2-nav-sub-bg); border: 1px solid var(--oe2-border-subtle);
-  color: var(--oe2-nav-color); padding: 5px 8px; border-radius: 2px; font-size: 12px;
+  color: var(--oe2-nav-color); padding: 5px 8px; border-radius: 2px; font-size: var(--oe2-fs-small);
 }
 .groups { display: flex; gap: 12px; }
-.chk { display: flex; align-items: center; gap: 4px; font-size: 12px; }
+.chk { display: flex; align-items: center; gap: 4px; font-size: var(--oe2-fs-small); }
 </style>

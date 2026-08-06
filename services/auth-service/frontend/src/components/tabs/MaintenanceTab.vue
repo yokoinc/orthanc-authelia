@@ -17,6 +17,22 @@ const urlModifiee = computed(() => url.value !== urlInitiale.value && url.value.
 // --- Sauvegardes -----------------------------------------------------------
 const sauvegardes = ref([])
 const chargement = ref(true)
+const sauvegardeEnCours = ref(false)
+
+// Les copies n'etaient creees qu'en reaction a une ecriture du panel : rien
+// ne permettait d'en prendre une avant une manipulation risquee.
+async function sauvegarder() {
+  sauvegardeEnCours.value = true
+  try {
+    const r = await api('/console/api/admin/backups', { method: 'POST' })
+    ui.notify(t('backup_created', '{count} fichier(s) sauvegardé(s).', { count: r.created.length }), 'ok')
+    charger()
+  } catch (e) {
+    ui.notify(e.message, 'err')
+  } finally {
+    sauvegardeEnCours.value = false
+  }
+}
 
 function dateLisible(horodatage) {
   return new Date(horodatage * 1000).toLocaleString()
@@ -106,7 +122,13 @@ onMounted(charger)
       {{ t('network_readonly', "Le fichier .env n'est pas accessible : l'adresse ne peut pas être modifiée depuis le panel.") }}
     </div>
 
-    <h2 class="espace">{{ t('backups_title', 'Sauvegardes') }}</h2>
+    <div class="entete espace">
+      <h2>{{ t('backups_title', 'Sauvegardes') }}</h2>
+      <button class="oe2-btn oe2-btn--primary" :disabled="sauvegardeEnCours" @click="sauvegarder">
+        <i class="fa-solid fa-floppy-disk"></i>
+        {{ sauvegardeEnCours ? t('backup_creating', 'Sauvegarde…') : t('backup_now', 'Sauvegarder maintenant') }}
+      </button>
+    </div>
     <p class="note">
       {{ t('backups_note', "Créées automatiquement avant chaque écriture de la configuration Orthanc ou de la liste des utilisateurs. Les dix dernières sont conservées.") }}
     </p>
@@ -143,9 +165,10 @@ onMounted(charger)
 </template>
 
 <style scoped>
-h2 { font-size: 14px; margin: 0 0 6px; font-weight: 400; }
+h2 { font-size: var(--oe2-fs-body); margin: 0 0 6px; font-weight: 400; }
 .espace { margin-top: 28px; }
-.note { color: var(--oe2-muted); font-size: 12px; margin: 0 0 12px; max-width: 70ch; }
+.entete { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.note { color: var(--oe2-muted); font-size: var(--oe2-fs-small); margin: 0 0 12px; max-width: 70ch; }
 .ligne { display: flex; gap: 8px; align-items: center; }
 .ligne input {
   flex: 1; max-width: 420px;
@@ -157,20 +180,20 @@ h2 { font-size: 14px; margin: 0 0 6px; font-weight: 400; }
 }
 .ligne input:disabled { opacity: 0.5; }
 .avert {
-  margin-top: 8px; font-size: 11px; color: #e8c98a;
+  margin-top: 8px; font-size: var(--oe2-fs-tiny); color: #e8c98a;
   border-left: 3px solid var(--oe2-accent-orange);
   padding: 6px 10px; background: rgba(209, 155, 61, 0.12);
 }
 .loading { color: var(--oe2-muted); text-align: center; padding: 20px; }
-.table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.table { width: 100%; border-collapse: collapse; font-size: var(--oe2-fs-small); }
 .table th, .table td {
   padding: 6px 10px; text-align: left;
   border-bottom: 1px solid var(--oe2-separator);
 }
 .table th {
   color: var(--oe2-muted); text-transform: uppercase;
-  letter-spacing: 0.5px; font-weight: 400; font-size: 11px;
+  letter-spacing: 0.5px; font-weight: 400; font-size: var(--oe2-fs-tiny);
 }
 .right { text-align: right; }
-.cible { font-family: var(--oe2-font-mono); font-size: 11px; }
+.cible { font-family: var(--oe2-font-mono); font-size: var(--oe2-fs-tiny); }
 </style>
