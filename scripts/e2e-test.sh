@@ -392,7 +392,10 @@ if [[ -f /tmp/e2e.dcm ]]; then
         echec "DICOMweb renvoie ${nb:-illisible} examen(s) au lieu de 1"
     fi
 
-    rm -f /tmp/e2e.dcm /tmp/e2e-gen-dicom.py
+    # Le DICOM est ecrit par le conteneur, donc en root : le supprimer
+    # demande de repasser par un conteneur, comme pour le dossier de travail.
+    rm -f /tmp/e2e-gen-dicom.py
+    docker run --rm -v /tmp:/tmp-hote alpine rm -f /tmp-hote/e2e.dcm >/dev/null 2>&1
 fi
 
 # --- Proprietaire des fichiers ---------------------------------------------
