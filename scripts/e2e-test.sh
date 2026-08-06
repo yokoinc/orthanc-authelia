@@ -286,6 +286,23 @@ verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
 verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}/password" \
     '{"new_password":"nouveau-mot-de-passe-e2e-123"}' 'changement de mot de passe'
 
+# --- Proprietaire des fichiers ---------------------------------------------
+# Authelia et auth-service ecrivent dans le depot. S'ils tournent en root, ils
+# s'approprient les dossiers et toute reinstallation ulterieure echoue sur un
+# "Permission denied" -- la procedure de remise a zero du README devient
+# inapplicable. Le compose leur impose l'identite de l'utilisateur ; on verifie
+# qu'elle est bien appliquee, sinon rien ne le signalerait avant la prochaine
+# reinstallation.
+etape "Proprietaire des fichiers ecrits"
+etrangers=$(find services/authelia/config services/orthanc/config data \
+    ! -user "$(id -u)" 2>/dev/null | head -5)
+if [[ -z "$etrangers" ]]; then
+    ok "tout appartient a l'utilisateur courant"
+else
+    echec "fichiers appartenant a un autre utilisateur :"
+    printf '      %s\n' $etrangers
+fi
+
 # --- Bilan -----------------------------------------------------------------
 etape "Bilan"
 if [[ $ECHECS -eq 0 ]]; then

@@ -44,6 +44,17 @@ fi
 ok "docker + docker compose + openssl OK"
 
 # ---------------------------------------------------------------------------
+# Identite des conteneurs qui ecrivent dans le depot
+# ---------------------------------------------------------------------------
+# Authelia et auth-service ecrivent dans ./services/*/config. Sans identite
+# imposee ils tournent en root et s'approprient ces dossiers, rendant toute
+# reinstallation impossible sans reprendre les droits a la main. On leur donne
+# celle de l'utilisateur courant : les fichiers crees lui appartiennent, et le
+# probleme ne se pose plus du tout.
+PUID=$(id -u)
+PGID=$(id -g)
+
+# ---------------------------------------------------------------------------
 # Proprietaire des dossiers de configuration
 # ---------------------------------------------------------------------------
 # Authelia et Orthanc tournent en root dans leurs conteneurs et s'approprient
@@ -153,6 +164,8 @@ else
         -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG_PASS|" \
         -e "s|^AUTH_PASSWORD=.*|AUTH_PASSWORD=$AUTH_PASS|" \
         -e "s|^PUBLIC_URL=.*|PUBLIC_URL=https://pacs.localhost:30443|" \
+        -e "s|^PUID=.*|PUID=${PUID}|" \
+        -e "s|^PGID=.*|PGID=${PGID}|" \
         .env.example > .env
 
     # Compte Orthanc dedie a auth-service (POST /tools/reset). Pas dans

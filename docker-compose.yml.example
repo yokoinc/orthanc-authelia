@@ -87,6 +87,10 @@ services:
       context: ./services/auth-service
     container_name: orthanc-auth-service
     restart: unless-stopped
+    # Meme raison que pour authelia : le panel reecrit users_database.yml
+    # et orthanc.json dans le depot. Les fichiers qu il cree doivent
+    # appartenir a l utilisateur, pas a root.
+    user: "${PUID:-1000}:${PGID:-1000}"
     volumes:
       # Bind-mounts croises : auth-service edite les MEMES fichiers host que
       # authelia et orthanc lisent. Sans ces mounts, le panel admin ecrit dans
@@ -144,6 +148,13 @@ services:
     image: authelia/authelia:4.39.5
     container_name: orthanc-authelia
     restart: unless-stopped
+    # Authelia ecrit dans ./services/authelia/config (base de sessions, liste
+    # des utilisateurs). Sans cette ligne il tourne en root et s'approprie le
+    # dossier : la reinstallation echoue ensuite sur un "Permission denied",
+    # et les fichiers de configuration du depot deviennent illisibles pour
+    # leur proprietaire. PUID/PGID sont renseignes par bootstrap.sh avec
+    # l'identite de l'utilisateur courant.
+    user: "${PUID:-1000}:${PGID:-1000}"
     depends_on:
       redis:
         condition: service_healthy
