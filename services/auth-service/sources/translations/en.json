@@ -152,7 +152,11 @@
     "audit_col_actor": "Actor",
     "audit_col_details": "Details",
     "audit_empty": "Log is empty",
-    "audit_no_match": "No matching event"
+    "audit_no_match": "No matching event",
+    "yes": "Yes",
+    "no": "No",
+    "orthanc_group_other": "Other",
+    "orthanc_pending": "{count} setting(s) changed"
   },
   "js": {
     "expired": "Expired",

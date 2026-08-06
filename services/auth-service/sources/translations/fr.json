@@ -152,7 +152,11 @@
     "audit_col_actor": "Auteur",
     "audit_col_details": "Détails",
     "audit_empty": "Journal vide",
-    "audit_no_match": "Aucun événement ne correspond"
+    "audit_no_match": "Aucun événement ne correspond",
+    "yes": "Oui",
+    "no": "Non",
+    "orthanc_group_other": "Autres",
+    "orthanc_pending": "{count} paramètre(s) modifié(s)"
   },
   "js": {
     "expired": "Expiré",
