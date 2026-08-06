@@ -231,6 +231,47 @@ else
     echec "profil Orthanc inattendu : ${profil:-illisible}"
 fi
 
+# --- Fonctions du panel ----------------------------------------------------
+# Ces routes ont longtemps existe cote serveur sans aucune interface : rien ne
+# les exercait, donc rien n'aurait signale qu'elles cassaient.
+etape "Fonctions du panel d'administration"
+
+# whoami pose le cookie CSRF, comme le fait le SPA a son chargement. Les
+# ecritures sont refusees sans lui.
+curl -ks -o /dev/null -m 20 -b "$BISCUITS" -c "$BISCUITS" "${URL}/console/api/admin/whoami"
+JETON=$(awk '/orthanc_admin_csrf/ {print $NF}' "$BISCUITS" | tail -1)
+if [[ -n "$JETON" ]]; then
+    ok "jeton CSRF obtenu"
+else
+    echec "aucun jeton CSRF pose par whoami"
+fi
+
+verifier_panel() {
+    local methode=$1 chemin=$2 corps=$3 libelle=$4
+    local code
+    if [[ -n "$corps" ]]; then
+        code=$(curl -ks -o /tmp/e2e-panel.json -m 20 -b "$BISCUITS" -w '%{http_code}' \
+            -X "$methode" "${URL}${chemin}" \
+            -H 'Content-Type: application/json' -H "X-CSRF-Token: ${JETON}" -d "$corps")
+    else
+        code=$(curl -ks -o /tmp/e2e-panel.json -m 20 -b "$BISCUITS" -w '%{http_code}' \
+            -X "$methode" "${URL}${chemin}" -H "X-CSRF-Token: ${JETON}")
+    fi
+    if [[ "$code" == "200" ]]; then
+        ok "$(printf '%-32s %s' "$libelle" "$code")"
+    else
+        echec "$(printf '%-32s %s : %s' "$libelle" "$code" "$(head -c 90 /tmp/e2e-panel.json)")"
+    fi
+}
+
+verifier_panel GET /console/api/admin/backups '' 'liste des sauvegardes'
+verifier_panel GET /console/api/admin/network '' 'adresse publique (lecture)'
+
+# L'administrateur cree par le wizard est le seul compte : changer son mot de
+# passe n'affecte rien d'autre que la session de ce test, supprimee ensuite.
+verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}/password" \
+    '{"new_password":"nouveau-mot-de-passe-e2e-123"}' 'changement de mot de passe'
+
 # --- Bilan -----------------------------------------------------------------
 etape "Bilan"
 if [[ $ECHECS -eq 0 ]]; then

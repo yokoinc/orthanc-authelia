@@ -999,6 +999,42 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
 # Route : rollback backup
 # ============================================================================
 
+@router.get("/api/admin/backups")
+async def list_backups(admin: AdminUser = Depends(require_admin)):
+    """Sauvegardes disponibles, la plus recente en premier.
+
+    Sans cette route, la restauration existait sans moyen de savoir quoi
+    restaurer : le nom exact du fichier devait etre devine.
+    """
+    if not BACKUPS_DIR.exists():
+        return {"backups": []}
+
+    connus = {
+        "orthanc.json.bak.": "orthanc",
+        "users_database.yml.bak.": "authelia",
+    }
+
+    items = []
+    for f in BACKUPS_DIR.iterdir():
+        if not f.is_file() or ".bak." not in f.name:
+            continue
+        cible = next((v for k, v in connus.items() if f.name.startswith(k)), None)
+        if cible is None:
+            # Fichier non restaurable par la route de restauration : l'exposer
+            # laisserait croire le contraire.
+            continue
+        st = f.stat()
+        items.append({
+            "name": f.name,
+            "target": cible,
+            "size": st.st_size,
+            "modified": int(st.st_mtime),
+        })
+
+    items.sort(key=lambda i: i["modified"], reverse=True)
+    return {"backups": items}
+
+
 @router.post("/api/admin/backups/restore")
 async def restore_backup(
     backup_name: str,

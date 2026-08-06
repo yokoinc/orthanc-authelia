@@ -40,6 +40,35 @@ async function addUser() {
   }
 }
 
+// Changement de mot de passe : saisie en ligne plutot qu'un prompt(), qui
+// afficherait le mot de passe en clair et ne permet aucune validation.
+const motDePassePour = ref('')
+const nouveauMotDePasse = ref('')
+const envoiMotDePasse = ref(false)
+
+function ouvrirMotDePasse(username) {
+  motDePassePour.value = motDePassePour.value === username ? '' : username
+  nouveauMotDePasse.value = ''
+}
+
+async function enregistrerMotDePasse() {
+  if (nouveauMotDePasse.value.length < 12) return
+  envoiMotDePasse.value = true
+  try {
+    await api(`/console/api/admin/users/${encodeURIComponent(motDePassePour.value)}/password`, {
+      method: 'PATCH',
+      body: { new_password: nouveauMotDePasse.value },
+    })
+    ui.notify(t('users_password_changed', 'Mot de passe modifié pour {username}.', { username: motDePassePour.value }), 'ok')
+    motDePassePour.value = ''
+    nouveauMotDePasse.value = ''
+  } catch (e) {
+    ui.notify(e.message, 'err')
+  } finally {
+    envoiMotDePasse.value = false
+  }
+}
+
 async function deleteUser(username) {
   if (!confirm(t('users_delete_confirm', 'Supprimer l\'utilisateur « {username} » ?', { username }))) return
   try {
@@ -73,6 +102,7 @@ onMounted(load)
           <th>{{ t('users_col_name', 'Nom') }}</th>
           <th>{{ t('users_col_email', 'Adresse e-mail') }}</th>
           <th>{{ t('users_col_groups', 'Groupes') }}</th>
+          <th>{{ t('users_col_status', 'Statut') }}</th>
           <th></th>
         </tr>
       </thead>
@@ -88,14 +118,46 @@ onMounted(load)
               :class="['badge', g === 'admin' ? 'badge--admin' : 'badge--doctor']"
             >{{ g }}</span>
           </td>
+          <td>
+            <span :class="u.disabled ? 'etat etat--off' : 'etat etat--on'">
+              {{ u.disabled ? t('users_disabled', 'Désactivé') : t('users_enabled', 'Actif') }}
+            </span>
+          </td>
           <td class="right">
+            <button
+              class="oe2-btn oe2-btn--secondary"
+              :title="t('users_change_password', 'Changer le mot de passe')"
+              @click="ouvrirMotDePasse(u.username)"
+            >
+              <i class="fa-solid fa-key"></i>
+            </button>
             <button class="oe2-btn oe2-btn--danger" @click="deleteUser(u.username)" :title="t('delete', 'Supprimer')">
               <i class="fa-solid fa-trash"></i>
             </button>
           </td>
         </tr>
+        <tr v-if="motDePassePour === u.username" :key="u.username + '-pwd'">
+          <td colspan="6" class="pwd-ligne">
+            <label>{{ t('users_new_password', 'Nouveau mot de passe') }}</label>
+            <input
+              v-model="nouveauMotDePasse" type="password" minlength="12"
+              :placeholder="t('users_password_hint', '12 caractères minimum')"
+              @keyup.enter="enregistrerMotDePasse"
+            >
+            <button
+              class="oe2-btn oe2-btn--primary"
+              :disabled="nouveauMotDePasse.length < 12 || envoiMotDePasse"
+              @click="enregistrerMotDePasse"
+            >
+              {{ envoiMotDePasse ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
+            </button>
+            <button class="oe2-btn oe2-btn--ghost" @click="ouvrirMotDePasse('')">
+              {{ t('cancel', 'Annuler') }}
+            </button>
+          </td>
+        </tr>
         <tr v-if="!users.length">
-          <td colspan="5" class="loading">{{ t('users_empty', 'Aucun utilisateur') }}</td>
+          <td colspan="6" class="loading">{{ t('users_empty', 'Aucun utilisateur') }}</td>
         </tr>
       </tbody>
     </table>
@@ -123,6 +185,21 @@ onMounted(load)
 </template>
 
 <style scoped>
+.etat { font-size: 11px; }
+.etat--on { color: var(--oe2-success); }
+.etat--off { color: var(--oe2-muted); }
+.pwd-ligne {
+  background: var(--oe2-nav-sub-bg);
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.pwd-ligne label { color: var(--oe2-muted); font-size: 11px; }
+.pwd-ligne input {
+  background: var(--oe2-nav-bg);
+  border: 1px solid var(--oe2-border-subtle);
+  color: var(--oe2-nav-color);
+  padding: 5px 8px; border-radius: 3px;
+  font-family: var(--oe2-font-stack); font-size: var(--oe2-fs-small);
+}
 h2 { font-size: 14px; margin: 0 0 12px; font-weight: 400; }
 .loading { color: var(--oe2-muted); text-align: center; padding: 20px; }
 .table { width: 100%; border-collapse: collapse; font-size: 12px; }

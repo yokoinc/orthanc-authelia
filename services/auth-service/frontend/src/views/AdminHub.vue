@@ -9,11 +9,13 @@ import { useUiStore } from '../stores/ui.js'
 const UsersTab       = defineAsyncComponent(() => import('../components/tabs/UsersTab.vue'))
 const OrthancTab     = defineAsyncComponent(() => import('../components/tabs/OrthancConfigTab.vue'))
 const HealthTab      = defineAsyncComponent(() => import('../components/tabs/HealthTab.vue'))
+const MaintenanceTab = defineAsyncComponent(() => import('../components/tabs/MaintenanceTab.vue'))
 
 const tabs = [
   { id: 'users',   label: t('tab_users', 'Utilisateurs'),        icon: 'fa-users',       comp: UsersTab },
   { id: 'orthanc', label: t('tab_orthanc', 'Configuration Orthanc'), icon: 'fa-server',      comp: OrthancTab },
   { id: 'health',  label: t('tab_health', 'État'),               icon: 'fa-heart-pulse', comp: HealthTab },
+  { id: 'maint',   label: t('tab_maintenance', 'Maintenance'),   icon: 'fa-screwdriver-wrench', comp: MaintenanceTab },
 ]
 const active = ref('users')
 const currentTab = () => tabs.find((onglet) => onglet.id === active.value).comp
