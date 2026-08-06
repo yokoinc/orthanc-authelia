@@ -352,10 +352,26 @@ else
 fi
 
 if [[ -f /tmp/e2e.dcm ]]; then
-    # L'endpoint d'envoi n'exige pas de session : c'est la voie utilisee par
-    # les scripts d'import. Aucun en-tete d'authentification ne doit etre
-    # ajoute -- Orthanc rejette un Authorization qu'il ne reconnait pas.
+    # L'endpoint d'import ne demande pas de session Authelia -- c'est la voie
+    # des scripts -- mais une authentification HTTP Basic propre, dont les
+    # identifiants sont generes par bootstrap.sh.
+    UP_USER=$(grep '^UPLOAD_USER=' .env | cut -d= -f2-)
+    UP_PASS=$(grep '^UPLOAD_PASSWORD=' .env | cut -d= -f2-)
+
+    # Un envoi sans identifiants doit etre refuse : cet endpoint accepte des
+    # donnees medicales sans session, le laisser ouvert permettrait a
+    # quiconque sur le reseau d'alimenter la base.
+    refus=$(curl -ks -o /dev/null -m 20 -w '%{http_code}' \
+        -X POST "${URL}/api-upload/instances" \
+        -H 'Content-Type: application/dicom' --data-binary @/tmp/e2e.dcm)
+    if [[ "$refus" == "401" ]]; then
+        ok "envoi sans identifiants refuse (401)"
+    else
+        echec "envoi sans identifiants : $refus au lieu de 401"
+    fi
+
     code=$(curl -ks -o /tmp/e2e-upload.json -m 60 -w '%{http_code}' \
+        -u "${UP_USER}:${UP_PASS}" \
         -X POST "${URL}/api-upload/instances" \
         -H 'Content-Type: application/dicom' --data-binary @/tmp/e2e.dcm)
     if [[ "$code" == "200" ]]; then

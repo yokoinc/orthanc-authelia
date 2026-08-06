@@ -153,6 +153,12 @@ else
     fi
     AUTH_PASS=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
     ORTHANC_PASS=$(openssl rand -hex 32)
+    # Identifiants de l'endpoint d'import programmatique (/api-upload/).
+    # Sans eux, l'entrypoint nginx ne genere pas de fichier htpasswd et
+    # l'endpoint refuse tout : il vaut mieux le livrer utilisable, protege par
+    # un mot de passe genere, que desactive ou -- pire -- ouvert a tous.
+    UPLOAD_USER_VALUE="import-dicom"
+    UPLOAD_PASS_VALUE=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
 
     # PUBLIC_URL par defaut : URL locale complete, port du compose inclus.
     # Le nom d'hote (pacs.localhost) doit contenir un point, sinon Authelia
@@ -164,6 +170,8 @@ else
         -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG_PASS|" \
         -e "s|^AUTH_PASSWORD=.*|AUTH_PASSWORD=$AUTH_PASS|" \
         -e "s|^PUBLIC_URL=.*|PUBLIC_URL=https://pacs.localhost:30443|" \
+        -e "s|^UPLOAD_USER=.*|UPLOAD_USER=${UPLOAD_USER_VALUE}|" \
+        -e "s|^UPLOAD_PASSWORD=.*|UPLOAD_PASSWORD=${UPLOAD_PASS_VALUE}|" \
         -e "s|^PUID=.*|PUID=${PUID}|" \
         -e "s|^PGID=.*|PGID=${PGID}|" \
         .env.example > .env
@@ -177,7 +185,7 @@ else
         echo "ORTHANC_ADMIN_PASS=$ORTHANC_PASS"
     } >> .env
 
-    ok ".env genere avec 5 secrets aleatoires (Authelia x3 + Postgres + Orthanc)"
+    ok ".env genere avec 6 secrets aleatoires (Authelia x3 + Postgres + Orthanc + import DICOM)"
 fi
 
 # ---------------------------------------------------------------------------
