@@ -223,12 +223,23 @@ verifier /ohif/app-config.js 200
 
 # Le profil renvoye a Orthanc decide des droits : un groupe non reconnu fait
 # silencieusement retomber sur un profil en lecture seule.
+# On verifie la presence des droits qui comptent, et non leur nombre : un
+# compte fige casse des qu'une permission est ajoutee, sans rien dire d'utile.
+# admin-permissions est le plus revelateur -- c'est lui qui gouverne la
+# gestion des equipements DICOM, et son absence est passee inapercue
+# longtemps parce que 'all' ne le couvre pas.
 profil=$(curl -ks -m 20 -b "$BISCUITS" "${URL}/ui/api/configuration" \
-    | python3 -c 'import json,sys; p=json.load(sys.stdin)["Profile"]; print(p["name"], len(p["permissions"]))' 2>/dev/null)
-if [[ "$profil" == "Administrator 10" ]]; then
-    ok "profil Orthanc : Administrator, 10 droits"
+    | python3 -c '
+import json, sys
+p = json.load(sys.stdin)["Profile"]
+attendus = {"all", "admin-permissions", "settings", "delete", "upload", "view"}
+manquants = attendus - set(p["permissions"])
+print(p["name"], "|", ",".join(sorted(manquants)) if manquants else "complet")
+' 2>/dev/null)
+if [[ "$profil" == "Administrator | complet" ]]; then
+    ok "profil Orthanc : Administrator, droits essentiels presents"
 else
-    echec "profil Orthanc inattendu : ${profil:-illisible}"
+    echec "profil Orthanc : ${profil:-illisible}"
 fi
 
 # --- Fonctions du panel ----------------------------------------------------
