@@ -20,6 +20,21 @@ if [[ "${1:-}" == "--force" ]]; then
     FORCE=1
 fi
 
+# Remplace une chaine par une autre dans un fichier, sans expression
+# reguliere. sed ne convient pas ici : les valeurs substituees sont des mots de
+# passe et des empreintes argon2id, qui contiennent des $ et des / -- soit les
+# delimiteurs et les references arriere de sed. L'expansion ${var//motif/valeur}
+# de bash traite les deux comme du texte brut.
+#
+# Evite aussi une dependance a Python, absent de Git Bash sous Windows : le
+# script n'exige plus que bash, docker et openssl, tous trois presents avec
+# Git for Windows et Docker Desktop.
+remplacer_dans() {
+    local fichier=$1 motif=$2 valeur=$3 contenu
+    contenu=$(<"$fichier")
+    printf '%s\n' "${contenu//"$motif"/"$valeur"}" > "$fichier"
+}
+
 info()  { printf "\033[36m→\033[0m %s\n" "$*"; }
 ok()    { printf "\033[32m✓\033[0m %s\n" "$*"; }
 warn()  { printf "\033[33m!\033[0m %s\n" "$*"; }
@@ -254,18 +269,12 @@ ORTHANC_CFG="services/orthanc/config/orthanc.json"
 if grep -q 'set-via-env-AUTH_PASSWORD' "$ORTHANC_CFG" 2>/dev/null; then
     AUTH_USER_VALUE=$(grep '^AUTH_USERNAME=' .env | cut -d= -f2-)
     AUTH_PASS_VALUE=$(grep '^AUTH_PASSWORD=' .env | cut -d= -f2-)
-    AUTH_USER_VALUE="$AUTH_USER_VALUE" AUTH_PASS_VALUE="$AUTH_PASS_VALUE"         python3 - "$ORTHANC_CFG" <<'PYSUB'
-import os, sys
-path = sys.argv[1]
-with open(path) as f:
-    content = f.read()
-content = content.replace('"WebServiceUsername": "share-user"',
-                          '"WebServiceUsername": "%s"' % os.environ["AUTH_USER_VALUE"])
-content = content.replace('"WebServicePassword": "set-via-env-AUTH_PASSWORD"',
-                          '"WebServicePassword": "%s"' % os.environ["AUTH_PASS_VALUE"])
-with open(path, "w") as f:
-    f.write(content)
-PYSUB
+    remplacer_dans "$ORTHANC_CFG" \
+        '"WebServiceUsername": "share-user"' \
+        "\"WebServiceUsername\": \"${AUTH_USER_VALUE}\""
+    remplacer_dans "$ORTHANC_CFG" \
+        '"WebServicePassword": "set-via-env-AUTH_PASSWORD"' \
+        "\"WebServicePassword\": \"${AUTH_PASS_VALUE}\""
     ok "orthanc.json : identifiants du plugin Authorization synchronises"
 fi
 
@@ -288,20 +297,9 @@ if grep -q 'EXAMPLE_HASH_REPLACE_THIS' "$USERS_DB" 2>/dev/null; then
         authelia crypto hash generate argon2 --password "$THROWAWAY" 2>/dev/null \
         | sed 's/^Digest: //')
     if [[ -n $REAL_HASH ]]; then
-        # Python plutot que sed : le hash contient des $ et / qui cassent
-        # les regex sed (back-references, delimiteurs).
-        REAL_HASH="$REAL_HASH" python3 - "$USERS_DB" <<'PYEOF'
-import os, sys
-path = sys.argv[1]
-with open(path) as f:
-    content = f.read()
-content = content.replace(
-    "$argon2id$v=19$m=65536,t=3,p=4$EXAMPLE_HASH_REPLACE_THIS",
-    os.environ["REAL_HASH"],
-)
-with open(path, "w") as f:
-    f.write(content)
-PYEOF
+        remplacer_dans "$USERS_DB" \
+            '$argon2id$v=19$m=65536,t=3,p=4$EXAMPLE_HASH_REPLACE_THIS' \
+            "$REAL_HASH"
         ok "users_database.yml : hash argon2id valide (compte d'amorcage inactif)"
     else
         warn "Generation du hash echouee — Authelia refusera de demarrer."
