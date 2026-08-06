@@ -286,6 +286,115 @@ verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
 verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}/password" \
     '{"new_password":"nouveau-mot-de-passe-e2e-123"}' 'changement de mot de passe'
 
+# --- Chaine DICOM ----------------------------------------------------------
+# Le reste du test verifie que les URLs repondent. Ici on verifie que le
+# produit fait son travail : qu'un examen entre, s'indexe en conservant ses
+# metadonnees, et ressort par DICOMweb -- ce dont dependent les visionneuses.
+etape "Chaine DICOM"
+
+# Un DICOM valide, fabrique a la volee : pas de fichier binaire a versionner,
+# et les identifiants sont uniques a chaque execution.
+cat > /tmp/e2e-gen-dicom.py <<'PYDICOM'
+import numpy as np
+from pydicom.dataset import Dataset, FileMetaDataset
+from pydicom.uid import ExplicitVRLittleEndian, generate_uid
+
+taille = 64
+y, x = np.ogrid[:taille, :taille]
+img = (x + y).astype(np.uint16) * 16
+
+meta = FileMetaDataset()
+meta.MediaStorageSOPClassUID = '1.2.840.10008.5.1.4.1.1.7'
+meta.MediaStorageSOPInstanceUID = generate_uid()
+meta.TransferSyntaxUID = ExplicitVRLittleEndian
+meta.ImplementationClassUID = generate_uid()
+
+ds = Dataset()
+ds.file_meta = meta
+ds.is_little_endian = True
+ds.is_implicit_VR = False
+ds.PatientName = 'E2E^Patient'
+ds.PatientID = 'E2E-0001'
+ds.PatientBirthDate = '19700101'
+ds.PatientSex = 'O'
+ds.StudyInstanceUID = generate_uid()
+ds.SeriesInstanceUID = generate_uid()
+ds.SOPInstanceUID = meta.MediaStorageSOPInstanceUID
+ds.SOPClassUID = meta.MediaStorageSOPClassUID
+ds.StudyDate = '20260729'
+ds.StudyTime = '100000'
+ds.StudyDescription = 'Examen de validation E2E'
+ds.SeriesDescription = 'Serie synthetique'
+ds.AccessionNumber = 'ACC-E2E-1'
+ds.Modality = 'OT'
+ds.StudyID = '1'
+ds.SeriesNumber = 1
+ds.InstanceNumber = 1
+ds.SamplesPerPixel = 1
+ds.PhotometricInterpretation = 'MONOCHROME2'
+ds.Rows = taille
+ds.Columns = taille
+ds.BitsAllocated = 16
+ds.BitsStored = 16
+ds.HighBit = 15
+ds.PixelRepresentation = 0
+ds.PixelData = img.tobytes()
+ds.save_as('/sortie/e2e.dcm', write_like_original=False)
+print('ok')
+PYDICOM
+
+if docker run --rm -v /tmp:/sortie -v /tmp/e2e-gen-dicom.py:/gen.py:ro \
+    python:3.11-slim sh -c 'pip install -q pydicom numpy && python /gen.py' \
+    >/dev/null 2>&1 && [[ -f /tmp/e2e.dcm ]]; then
+    ok "DICOM de test fabrique ($(stat -c%s /tmp/e2e.dcm) octets)"
+else
+    echec "impossible de fabriquer le DICOM de test"
+fi
+
+if [[ -f /tmp/e2e.dcm ]]; then
+    # L'endpoint d'envoi n'exige pas de session : c'est la voie utilisee par
+    # les scripts d'import. Aucun en-tete d'authentification ne doit etre
+    # ajoute -- Orthanc rejette un Authorization qu'il ne reconnait pas.
+    code=$(curl -ks -o /tmp/e2e-upload.json -m 60 -w '%{http_code}' \
+        -X POST "${URL}/api-upload/instances" \
+        -H 'Content-Type: application/dicom' --data-binary @/tmp/e2e.dcm)
+    if [[ "$code" == "200" ]]; then
+        ok "envoi accepte par /api-upload/instances"
+    else
+        echec "envoi refuse : HTTP $code $(head -c 90 /tmp/e2e-upload.json)"
+    fi
+
+    # Indexation : l'examen doit apparaitre dans le compte d'Orthanc.
+    etudes=$(curl -ks -m 20 -b "$BISCUITS" "${URL}/statistics" \
+        | python3 -c 'import json,sys; print(json.load(sys.stdin)["CountStudies"])' 2>/dev/null)
+    if [[ "$etudes" == "1" ]]; then
+        ok "examen indexe (1 etude)"
+    else
+        echec "indexation : ${etudes:-illisible} etude(s) au lieu de 1"
+    fi
+
+    # Metadonnees : un examen indexe mais dont les tags sont perdus ne sert a
+    # rien -- la recherche par patient ou par date ne le retrouverait pas.
+    lu=$(curl -ks -m 20 -b "$BISCUITS" "${URL}/studies?expand" \
+        | python3 -c 'import json,sys; e=json.load(sys.stdin)[0]; print(e["PatientMainDicomTags"]["PatientID"], e["MainDicomTags"]["AccessionNumber"])' 2>/dev/null)
+    if [[ "$lu" == "E2E-0001 ACC-E2E-1" ]]; then
+        ok "metadonnees conservees (patient et numero d'acces)"
+    else
+        echec "metadonnees alterees : '${lu:-illisible}'"
+    fi
+
+    # DICOMweb : c'est par la que les visionneuses recuperent les images.
+    nb=$(curl -ks -m 20 -b "$BISCUITS" "${URL}/dicom-web/studies" \
+        | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null)
+    if [[ "$nb" == "1" ]]; then
+        ok "examen expose par DICOMweb"
+    else
+        echec "DICOMweb renvoie ${nb:-illisible} examen(s) au lieu de 1"
+    fi
+
+    rm -f /tmp/e2e.dcm /tmp/e2e-gen-dicom.py
+fi
+
 # --- Proprietaire des fichiers ---------------------------------------------
 # Authelia et auth-service ecrivent dans le depot. S'ils tournent en root, ils
 # s'approprient les dossiers et toute reinstallation ulterieure echoue sur un
