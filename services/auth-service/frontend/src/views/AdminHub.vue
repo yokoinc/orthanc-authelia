@@ -10,12 +10,14 @@ const UsersTab       = defineAsyncComponent(() => import('../components/tabs/Use
 const OrthancTab     = defineAsyncComponent(() => import('../components/tabs/OrthancConfigTab.vue'))
 const HealthTab      = defineAsyncComponent(() => import('../components/tabs/HealthTab.vue'))
 const MaintenanceTab = defineAsyncComponent(() => import('../components/tabs/MaintenanceTab.vue'))
+const AuditTab       = defineAsyncComponent(() => import('../components/tabs/AuditTab.vue'))
 
 const tabs = [
   { id: 'users',   label: t('tab_users', 'Utilisateurs'),        icon: 'fa-users',       comp: UsersTab },
   { id: 'orthanc', label: t('tab_orthanc', 'Configuration Orthanc'), icon: 'fa-server',      comp: OrthancTab },
   { id: 'health',  label: t('tab_health', 'État'),               icon: 'fa-heart-pulse', comp: HealthTab },
   { id: 'maint',   label: t('tab_maintenance', 'Maintenance'),   icon: 'fa-screwdriver-wrench', comp: MaintenanceTab },
+  { id: 'audit',   label: t('tab_audit', 'Journal'),            icon: 'fa-clock-rotate-left', comp: AuditTab },
 ]
 const active = ref('users')
 const currentTab = () => tabs.find((onglet) => onglet.id === active.value).comp

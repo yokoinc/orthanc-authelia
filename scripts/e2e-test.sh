@@ -266,6 +266,7 @@ verifier_panel() {
 
 verifier_panel GET /console/api/admin/backups '' 'liste des sauvegardes'
 verifier_panel GET /console/api/admin/network '' 'adresse publique (lecture)'
+verifier_panel GET /console/api/admin/audit '' 'journal d activite'
 
 verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
     '{"displayname":"Admin E2E renomme"}' 'modification de compte'

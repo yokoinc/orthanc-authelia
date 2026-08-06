@@ -1063,6 +1063,43 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
 # Route : rollback backup
 # ============================================================================
 
+@router.get("/api/admin/audit")
+async def read_audit(
+    limit: int = 100,
+    admin: AdminUser = Depends(require_admin),
+):
+    """Journal d'audit, l'evenement le plus recent en premier.
+
+    Le flux etait alimente depuis le debut mais rien ne le lisait : les
+    creations de comptes, les changements de configuration et les tentatives
+    CSRF rejetees s'accumulaient sans que personne puisse les consulter.
+    """
+    limit = max(1, min(limit, 500))
+    try:
+        brut = await _r().xrevrange(AUDIT_STREAM, count=limit)
+    except Exception as e:  # noqa: BLE001 - Redis indisponible ne doit pas casser le panel
+        raise HTTPException(503, f"journal illisible : {e}") from e
+
+    entrees = []
+    for identifiant, champs in brut:
+        # event, actor et ts sont systematiques ; le reste depend du type
+        # d'evenement (cible, champs modifies, sauvegarde concernee...) et est
+        # regroupe pour que l'affichage n'ait pas a les connaitre.
+        details = {
+            k: v for k, v in champs.items()
+            if k not in ("event", "actor", "ts")
+        }
+        entrees.append({
+            "id": identifiant,
+            "event": champs.get("event", "?"),
+            "actor": champs.get("actor", "?"),
+            "ts": int(champs.get("ts", 0) or 0),
+            "details": details,
+        })
+
+    return {"entries": entrees, "count": len(entrees)}
+
+
 @router.get("/api/admin/backups")
 async def list_backups(admin: AdminUser = Depends(require_admin)):
     """Sauvegardes disponibles, la plus recente en premier.

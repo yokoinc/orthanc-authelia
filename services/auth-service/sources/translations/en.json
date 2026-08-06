@@ -142,7 +142,17 @@
     "users_password_changed": "Password changed for {username}.",
     "users_edit": "Edit",
     "users_updated": "{username} has been updated.",
-    "users_disable": "Disable this account"
+    "users_disable": "Disable this account",
+    "tab_audit": "Activity",
+    "audit_title": "Activity log",
+    "audit_note": "The last 200 events: accounts, Orthanc configuration, restored backups and requests rejected for security reasons.",
+    "audit_filter": "Filter…",
+    "audit_col_date": "Date",
+    "audit_col_event": "Event",
+    "audit_col_actor": "Actor",
+    "audit_col_details": "Details",
+    "audit_empty": "Log is empty",
+    "audit_no_match": "No matching event"
   },
   "js": {
     "expired": "Expired",

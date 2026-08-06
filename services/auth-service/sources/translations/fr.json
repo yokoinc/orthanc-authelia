@@ -142,7 +142,17 @@
     "users_password_changed": "Mot de passe modifié pour {username}.",
     "users_edit": "Modifier",
     "users_updated": "{username} a été modifié.",
-    "users_disable": "Désactiver ce compte"
+    "users_disable": "Désactiver ce compte",
+    "tab_audit": "Journal",
+    "audit_title": "Journal d'activité",
+    "audit_note": "Les 200 derniers événements : comptes, configuration Orthanc, sauvegardes restaurées et requêtes rejetées pour raison de sécurité.",
+    "audit_filter": "Filtrer…",
+    "audit_col_date": "Date",
+    "audit_col_event": "Événement",
+    "audit_col_actor": "Auteur",
+    "audit_col_details": "Détails",
+    "audit_empty": "Journal vide",
+    "audit_no_match": "Aucun événement ne correspond"
   },
   "js": {
     "expired": "Expiré",
