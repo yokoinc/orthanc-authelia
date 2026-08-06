@@ -32,6 +32,18 @@ function parDefaut(cle) {
   return meta.value[cle]?.present === false
 }
 
+// La valeur par defaut, mise en forme pour l'affichage. Deux parametres ne
+// figurent pas dans le fichier de reference d'Orthanc : on n'affiche alors
+// rien plutot que d'avancer une valeur inventee.
+function valeurDefaut(cle) {
+  const d = meta.value[cle]?.default
+  if (d === undefined || d === null) return ''
+  if (typeof d === 'boolean') return d ? t('yes', 'Oui') : t('no', 'Non')
+  if (Array.isArray(d)) return d.length ? d.join(', ') : '—'
+  if (d === '') return '—'
+  return String(d)
+}
+
 function isModified(key) {
   return JSON.stringify(fields.value[key]) !== JSON.stringify(originalFields.value[key])
 }
@@ -148,7 +160,10 @@ onMounted(load)
             <label :for="'c-' + cle">{{ libelle(cle) }}</label>
             <span class="tech">
               {{ cle }}
-              <em v-if="parDefaut(cle)" class="defaut">{{ t('orthanc_default', '· valeur par défaut d\'Orthanc') }}</em>
+              <em v-if="parDefaut(cle) && valeurDefaut(cle)" class="defaut">
+                {{ t('orthanc_default_is', '· par défaut : {value}', { value: valeurDefaut(cle) }) }}
+              </em>
+              <em v-else-if="parDefaut(cle)" class="defaut">{{ t('orthanc_default', '· valeur par défaut d\'Orthanc') }}</em>
             </span>
             <span v-if="aide(cle)" class="aide">{{ aide(cle) }}</span>
           </div>
@@ -167,8 +182,12 @@ onMounted(load)
             <input
               v-else-if="detectType(cle) === 'number'"
               :id="'c-' + cle" v-model.number="fields[cle]" type="number"
+              :placeholder="valeurDefaut(cle)"
             >
-            <input v-else :id="'c-' + cle" v-model="fields[cle]" type="text">
+            <input
+              v-else :id="'c-' + cle" v-model="fields[cle]" type="text"
+              :placeholder="valeurDefaut(cle)"
+            >
             <span v-if="isModified(cle)" class="flag">{{ t('modified', '● modifié') }}</span>
           </div>
         </div>

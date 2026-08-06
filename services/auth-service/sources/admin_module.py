@@ -548,6 +548,49 @@ class PasswordChangePayload(BaseModel):
 # ============================================================================
 
 # Whitelist des chemins editables via UI. Refuse tout ce qui n'est pas ici.
+ORTHANC_DEFAULTS = {
+    # Valeurs par defaut relevees dans le fichier de configuration de
+    # reference d'Orthanc 1.12.11, la version embarquee dans l'image.
+    # Elles sont affichees a titre indicatif pour les parametres absents
+    # d'orthanc.json : sans elles, l'interface annonce "valeur par defaut"
+    # sans dire laquelle, ce qui n'apprend rien.
+    'Name': 'MyOrthanc',
+    'DicomAet': 'ORTHANC',
+    'RemoteAccessAllowed': False,
+    'DicomServerEnabled': True,
+    'DicomPort': 4242,
+    'DicomCheckCalledAet': False,
+    'DicomAlwaysAllowEcho': True,
+    'DicomAlwaysAllowStore': True,
+    'DicomAlwaysAllowFind': False,
+    'DicomAlwaysAllowMove': False,
+    'DicomScpTimeout': 30,
+    'DicomThreadsCount': 4,
+    'DicomModalitiesInDatabase': False,
+    'OrthancPeersInDatabase': False,
+    'StorageCompression': False,
+    'MaximumStorageSize': 0,
+    'MaximumPatientCount': 0,
+    'MaximumStorageMode': 'Recycle',
+    'StoreMD5ForAttachments': True,
+    'HttpPort': 8042,
+    'HttpTimeout': 60,
+    'HttpCompressionEnabled': False,
+    'StableAge': 60,
+    'OverwriteInstances': False,
+    'ConcurrentJobs': 2,
+    'JobsHistorySize': 10,
+    'SaveJobs': True,
+    'SynchronousCMove': True,
+    'DeidentifyLogs': True,
+    'DefaultEncoding': 'Latin1',
+    'LimitFindResults': 0,
+    'LimitFindInstances': 0,
+    'IngestTranscodingOfUncompressed': True,
+    'AcceptedTransferSyntaxes': ['1.2.840.10008.1.*'],
+}
+
+
 ORTHANC_EDITABLE_PATHS = {
     "Name": str,
     "DicomAet": str,
@@ -592,6 +635,16 @@ ORTHANC_EDITABLE_PATHS = {
     "DicomWeb.EnableMetadata": bool,
     "DicomWeb.PublicRoot": str,
     "AcceptedTransferSyntaxes": list,  # cas special : liste de strings
+    # Housekeeper : entretien de la base en tache de fond (recompression du
+    # stockage, mise a jour des tags principaux, cache DICOMweb). Il tourne
+    # depuis le debut sans qu'aucun de ses reglages ne soit accessible.
+    "Housekeeper.Enable": bool,
+    "Housekeeper.Force": bool,
+    "Housekeeper.ThrottleDelay": int,
+    "Housekeeper.Triggers.StorageCompressionChange": bool,
+    "Housekeeper.Triggers.MainDicomTagsChange": bool,
+    "Housekeeper.Triggers.UnnecessaryDicomAsJsonFiles": bool,
+    "Housekeeper.Triggers.DicomWebCache": bool,
 }
 
 
@@ -948,9 +1001,12 @@ async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
         meta[dotted] = {
             "type": noms.get(attendu, "str"),
             # Distingue "absent du fichier" de "present et vide" : dans le
-            # premier cas Orthanc applique sa valeur par defaut, ce que
-            # l'interface signale plutot que de faire croire a un vide.
+            # premier cas Orthanc applique sa valeur par defaut.
             "present": present,
+            # La valeur par defaut, quand elle est connue. Annoncer "valeur
+            # par defaut" sans la montrer n'apprend rien : l'exploitant ne
+            # sait pas ce qui s'applique reellement.
+            "default": ORTHANC_DEFAULTS.get(dotted),
         }
 
     return {"editable": result, "fields": meta}

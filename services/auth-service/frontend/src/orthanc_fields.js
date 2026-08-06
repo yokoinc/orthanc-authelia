@@ -1,3 +1,5 @@
+import { t } from './i18n.js'
+
 // Regroupement et libelles des parametres Orthanc editables.
 //
 // L'API renvoie un dictionnaire plat de 43 cles techniques. Affichees telles
@@ -15,8 +17,12 @@ export const GROUPES = [
     titre: 'Identité',
     icone: 'fa-id-card',
     champs: {
-      Name: ['Nom du serveur', "Affiché dans l'interface et annoncé aux autres équipements."],
-      DicomAet: ['Titre AE DICOM', "Nom du nœud sur le réseau DICOM. Seize caractères au maximum, c'est la norme qui l'impose."],
+      Name: [t('cfg_Name_label', 'Nom du serveur'),
+          t('cfg_Name_help', 'Affiché dans l\'interface et annoncé aux autres équipements.')],
+
+      DicomAet: [t('cfg_DicomAet_label', 'Titre AE DICOM'),
+          t('cfg_DicomAet_help', 'Nom du nœud sur le réseau DICOM. Seize caractères au maximum, c\'est la norme qui l\'impose.')],
+
     },
   },
   {
@@ -24,18 +30,42 @@ export const GROUPES = [
     titre: 'Réseau DICOM',
     icone: 'fa-network-wired',
     champs: {
-      DicomServerEnabled: ['Activer le serveur DICOM', "Réception des examens envoyés par les modalités (protocole DIMSE, port dédié)."],
-      DicomPort: ['Port DICOM', 'Port d\'écoute DIMSE. 4242 par convention.'],
-      DicomCheckCalledAet: ['Vérifier le titre AE appelé', "Refuse les connexions qui ne s'adressent pas explicitement à ce serveur."],
-      DicomAlwaysAllowEcho: ['Autoriser les tests d\'écho', "Répond aux vérifications de connectivité (C-ECHO), même d'un équipement inconnu."],
-      DicomAlwaysAllowStore: ['Autoriser l\'envoi d\'examens', "Accepte les examens (C-STORE) d'équipements non déclarés. À laisser désactivé si les modalités sont toutes connues."],
-      DicomAlwaysAllowFind: ['Autoriser les recherches', 'Répond aux requêtes de recherche (C-FIND) d\'équipements non déclarés.'],
-      DicomAlwaysAllowMove: ['Autoriser les transferts', 'Répond aux demandes de transfert (C-MOVE) d\'équipements non déclarés.'],
-      DicomScpTimeout: ['Délai d\'attente (s)', 'Abandon d\'une association DICOM restée sans réponse.'],
-      DicomThreadsCount: ['Connexions simultanées', 'Nombre d\'associations DICOM traitées en parallèle.'],
-      SynchronousCMove: ['Transferts synchrones', "Attend la fin du transfert avant de répondre, au lieu de le traiter en tâche de fond."],
-      DicomModalitiesInDatabase: ['Modalités en base', "Enregistre les équipements déclarés en base plutôt que dans le fichier de configuration : ils survivent alors à une réécriture de celui-ci."],
-      OrthancPeersInDatabase: ['Serveurs pairs en base', 'Même principe pour les autres serveurs Orthanc déclarés.'],
+      DicomServerEnabled: [t('cfg_DicomServerEnabled_label', 'Activer le serveur DICOM'),
+          t('cfg_DicomServerEnabled_help', 'Réception des examens envoyés par les modalités (protocole DIMSE, port dédié).')],
+
+      DicomPort: [t('cfg_DicomPort_label', 'Port DICOM'),
+          t('cfg_DicomPort_help', 'Port d\'écoute DIMSE. 4242 par convention.')],
+
+      DicomCheckCalledAet: [t('cfg_DicomCheckCalledAet_label', 'Vérifier le titre AE appelé'),
+          t('cfg_DicomCheckCalledAet_help', 'Refuse les connexions qui ne s\'adressent pas explicitement à ce serveur.')],
+
+      DicomAlwaysAllowEcho: [t('cfg_DicomAlwaysAllowEcho_label', 'Autoriser les tests d\'écho'),
+          t('cfg_DicomAlwaysAllowEcho_help', 'Répond aux vérifications de connectivité (C-ECHO), même d\'un équipement inconnu.')],
+
+      DicomAlwaysAllowStore: [t('cfg_DicomAlwaysAllowStore_label', 'Autoriser l\'envoi d\'examens'),
+          t('cfg_DicomAlwaysAllowStore_help', 'Accepte les examens (C-STORE) d\'équipements non déclarés. À laisser désactivé si les modalités sont toutes connues.')],
+
+      DicomAlwaysAllowFind: [t('cfg_DicomAlwaysAllowFind_label', 'Autoriser les recherches'),
+          t('cfg_DicomAlwaysAllowFind_help', 'Répond aux requêtes de recherche (C-FIND) d\'équipements non déclarés.')],
+
+      DicomAlwaysAllowMove: [t('cfg_DicomAlwaysAllowMove_label', 'Autoriser les transferts'),
+          t('cfg_DicomAlwaysAllowMove_help', 'Répond aux demandes de transfert (C-MOVE) d\'équipements non déclarés.')],
+
+      DicomScpTimeout: [t('cfg_DicomScpTimeout_label', 'Délai d\'attente (s)'),
+          t('cfg_DicomScpTimeout_help', 'Abandon d\'une association DICOM restée sans réponse.')],
+
+      DicomThreadsCount: [t('cfg_DicomThreadsCount_label', 'Connexions simultanées'),
+          t('cfg_DicomThreadsCount_help', 'Nombre d\'associations DICOM traitées en parallèle.')],
+
+      SynchronousCMove: [t('cfg_SynchronousCMove_label', 'Transferts synchrones'),
+          t('cfg_SynchronousCMove_help', 'Attend la fin du transfert avant de répondre, au lieu de le traiter en tâche de fond.')],
+
+      DicomModalitiesInDatabase: [t('cfg_DicomModalitiesInDatabase_label', 'Modalités en base'),
+          t('cfg_DicomModalitiesInDatabase_help', 'Enregistre les équipements déclarés en base plutôt que dans le fichier de configuration : ils survivent alors à une réécriture de celui-ci.')],
+
+      OrthancPeersInDatabase: [t('cfg_OrthancPeersInDatabase_label', 'Serveurs pairs en base'),
+          t('cfg_OrthancPeersInDatabase_help', 'Même principe pour les autres serveurs Orthanc déclarés.')],
+
     },
   },
   {
@@ -43,10 +73,18 @@ export const GROUPES = [
     titre: 'Accès web',
     icone: 'fa-globe',
     champs: {
-      RemoteAccessAllowed: ['Autoriser l\'accès distant', "Sans cela, seul l'hôte local peut joindre l'interface. Le proxy étant dans un autre conteneur, désactiver cette option coupe tout accès."],
-      HttpPort: ['Port HTTP', "Port interne d'Orthanc. Le proxy s'y connecte ; le changer impose d'adapter sa configuration."],
-      HttpTimeout: ['Délai d\'attente HTTP (s)', 'Abandon d\'une requête web restée sans réponse.'],
-      HttpCompressionEnabled: ['Compression HTTP', 'Compresse les réponses. À laisser actif sauf réseau très rapide et processeur limité.'],
+      RemoteAccessAllowed: [t('cfg_RemoteAccessAllowed_label', 'Autoriser l\'accès distant'),
+          t('cfg_RemoteAccessAllowed_help', 'Sans cela, seul l\'hôte local peut joindre l\'interface. Le proxy étant dans un autre conteneur, désactiver cette option coupe tout accès.')],
+
+      HttpPort: [t('cfg_HttpPort_label', 'Port HTTP'),
+          t('cfg_HttpPort_help', 'Port interne d\'Orthanc. Le proxy s\'y connecte ; le changer impose d\'adapter sa configuration.')],
+
+      HttpTimeout: [t('cfg_HttpTimeout_label', 'Délai d\'attente HTTP (s)'),
+          t('cfg_HttpTimeout_help', 'Abandon d\'une requête web restée sans réponse.')],
+
+      HttpCompressionEnabled: [t('cfg_HttpCompressionEnabled_label', 'Compression HTTP'),
+          t('cfg_HttpCompressionEnabled_help', 'Compresse les réponses. À laisser actif sauf réseau très rapide et processeur limité.')],
+
     },
   },
   {
@@ -54,13 +92,26 @@ export const GROUPES = [
     titre: 'Stockage',
     icone: 'fa-database',
     champs: {
-      StorageCompression: ['Compresser les fichiers', "Réduit la place occupée au prix de temps processeur à chaque lecture et écriture."],
-      MaximumStorageSize: ['Taille maximale (Mo)', '0 pour ne pas limiter. Au-delà, le comportement dépend du mode ci-dessous.'],
-      MaximumPatientCount: ['Nombre maximal de patients', '0 pour ne pas limiter.'],
-      MaximumStorageMode: ['Mode de dépassement', "Recycle supprime les examens les plus anciens ; Reject refuse les nouveaux."],
-      StoreMD5ForAttachments: ['Empreinte des fichiers', "Calcule une empreinte à l'écriture pour détecter une corruption ultérieure."],
-      OverwriteInstances: ['Écraser les doublons', "Comportement lorsqu'un examen déjà présent est renvoyé."],
-      StableAge: ['Délai de stabilité (s)', "Durée sans nouvelle image après laquelle un examen est considéré comme complet. Les traitements automatiques s'en servent."],
+      StorageCompression: [t('cfg_StorageCompression_label', 'Compresser les fichiers'),
+          t('cfg_StorageCompression_help', 'Réduit la place occupée au prix de temps processeur à chaque lecture et écriture.')],
+
+      MaximumStorageSize: [t('cfg_MaximumStorageSize_label', 'Taille maximale (Mo)'),
+          t('cfg_MaximumStorageSize_help', '0 pour ne pas limiter. Au-delà, le comportement dépend du mode ci-dessous.')],
+
+      MaximumPatientCount: [t('cfg_MaximumPatientCount_label', 'Nombre maximal de patients'),
+          t('cfg_MaximumPatientCount_help', '0 pour ne pas limiter.')],
+
+      MaximumStorageMode: [t('cfg_MaximumStorageMode_label', 'Mode de dépassement'),
+          t('cfg_MaximumStorageMode_help', 'Recycle supprime les examens les plus anciens ; Reject refuse les nouveaux.')],
+
+      StoreMD5ForAttachments: [t('cfg_StoreMD5ForAttachments_label', 'Empreinte des fichiers'),
+          t('cfg_StoreMD5ForAttachments_help', 'Calcule une empreinte à l\'écriture pour détecter une corruption ultérieure.')],
+      OverwriteInstances: [t('cfg_OverwriteInstances_label', 'Écraser les doublons'),
+          t('cfg_OverwriteInstances_help', 'Comportement lorsqu\'un examen déjà présent est renvoyé.')],
+
+      StableAge: [t('cfg_StableAge_label', 'Délai de stabilité (s)'),
+          t('cfg_StableAge_help', 'Durée sans nouvelle image après laquelle un examen est considéré comme complet. Les traitements automatiques s\'en servent.')],
+
     },
   },
   {
@@ -68,13 +119,27 @@ export const GROUPES = [
     titre: 'DICOMweb',
     icone: 'fa-share-nodes',
     champs: {
-      'DicomWeb.Enable': ['Activer DICOMweb', "Protocole utilisé par les visionneuses web (OHIF, Stone). Le désactiver les empêche d'afficher les examens."],
-      'DicomWeb.Root': ['Chemin interne', "Racine de l'API DICOMweb côté Orthanc."],
-      'DicomWeb.PublicRoot': ['Chemin public', "Racine annoncée aux clients, telle qu'elle apparaît derrière le proxy."],
-      'DicomWeb.EnableWado': ['Activer WADO', 'Ancien protocole de récupération, encore attendu par certains outils.'],
-      'DicomWeb.EnableMetadata': ['Exposer les métadonnées', 'Permet aux visionneuses de lire les tags sans télécharger les images.'],
-      'DicomWeb.StowMaxInstances': ['Images par envoi', "Nombre maximal d'images acceptées en un seul envoi DICOMweb. 0 pour ne pas limiter."],
-      'DicomWeb.StowMaxSize': ['Taille par envoi (Mo)', '0 pour ne pas limiter.'],
+      'DicomWeb.Enable': [t('cfg_DicomWeb_Enable_label', 'Activer DICOMweb'),
+          t('cfg_DicomWeb_Enable_help', 'Protocole utilisé par les visionneuses web (OHIF, Stone). Le désactiver les empêche d\'afficher les examens.')],
+
+      'DicomWeb.Root': [t('cfg_DicomWeb_Root_label', 'Chemin interne'),
+          t('cfg_DicomWeb_Root_help', 'Racine de l\'API DICOMweb côté Orthanc.')],
+
+      'DicomWeb.PublicRoot': [t('cfg_DicomWeb_PublicRoot_label', 'Chemin public'),
+          t('cfg_DicomWeb_PublicRoot_help', 'Racine annoncée aux clients, telle qu\'elle apparaît derrière le proxy.')],
+
+      'DicomWeb.EnableWado': [t('cfg_DicomWeb_EnableWado_label', 'Activer WADO'),
+          t('cfg_DicomWeb_EnableWado_help', 'Ancien protocole de récupération, encore attendu par certains outils.')],
+
+      'DicomWeb.EnableMetadata': [t('cfg_DicomWeb_EnableMetadata_label', 'Exposer les métadonnées'),
+          t('cfg_DicomWeb_EnableMetadata_help', 'Permet aux visionneuses de lire les tags sans télécharger les images.')],
+
+      'DicomWeb.StowMaxInstances': [t('cfg_DicomWeb_StowMaxInstances_label', 'Images par envoi'),
+          t('cfg_DicomWeb_StowMaxInstances_help', 'Nombre maximal d\'images acceptées en un seul envoi DICOMweb. 0 pour ne pas limiter.')],
+
+      'DicomWeb.StowMaxSize': [t('cfg_DicomWeb_StowMaxSize_label', 'Taille par envoi (Mo)'),
+          t('cfg_DicomWeb_StowMaxSize_help', '0 pour ne pas limiter.')],
+
     },
   },
   {
@@ -82,10 +147,18 @@ export const GROUPES = [
     titre: 'Traitement des images',
     icone: 'fa-wand-magic-sparkles',
     champs: {
-      IngestTranscoding: ['Recompression à la réception', "Convertit les images entrantes dans une syntaxe de transfert donnée. Laisser vide pour conserver le format d'origine."],
-      IngestTranscodingOfUncompressed: ['Recompresser aussi le non compressé', "N'a d'effet que si une recompression est configurée ci-dessus."],
-      DefaultEncoding: ['Encodage par défaut', "Jeu de caractères supposé quand un examen ne le précise pas. Latin1 en Europe de l'Ouest."],
-      AcceptedTransferSyntaxes: ['Syntaxes acceptées', "Formats d'image acceptés à la réception. Une valeur par ligne."],
+      IngestTranscoding: [t('cfg_IngestTranscoding_label', 'Recompression à la réception'),
+          t('cfg_IngestTranscoding_help', 'Convertit les images entrantes dans une syntaxe de transfert donnée. Laisser vide pour conserver le format d\'origine.')],
+
+      IngestTranscodingOfUncompressed: [t('cfg_IngestTranscodingOfUncompressed_label', 'Recompresser aussi le non compressé'),
+          t('cfg_IngestTranscodingOfUncompressed_help', 'N\'a d\'effet que si une recompression est configurée ci-dessus.')],
+
+      DefaultEncoding: [t('cfg_DefaultEncoding_label', 'Encodage par défaut'),
+          t('cfg_DefaultEncoding_help', 'Jeu de caractères supposé quand un examen ne le précise pas. Latin1 en Europe de l\'Ouest.')],
+
+      AcceptedTransferSyntaxes: [t('cfg_AcceptedTransferSyntaxes_label', 'Syntaxes acceptées'),
+          t('cfg_AcceptedTransferSyntaxes_help', 'Formats d\'image acceptés à la réception. Une valeur par ligne.')],
+
     },
   },
   {
@@ -93,9 +166,15 @@ export const GROUPES = [
     titre: 'Tâches',
     icone: 'fa-list-check',
     champs: {
-      ConcurrentJobs: ['Tâches simultanées', 'Nombre de traitements exécutés en parallèle (envois, exports, anonymisations).'],
-      JobsHistorySize: ['Historique conservé', 'Nombre de tâches terminées gardées en mémoire.'],
-      SaveJobs: ['Conserver après redémarrage', 'Les tâches inachevées reprennent au démarrage suivant.'],
+      ConcurrentJobs: [t('cfg_ConcurrentJobs_label', 'Tâches simultanées'),
+          t('cfg_ConcurrentJobs_help', 'Nombre de traitements exécutés en parallèle (envois, exports, anonymisations).')],
+
+      JobsHistorySize: [t('cfg_JobsHistorySize_label', 'Historique conservé'),
+          t('cfg_JobsHistorySize_help', 'Nombre de tâches terminées gardées en mémoire.')],
+
+      SaveJobs: [t('cfg_SaveJobs_label', 'Conserver après redémarrage'),
+          t('cfg_SaveJobs_help', 'Les tâches inachevées reprennent au démarrage suivant.')],
+
     },
   },
   {
@@ -103,8 +182,33 @@ export const GROUPES = [
     titre: 'Recherches',
     icone: 'fa-magnifying-glass',
     champs: {
-      LimitFindResults: ['Résultats maximum', "Plafond du nombre d'examens renvoyés par une recherche. 0 pour ne pas limiter."],
-      LimitFindInstances: ['Images maximum', 'Même plafond au niveau des images.'],
+      LimitFindResults: [t('cfg_LimitFindResults_label', 'Résultats maximum'),
+          t('cfg_LimitFindResults_help', 'Plafond du nombre d\'examens renvoyés par une recherche. 0 pour ne pas limiter.')],
+
+      LimitFindInstances: [t('cfg_LimitFindInstances_label', 'Images maximum'),
+          t('cfg_LimitFindInstances_help', 'Même plafond au niveau des images.')],
+
+    },
+  },
+  {
+    id: 'entretien',
+    titre: 'Entretien automatique',
+    icone: 'fa-broom',
+    champs: {
+      'Housekeeper.Enable': [t('cfg_Housekeeper_Enable_label', 'Activer l\'entretien'),
+          t('cfg_Housekeeper_Enable_help', 'Tache de fond qui remet la base en cohérence après un changement de configuration : recompression du stockage, tags principaux, cache DICOMweb.')],
+      'Housekeeper.ThrottleDelay': [t('cfg_Housekeeper_ThrottleDelay_label', 'Ménagement (ms)'),
+          t('cfg_Housekeeper_ThrottleDelay_help', 'Pause entre deux traitements. Plus la valeur est élevée, moins le serveur est sollicité, plus l\'entretien est long.')],
+      'Housekeeper.Force': [t('cfg_Housekeeper_Force_label', 'Forcer un passage complet'),
+          t('cfg_Housekeeper_Force_help', 'Retraite toute la base au prochain démarrage, même sans changement détecté. À laisser désactivé en usage courant.')],
+      'Housekeeper.Triggers.StorageCompressionChange': [t('cfg_Housekeeper_StorageCompressionChange_label', 'Sur changement de compression'),
+          t('cfg_Housekeeper_StorageCompressionChange_help', 'Recompresse les fichiers déjà stockés quand le réglage de compression change.')],
+      'Housekeeper.Triggers.MainDicomTagsChange': [t('cfg_Housekeeper_MainDicomTagsChange_label', 'Sur changement de tags'),
+          t('cfg_Housekeeper_MainDicomTagsChange_help', 'Reconstruit les tags indexés quand la liste des tags principaux change.')],
+      'Housekeeper.Triggers.UnnecessaryDicomAsJsonFiles': [t('cfg_Housekeeper_UnnecessaryDicomAsJsonFiles_label', 'Nettoyer les fichiers JSON'),
+          t('cfg_Housekeeper_UnnecessaryDicomAsJsonFiles_help', 'Supprime les copies JSON devenues inutiles des examens.')],
+      'Housekeeper.Triggers.DicomWebCache': [t('cfg_Housekeeper_DicomWebCache_label', 'Reconstruire le cache DICOMweb'),
+          t('cfg_Housekeeper_DicomWebCache_help', 'Régénère les métadonnées que les visionneuses lisent sans télécharger les images.')],
     },
   },
   {
@@ -112,8 +216,12 @@ export const GROUPES = [
     titre: 'Journaux',
     icone: 'fa-file-lines',
     champs: {
-      LogLevel: ['Niveau de détail', 'default, verbose ou trace. Les niveaux élevés produisent beaucoup de volume.'],
-      DeidentifyLogs: ['Masquer les données patient', "Retire les identifiants patient des journaux. À laisser actif : les journaux sont souvent transmis lors d'un dépannage."],
+      LogLevel: [t('cfg_LogLevel_label', 'Niveau de détail'),
+          t('cfg_LogLevel_help', 'default, verbose ou trace. Les niveaux élevés produisent beaucoup de volume.')],
+
+      DeidentifyLogs: [t('cfg_DeidentifyLogs_label', 'Masquer les données patient'),
+          t('cfg_DeidentifyLogs_help', 'Retire les identifiants patient des journaux. À laisser actif : les journaux sont souvent transmis lors d\'un dépannage.')],
+
     },
   },
 ]

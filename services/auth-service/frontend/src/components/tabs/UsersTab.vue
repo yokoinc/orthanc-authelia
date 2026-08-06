@@ -158,7 +158,8 @@ onMounted(load)
         </tr>
       </thead>
       <tbody>
-        <tr v-for="u in users" :key="u.username">
+        <template v-for="u in users" :key="u.username">
+        <tr>
           <td><strong>{{ u.username }}</strong></td>
           <td>{{ u.displayname }}</td>
           <td>{{ u.email }}</td>
@@ -194,7 +195,7 @@ onMounted(load)
             </button>
           </td>
         </tr>
-        <tr v-if="editionPour === u.username" :key="u.username + '-edit'">
+        <tr v-if="editionPour === u.username">
           <td colspan="6" class="edit-ligne">
             <div class="champ">
               <label>{{ t('setup_displayname_label', 'Nom affiché') }}</label>
@@ -236,7 +237,7 @@ onMounted(load)
             </div>
           </td>
         </tr>
-        <tr v-if="motDePassePour === u.username" :key="u.username + '-pwd'">
+        <tr v-if="motDePassePour === u.username">
           <td colspan="6" class="pwd-ligne">
             <label>{{ t('users_new_password', 'Nouveau mot de passe') }}</label>
             <input
@@ -256,6 +257,7 @@ onMounted(load)
             </button>
           </td>
         </tr>
+        </template>
         <tr v-if="!users.length">
           <td colspan="6" class="loading">{{ t('users_empty', 'Aucun utilisateur') }}</td>
         </tr>
