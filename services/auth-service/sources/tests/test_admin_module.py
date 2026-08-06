@@ -13,6 +13,7 @@ Executer avec :
 """
 
 import asyncio
+import json
 
 import pytest
 
@@ -447,3 +448,165 @@ def _executer(coro):
         return boucle.run_until_complete(coro)
     finally:
         boucle.close()
+
+
+# ============================================================================
+# Ecriture d'orthanc.json : preserver ce que la structure ne porte pas
+# ============================================================================
+
+class TestEcritureNonDestructive:
+    """Le panel edite le texte plutot que de regenerer le fichier.
+
+    Une reecriture par json.dumps() efface commentaires, ordre et
+    groupements. Constate sur une installation reelle : la premiere
+    modification faite depuis le panel avait supprime les 44 commentaires du
+    fichier, soit l'essentiel de sa documentation.
+
+    Les cas rassembles ici sont ceux ou une edition textuelle naive se
+    trompe : un nom de cle cite dans un commentaire, une accolade dans une
+    chaine, un commentaire colle a la valeur.
+    """
+
+    @staticmethod
+    def _relire(texte):
+        from admin_module import _strip_json_comments
+        return json.loads(_strip_json_comments(texte))
+
+    def test_commentaires_preserves(self):
+        from admin_module import _ecrire_changements
+        source = """{
+  // Nom affiche dans l'interface
+  "Name": "Orthanc",
+
+  // Titre applicatif DICOM, 16 caracteres au plus
+  "DicomAet": "ORTHANC"
+}"""
+        out = _ecrire_changements(source, {"Name": "PACS"})
+        assert out.count("//") == 2
+        assert "Nom affiche dans l'interface" in out
+        assert self._relire(out) == {"Name": "PACS", "DicomAet": "ORTHANC"}
+
+    def test_seule_la_ligne_visee_change(self):
+        """Une modification ne doit pas reformater le reste du fichier."""
+        from admin_module import _ecrire_changements
+        source = '{\n  "A": 1,\n  "B": 2,\n  "C": 3\n}'
+        out = _ecrire_changements(source, {"B": 20})
+        avant, apres = source.splitlines(), out.splitlines()
+        assert len(avant) == len(apres)
+        assert [i for i, (a, b) in enumerate(zip(avant, apres)) if a != b] == [2]
+
+    def test_cle_citee_dans_un_commentaire(self):
+        """Le piege classique : le nom de la cle apparait aussi en commentaire."""
+        from admin_module import _ecrire_changements
+        source = """{
+  // Ne pas confondre avec "Name" du bloc DicomWeb ci-dessous
+  "Name": "Orthanc"
+}"""
+        out = _ecrire_changements(source, {"Name": "PACS"})
+        assert 'avec "Name" du bloc' in out       # le commentaire est intact
+        assert self._relire(out) == {"Name": "PACS"}
+
+    def test_accolade_dans_une_chaine(self):
+        """Une accolade entre guillemets ne doit pas etre lue comme un bloc."""
+        from admin_module import _ecrire_changements
+        source = '{\n  "Motif": "prefixe{suffixe}",\n  "Name": "Orthanc"\n}'
+        out = _ecrire_changements(source, {"Name": "PACS"})
+        assert self._relire(out) == {"Motif": "prefixe{suffixe}", "Name": "PACS"}
+
+    def test_commentaire_en_fin_de_ligne(self):
+        """La valeur s'arrete avant le //, qui doit survivre tel quel."""
+        from admin_module import _ecrire_changements
+        source = '{\n  "Taille": 500, // en megaoctets\n  "Name": "Orthanc"\n}'
+        out = _ecrire_changements(source, {"Taille": 800})
+        assert "// en megaoctets" in out
+        assert self._relire(out)["Taille"] == 800
+
+    def test_cle_imbriquee(self):
+        from admin_module import _ecrire_changements
+        source = """{
+  "Name": "Orthanc",
+  "DicomWeb": {
+    // Taille maximale d'un envoi STOW-RS
+    "StowMaxSize": 500,
+    "Enable": true
+  }
+}"""
+        out = _ecrire_changements(source, {"DicomWeb.StowMaxSize": 1000})
+        assert "Taille maximale" in out
+        assert self._relire(out)["DicomWeb"] == {"StowMaxSize": 1000, "Enable": True}
+
+    def test_cle_absente_ajoutee(self):
+        """Orthanc laisse beaucoup de reglages implicites : les definir est un
+        cas courant, pas une exception."""
+        from admin_module import _ecrire_changements
+        source = '{\n  // Reglages de base\n  "Name": "Orthanc"\n}'
+        out = _ecrire_changements(source, {"DicomAlwaysAllowStore": False})
+        assert "// Reglages de base" in out
+        assert self._relire(out) == {"Name": "Orthanc", "DicomAlwaysAllowStore": False}
+        # Meme indentation que ses voisines : une cle decalee se remarque, et
+        # donne l'impression d'un fichier edite a la main a la va-vite.
+        ligne = [l for l in out.splitlines() if "DicomAlwaysAllowStore" in l][0]
+        assert ligne.startswith('  "'), repr(ligne)
+
+    def test_cle_ajoutee_apres_un_commentaire_final(self):
+        """Le commentaire de fin de bloc doit rester en dernier."""
+        from admin_module import _ecrire_changements
+        source = '{\n  "Name": "Orthanc"\n  // fin du bloc\n}'
+        out = _ecrire_changements(source, {"DicomAet": "PACS"})
+        assert self._relire(out) == {"Name": "Orthanc", "DicomAet": "PACS"}
+        assert out.index('"DicomAet"') < out.index("// fin du bloc")
+
+    def test_ajout_dans_un_objet_imbrique(self):
+        from admin_module import _ecrire_changements
+        source = '{\n  "DicomWeb": {\n    "Enable": true\n  }\n}'
+        out = _ecrire_changements(source, {"DicomWeb.StowMaxSize": 500})
+        assert self._relire(out)["DicomWeb"] == {"Enable": True, "StowMaxSize": 500}
+        ligne = [l for l in out.splitlines() if "StowMaxSize" in l][0]
+        assert ligne.startswith('    "'), repr(ligne)
+
+    def test_parent_absent_refuse(self):
+        """Creer une arborescence demanderait de deviner une mise en forme :
+        on prefere le signaler et laisser l'appelant regenerer."""
+        from admin_module import _ecrire_changements
+        with pytest.raises(ValueError, match="parent absent"):
+            _ecrire_changements('{\n  "Name": "Orthanc"\n}',
+                                {"Absent.Cle": 1})
+
+    def test_plusieurs_changements_a_la_fois(self):
+        from admin_module import _ecrire_changements
+        source = """{
+  // en-tete
+  "Name": "Orthanc",
+  "DicomAet": "ORTHANC",
+  "DicomPort": 4242
+}"""
+        out = _ecrire_changements(source, {
+            "Name": "PACS", "DicomPort": 11112, "DicomCheckCalledAet": True,
+        })
+        assert "// en-tete" in out
+        assert self._relire(out) == {
+            "Name": "PACS", "DicomAet": "ORTHANC", "DicomPort": 11112,
+            "DicomCheckCalledAet": True,
+        }
+
+    def test_types_scalaires(self):
+        """booleen, entier, chaine et null doivent se relire a l'identique."""
+        from admin_module import _ecrire_changements
+        source = '{\n  "A": 1,\n  "B": "x",\n  "C": true,\n  "D": null\n}'
+        out = _ecrire_changements(source, {"A": 42, "B": "y", "C": False, "D": "z"})
+        assert self._relire(out) == {"A": 42, "B": "y", "C": False, "D": "z"}
+
+    def test_fichier_reel_du_depot(self):
+        """Le fichier livre : aucun commentaire ne doit disparaitre."""
+        from admin_module import _ecrire_changements
+        from pathlib import Path as _P
+
+        exemple = _P(__file__).resolve().parents[4] / "orthanc.json.example"
+        if not exemple.exists():           # arborescence reduite (image de test)
+            pytest.skip("orthanc.json.example hors de l'arborescence")
+
+        source = exemple.read_text(encoding="utf-8")
+        avant = source.count("//")
+        out = _ecrire_changements(source, {"Name": "PACS Cuffel"})
+        assert out.count("//") == avant
+        assert self._relire(out)["Name"] == "PACS Cuffel"

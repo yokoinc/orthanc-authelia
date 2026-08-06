@@ -133,7 +133,7 @@ Le panel est une application Vue 3 (`services/auth-service/frontend/`) compilée
 | **Maintenance** | Adresse publique de la pile, et restauration d'une sauvegarde | Écrit `.env` ; restaure un fichier depuis `data/admin-backups/` |
 | **Journal** | Qui a fait quoi et quand : comptes, configuration, sauvegardes, requêtes rejetées | Lit le flux d'audit dans Redis |
 
-Chaque écriture crée une sauvegarde rotative dans `data/admin-backups/` (les 10 dernières sont conservées). La gestion des comptes ne demande aucun accès au socket Docker : Authelia surveille son fichier d'utilisateurs et le relit seul.
+Chaque écriture crée une sauvegarde rotative dans `data/admin-backups/` (les 10 dernières sont conservées). Le panel **édite** `orthanc.json` au lieu de le régénérer : seule la valeur visée est remplacée, et les commentaires qui documentent chaque réglage survivent. Une régénération par `json.dumps()` les effaçait — constaté sur une installation réelle, où la première modification faite depuis le panel avait supprimé les 44 commentaires du fichier. Le résultat est relu et comparé à la structure attendue avant d'être écrit ; si la mise en forme ne peut pas être conservée, la réponse de l'API le dit au lieu de laisser le découvrir plus tard. La gestion des comptes ne demande aucun accès au socket Docker : Authelia surveille son fichier d'utilisateurs et le relit seul.
 
 #### Redémarrer Orthanc depuis le panel
 

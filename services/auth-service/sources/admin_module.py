@@ -673,6 +673,209 @@ def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
     node[keys[-1]] = value
 
 
+# ============================================================================
+# Ecriture d'orthanc.json sans perdre ce qui l'entoure
+# ============================================================================
+#
+# Reconstruire le fichier avec json.dumps() efface tout ce que la structure ne
+# porte pas : commentaires, ordre des cles, groupements. Verifie sur une
+# installation reelle -- la premiere modification faite depuis le panel a
+# supprime les 44 commentaires du fichier, soit l'essentiel de sa
+# documentation. Sur un PACS, ce fichier est ce qu'on relit pour comprendre ce
+# qui est active et pourquoi.
+#
+# On edite donc le texte a la place : seule la valeur modifiee est remplacee,
+# le reste du fichier est recopie a l'octet pres.
+
+
+def _fin_de_chaine(texte: str, debut: int) -> int:
+    """Index du guillemet fermant de la chaine ouverte a `debut`."""
+    i = debut + 1
+    n = len(texte)
+    while i < n:
+        if texte[i] == "\\":
+            i += 2
+            continue
+        if texte[i] == '"':
+            return i
+        i += 1
+    return n - 1
+
+
+def _analyser_json(texte: str) -> tuple[dict[str, tuple[int, int]],
+                                        dict[str, tuple[int, int]]]:
+    """Releve, par chemin pointe, ou se trouvent les valeurs et les objets.
+
+    Parcourt le texte en tenant a jour une pile de conteneurs, en sautant
+    chaines et commentaires. Renvoie deux tables : les bornes de chaque valeur
+    scalaire, et celles de chaque objet -- ces dernieres servent a inserer une
+    cle absente au bon endroit. L'objet racine a pour chemin la chaine vide.
+    """
+    positions: dict[str, tuple[int, int]] = {}
+    objets: dict[str, tuple[int, int]] = {}
+    pile: list[dict] = []
+    n = len(texte)
+    i = 0
+    attend_valeur = False
+
+    def sauter(j: int) -> int:
+        """Avance jusqu'au prochain caractere significatif."""
+        while j < n:
+            if texte[j] in " \t\r\n":
+                j += 1
+            elif texte[j] == "/" and j + 1 < n and texte[j + 1] == "/":
+                f = texte.find("\n", j)
+                j = n if f == -1 else f + 1
+            elif texte[j] == "/" and j + 1 < n and texte[j + 1] == "*":
+                f = texte.find("*/", j + 2)
+                j = n if f == -1 else f + 2
+            else:
+                return j
+        return n
+
+    def chemin() -> str:
+        return ".".join(e["cle"] for e in pile if e["cle"] is not None)
+
+    while i < n:
+        i = sauter(i)
+        if i >= n:
+            break
+        c = texte[i]
+
+        if c in "{[":
+            # Le chemin de l'objet qu'on ouvre est celui du contexte courant,
+            # cle du parent comprise : il faut donc le relever avant d'empiler.
+            pile.append({"type": c, "cle": None, "chemin": chemin(), "debut": i})
+            attend_valeur = False
+            i += 1
+        elif c in "}]":
+            if pile:
+                ferme = pile.pop()
+                if ferme["type"] == "{":
+                    objets[ferme["chemin"]] = (ferme["debut"], i)
+            attend_valeur = False
+            i += 1
+        elif c == ",":
+            if pile and pile[-1]["type"] == "{":
+                pile[-1]["cle"] = None
+            attend_valeur = False
+            i += 1
+        elif c == ":":
+            attend_valeur = True
+            i += 1
+        elif c == '"':
+            fin = _fin_de_chaine(texte, i)
+            if pile and pile[-1]["type"] == "{" and not attend_valeur:
+                pile[-1]["cle"] = texte[i + 1:fin]
+            elif attend_valeur and pile and pile[-1]["type"] == "{":
+                positions[chemin()] = (i, fin + 1)
+                attend_valeur = False
+            i = fin + 1
+        else:
+            # Scalaire sans guillemets : nombre, true, false, null. On s'arrete
+            # au premier separateur ou au debut d'un commentaire de fin de
+            # ligne, sans quoi celui-ci serait avale avec la valeur.
+            j = i
+            while j < n:
+                if texte[j] in ",}]\n":
+                    break
+                if texte[j] == "/" and j + 1 < n and texte[j + 1] in "/*":
+                    break
+                j += 1
+            fin = j
+            while fin > i and texte[fin - 1] in " \t\r":
+                fin -= 1
+            if attend_valeur and pile and pile[-1]["type"] == "{":
+                positions[chemin()] = (i, fin)
+            attend_valeur = False
+            i = j
+
+    return positions, objets
+
+
+def _inserer_cle(texte: str, objet: tuple[int, int], cle: str, valeur: Any) -> str:
+    """Ajoute `cle` a la fin de l'objet dont les bornes sont donnees.
+
+    Se place apres la derniere valeur de l'objet, et non juste avant
+    l'accolade fermante : un commentaire final resterait ainsi a sa place, au
+    lieu de se retrouver coince entre la nouvelle cle et la precedente.
+    """
+    debut, fin = objet
+
+    # Reculer depuis l'accolade fermante jusqu'au dernier caractere qui porte
+    # du contenu, en sautant blancs et commentaires.
+    j = fin - 1
+    while j > debut:
+        c = texte[j]
+        if c in " \t\r\n":
+            j -= 1
+            continue
+        # Fin d'un commentaire de bloc ?
+        if c == "/" and j - 1 > debut and texte[j - 1] == "*":
+            ouverture = texte.rfind("/*", debut, j)
+            if ouverture == -1:
+                break
+            j = ouverture - 1
+            continue
+        # Ligne de commentaire ? On regarde si un // la precede sur la ligne.
+        debut_ligne = texte.rfind("\n", debut, j) + 1
+        marque = texte.find("//", debut_ligne, j + 1)
+        if marque != -1 and '"' not in texte[debut_ligne:marque]:
+            j = debut_ligne - 1
+            continue
+        break
+
+    # Un cran de plus que l'accolade fermante. Celle de l'objet racine est en
+    # colonne 0 : la portion de ligne qui la precede est vide, ce qui donne
+    # bien une indentation de deux espaces.
+    ligne = texte.rfind("\n", 0, fin) + 1
+    avant_accolade = texte[ligne:fin]
+    blancs = len(avant_accolade) - len(avant_accolade.lstrip())
+    indentation = " " * (blancs + 2)
+
+    rendu = f'"{cle}": {json.dumps(valeur, ensure_ascii=False)}'
+    if texte[j] == "{":  # objet vide
+        return texte[:j + 1] + f"\n{indentation}{rendu}\n" + texte[j + 1:]
+    return texte[:j + 1] + f",\n{indentation}{rendu}" + texte[j + 1:]
+
+
+def _ecrire_changements(texte: str, changements: dict[str, Any]) -> str:
+    """Applique les changements au texte en preservant tout le reste.
+
+    Une cle deja presente voit sa valeur remplacee sur place. Une cle absente
+    est ajoutee a la fin de son objet : le panel expose des reglages
+    qu'Orthanc laisse implicites, et les definir est un cas courant, pas une
+    exception.
+
+    Leve ValueError si l'objet parent lui-meme n'existe pas -- creer une
+    arborescence demanderait de deviner une mise en forme. L'appelant retombe
+    alors sur une reecriture complete, en connaissance de cause.
+    """
+    positions, objets = _analyser_json(texte)
+
+    presentes = {c: v for c, v in changements.items() if c in positions}
+    absentes = {c: v for c, v in changements.items() if c not in positions}
+
+    for chemin in absentes:
+        parent = chemin.rsplit(".", 1)[0] if "." in chemin else ""
+        if parent not in objets:
+            raise ValueError(f"{chemin} : objet parent absent du fichier")
+
+    # De la fin vers le debut : les index releves restent valides.
+    for chemin in sorted(presentes, key=lambda c: positions[c][0], reverse=True):
+        debut, fin = positions[chemin]
+        texte = texte[:debut] + json.dumps(presentes[chemin], ensure_ascii=False) + texte[fin:]
+
+    # Chaque insertion decale ce qui suit : on repart d'une analyse fraiche.
+    for chemin, valeur in absentes.items():
+        _, objets = _analyser_json(texte)
+        parent = chemin.rsplit(".", 1)[0] if "." in chemin else ""
+        cle = chemin.rsplit(".", 1)[-1]
+        texte = _inserer_cle(texte, objets[parent], cle, valeur)
+
+    return texte
+
+
 def _validate_orthanc(config: dict) -> None:
     """Invariants critiques a preserver."""
     # Flags de persistance sinon les modalites saisies via UI disparaissent
@@ -1052,7 +1255,33 @@ async def update_orthanc_config(
                 _apply_scalar_change(config, path, value)
             _validate_orthanc(config)
             backup = _backup(ORTHANC_JSON)
-            serialized = json.dumps(config, indent=2, ensure_ascii=False) + "\n"
+
+            # On edite le texte plutot que de le regenerer, pour ne pas
+            # effacer les commentaires qui documentent chaque reglage.
+            #
+            # Le resultat est relu et compare a la structure attendue : une
+            # edition textuelle qui produirait autre chose que le JSON voulu
+            # doit etre detectee ici, jamais decouverte par Orthanc au
+            # demarrage suivant.
+            brut = ORTHANC_JSON.read_text(encoding="utf-8")
+            try:
+                serialized = _ecrire_changements(brut, payload.changes)
+                relu = json.loads(_strip_json_comments(serialized))
+                if relu != config:
+                    raise ValueError("relecture divergente")
+            except ValueError as raison:
+                # Cle absente du fichier, ou relecture inattendue : on
+                # regenere. Les commentaires sont perdus, ce que l'appelant
+                # apprend dans la reponse plutot que de le decouvrir plus tard.
+                logger.warning(
+                    "orthanc.json regenere (%s) : les commentaires seront perdus",
+                    raison,
+                )
+                serialized = json.dumps(config, indent=2, ensure_ascii=False) + "\n"
+                commentaires_perdus = True
+            else:
+                commentaires_perdus = False
+
             _atomic_write(ORTHANC_JSON, serialized)
     except Timeout as e:
         raise HTTPException(423, "orthanc.json verrouille, retry") from e
@@ -1082,6 +1311,7 @@ async def update_orthanc_config(
                 "ok": True,
                 "backup": backup.name,
                 "restart_required": True,
+                "commentaires_perdus": commentaires_perdus,
                 "message": (
                     "Configuration enregistree. Elle ne prendra effet qu'apres "
                     "redemarrage d'Orthanc : utiliser le bouton Redemarrer, ou "
@@ -1127,7 +1357,13 @@ async def update_orthanc_config(
         fields=",".join(payload.changes.keys()),
         backup=backup.name,
     )
-    return {"ok": True, "backup": backup.name}
+    reponse = {"ok": True, "backup": backup.name}
+    if commentaires_perdus:
+        reponse["message"] = (
+            "Configuration enregistree, mais le fichier a du etre regenere : "
+            f"ses commentaires ont ete perdus. Copie intacte : {backup.name}"
+        )
+    return reponse
 
 
 # ============================================================================
