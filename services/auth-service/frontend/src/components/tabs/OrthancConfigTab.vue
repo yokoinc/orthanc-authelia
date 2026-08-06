@@ -12,11 +12,24 @@ const loading = ref(true)
 const saving = ref(false)
 const replies = ref({})
 
-function detectType(val) {
-  if (typeof val === 'boolean') return 'bool'
-  if (typeof val === 'number') return 'number'
-  if (Array.isArray(val)) return 'list'
+const meta = ref({})
+
+// Le type vient du serveur, qui le tient de sa liste de parametres
+// autorises. Le deduire de la valeur ne marchait que pour les parametres
+// presents dans orthanc.json : les autres valent null et retombaient sur un
+// champ texte, alors qu'il s'agit souvent de booleens.
+function detectType(cle) {
+  const t = meta.value[cle]?.type
+  if (t === 'bool') return 'bool'
+  if (t === 'int') return 'number'
+  if (t === 'list') return 'list'
   return 'text'
+}
+
+// Parametre absent du fichier : Orthanc applique sa valeur par defaut. Le
+// signaler evite de laisser croire a un reglage vide.
+function parDefaut(cle) {
+  return meta.value[cle]?.present === false
 }
 
 function isModified(key) {
@@ -79,6 +92,7 @@ async function load() {
   try {
     const data = await api('/console/api/admin/orthanc/config')
     fields.value = { ...data.editable }
+    meta.value = data.fields || {}
     originalFields.value = JSON.parse(JSON.stringify(data.editable))
   } catch (e) {
     ui.notify(t('orthanc_load_error', 'Erreur au chargement de la configuration : {detail}', { detail: e.message }), 'err')
@@ -132,23 +146,26 @@ onMounted(load)
         >
           <div class="intitule">
             <label :for="'c-' + cle">{{ libelle(cle) }}</label>
-            <span class="tech">{{ cle }}</span>
+            <span class="tech">
+              {{ cle }}
+              <em v-if="parDefaut(cle)" class="defaut">{{ t('orthanc_default', '· valeur par défaut d\'Orthanc') }}</em>
+            </span>
             <span v-if="aide(cle)" class="aide">{{ aide(cle) }}</span>
           </div>
 
           <div class="valeur">
-            <select v-if="detectType(fields[cle]) === 'bool'" :id="'c-' + cle" v-model="fields[cle]">
+            <select v-if="detectType(cle) === 'bool'" :id="'c-' + cle" v-model="fields[cle]">
               <option :value="true">{{ t('yes', 'Oui') }}</option>
               <option :value="false">{{ t('no', 'Non') }}</option>
             </select>
             <textarea
-              v-else-if="detectType(fields[cle]) === 'list'"
+              v-else-if="detectType(cle) === 'list'"
               :id="'c-' + cle" rows="4"
               :value="listeVersTexte(fields[cle])"
               @input="texteVersListe(cle, $event.target.value)"
             ></textarea>
             <input
-              v-else-if="detectType(fields[cle]) === 'number'"
+              v-else-if="detectType(cle) === 'number'"
               :id="'c-' + cle" v-model.number="fields[cle]" type="number"
             >
             <input v-else :id="'c-' + cle" v-model="fields[cle]" type="text">
@@ -196,6 +213,7 @@ h2 { font-size: 14px; margin: 0 0 6px; font-weight: 400; }
 .intitule { display: flex; flex-direction: column; gap: 2px; }
 .intitule label { font-size: 12px; }
 .tech { font-family: var(--oe2-font-mono); font-size: 10px; color: var(--oe2-muted); }
+.defaut { font-family: var(--oe2-font-stack); font-style: normal; color: var(--oe2-accent-soft); }
 .aide { font-size: 11px; color: var(--oe2-muted); max-width: 60ch; }
 
 .valeur { display: flex; align-items: center; gap: 8px; }

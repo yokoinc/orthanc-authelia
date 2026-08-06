@@ -152,7 +152,16 @@ show_config() {
     echo
     echo "Authentication:"
     echo "  Username: ${AUTH_USERNAME:-share-user}"
-    echo "  Password: ${AUTH_PASSWORD:+[SET]} ${AUTH_PASSWORD:-[NOT SET]}"
+    # Deux expansions successives trahissaient la valeur : ${VAR:+[SET]}
+    # affiche bien [SET], mais ${VAR:-[NOT SET]} ne substitue QUE si la
+    # variable est vide -- renseignee, elle etait imprimee telle quelle. Le
+    # mot de passe du compte de service partait donc en clair dans les
+    # journaux Docker, et dans tout export de diagnostic.
+    if [ -n "${AUTH_PASSWORD:-}" ]; then
+        echo "  Password: [SET]"
+    else
+        echo "  Password: [NOT SET]"
+    fi
     echo
     echo "Redis:"
     echo "  Host: ${REDIS_HOST:-redis}"

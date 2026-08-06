@@ -177,7 +177,8 @@
     "modality_echo_ko": "{name} does not respond.",
     "modality_name_help": "Free identifier, used within Orthanc",
     "modality_aet_help": "16 characters maximum, imposed by the DICOM standard",
-    "modality_port_help": "104 by convention"
+    "modality_port_help": "104 by convention",
+    "orthanc_default": "· Orthanc default value"
   },
   "js": {
     "expired": "Expired",

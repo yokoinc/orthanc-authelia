@@ -177,7 +177,8 @@
     "modality_echo_ko": "{name} ne répond pas.",
     "modality_name_help": "Identifiant libre, utilisé dans Orthanc",
     "modality_aet_help": "16 caractères maximum, imposé par la norme DICOM",
-    "modality_port_help": "104 par convention"
+    "modality_port_help": "104 par convention",
+    "orthanc_default": "· valeur par défaut d'Orthanc"
   },
   "js": {
     "expired": "Expiré",

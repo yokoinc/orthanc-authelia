@@ -926,17 +926,34 @@ async def delete_user(username: str, admin: AdminUser = Depends(require_admin)):
 @router.get("/api/admin/orthanc/config")
 async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
     config = _load_orthanc_config()
-    # Renvoie uniquement les valeurs editables (whitelist)
-    result = {}
-    for dotted in ORTHANC_EDITABLE_PATHS:
+
+    # Le type est celui DECLARE, pas celui de la valeur lue : plus de la
+    # moitie des parametres sont absents d'orthanc.json (Orthanc applique
+    # alors ses valeurs par defaut) et ressortaient donc a None. L'interface,
+    # qui deduisait le type de la valeur, affichait un champ texte pour un
+    # booleen -- inutilisable, et refuse a l'enregistrement puisque le
+    # serveur attend un vrai booleen et non la chaine "true".
+    noms = {bool: "bool", int: "int", str: "str", list: "list"}
+
+    result, meta = {}, {}
+    for dotted, attendu in ORTHANC_EDITABLE_PATHS.items():
         node = config
+        present = True
         for k in dotted.split("."):
             if not isinstance(node, dict) or k not in node:
-                node = None
+                node, present = None, False
                 break
             node = node[k]
         result[dotted] = node
-    return {"editable": result}
+        meta[dotted] = {
+            "type": noms.get(attendu, "str"),
+            # Distingue "absent du fichier" de "present et vide" : dans le
+            # premier cas Orthanc applique sa valeur par defaut, ce que
+            # l'interface signale plutot que de faire croire a un vide.
+            "present": present,
+        }
+
+    return {"editable": result, "fields": meta}
 
 
 @router.patch("/api/admin/orthanc/config")

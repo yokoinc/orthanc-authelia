@@ -172,6 +172,16 @@ else
     # Sans eux, l'entrypoint nginx ne genere pas de fichier htpasswd et
     # l'endpoint refuse tout : il vaut mieux le livrer utilisable, protege par
     # un mot de passe genere, que desactive ou -- pire -- ouvert a tous.
+    # Langue de l'interface. Elle est deduite de celle du systeme quand une
+    # traduction correspondante existe : sans cela le panel s'affiche en
+    # anglais sur un poste francophone, sans que rien n'indique d'ou vient ce
+    # choix ni comment en changer.
+    LANGUE_SYSTEME=${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}
+    case "$LANGUE_SYSTEME" in
+        fr*|FR*) LANGUAGE_VALUE="fr" ;;
+        *)       LANGUAGE_VALUE="en" ;;
+    esac
+
     UPLOAD_USER_VALUE="import-dicom"
     UPLOAD_PASS_VALUE=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
 
@@ -185,6 +195,7 @@ else
         -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG_PASS|" \
         -e "s|^AUTH_PASSWORD=.*|AUTH_PASSWORD=$AUTH_PASS|" \
         -e "s|^PUBLIC_URL=.*|PUBLIC_URL=https://pacs.localhost:30443|" \
+        -e "s|^LANGUAGE=.*|LANGUAGE=${LANGUAGE_VALUE}|" \
         -e "s|^UPLOAD_USER=.*|UPLOAD_USER=${UPLOAD_USER_VALUE}|" \
         -e "s|^UPLOAD_PASSWORD=.*|UPLOAD_PASSWORD=${UPLOAD_PASS_VALUE}|" \
         -e "s|^PUID=.*|PUID=${PUID}|" \
@@ -201,6 +212,7 @@ else
     } >> .env
 
     ok ".env genere avec 6 secrets aleatoires (Authelia x3 + Postgres + Orthanc + import DICOM)"
+    ok "Interface en ${LANGUAGE_VALUE} (d'apres la langue du systeme ; modifiable par LANGUAGE dans .env)"
 fi
 
 # ---------------------------------------------------------------------------

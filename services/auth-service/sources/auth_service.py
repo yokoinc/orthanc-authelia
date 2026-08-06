@@ -321,7 +321,7 @@ try:
     app.include_router(admin_module.router)
     app.middleware("http")(admin_module.setup_gate)
     app.middleware("http")(admin_module.csrf_gate)
-    logging.info("admin_module chargé — routes /auth/setup et /auth/admin actives")
+    logging.info("admin_module chargé — panel sur /console/, assistant sur /console/setup")
 except ImportError as e:
     logging.warning(f"admin_module non charge : {e} — les routes admin ne seront pas dispo")
 
