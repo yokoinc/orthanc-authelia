@@ -44,6 +44,41 @@ fi
 ok "docker + docker compose + openssl OK"
 
 # ---------------------------------------------------------------------------
+# Proprietaire des dossiers de configuration
+# ---------------------------------------------------------------------------
+# Authelia et Orthanc tournent en root dans leurs conteneurs et s'approprient
+# les dossiers qu'ils montent des le premier demarrage. A la reinstallation,
+# la copie des templates echoue alors sur un "Permission denied" laconique,
+# sans indiquer quoi faire -- et la procedure de remise a zero documentee dans
+# le README devient inapplicable.
+#
+# On rend la main a l'utilisateur courant, via un conteneur puisque lui-meme
+# n'a justement plus les droits. Sans docker en root ni sudo : c'est le
+# demon docker qui fait le travail.
+CONFIG_DIRS="services/authelia/config services/orthanc/config data"
+BESOIN_REPRISE=""
+for d in $CONFIG_DIRS; do
+    [[ -d $d ]] || continue
+    if [[ ! -w $d ]]; then
+        BESOIN_REPRISE="$BESOIN_REPRISE $d"
+    fi
+done
+
+if [[ -n ${BESOIN_REPRISE// /} ]]; then
+    info "Dossiers appartenant a un autre utilisateur (conteneurs) :$BESOIN_REPRISE"
+    if docker run --rm -v "$PWD:/depot" alpine \
+        sh -c "chown -R $(id -u):$(id -g)$(printf ' /depot/%s' $BESOIN_REPRISE)" \
+        >/dev/null 2>&1; then
+        ok "Proprietaire retabli sur$BESOIN_REPRISE"
+    else
+        err "Impossible de reprendre la main sur :$BESOIN_REPRISE"
+        err "Lance manuellement :"
+        err "  docker run --rm -v \"\$PWD:/depot\" alpine chown -R $(id -u):$(id -g) /depot"
+        exit 1
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # docker-compose.yml
 # ---------------------------------------------------------------------------
 if [[ -f docker-compose.yml ]]; then
@@ -272,12 +307,12 @@ Etapes suivantes :
        docker compose up -d
 
   3. ${C}Setup wizard${R} — creation du premier admin :
-       https://localhost:30443/auth/ui/setup
+       https://localhost:30443/console/setup
        (cert self-signed : accepter l'avertissement du navigateur)
 
   4. ${C}Apres le wizard${R} :
        https://localhost:30443/          Orthanc Explorer
-       https://localhost:30443/auth/ui/admin   Hub d'administration
+       https://localhost:30443/console/          Panel d'administration
 
 Repartir de zero :
   docker compose down -v
