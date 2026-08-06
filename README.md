@@ -130,7 +130,7 @@ Le panel est une application Vue 3 (`services/auth-service/frontend/`) compilée
 | **Configuration Orthanc** | ~40 paramètres de `orthanc.json`, rangés par thème et documentés, et un bouton pour redémarrer Orthanc | Écrit le JSON ; le redémarrage applique les changements |
 | **Équipements** | Déclarer les modalités DICOM (scanner, IRM…) et tester leur connectivité par C-ECHO | Passe par l'API d'Orthanc ; effet immédiat, sans redémarrage |
 | **État** | Redis, Orthanc, fichiers de configuration | Lecture seule |
-| **Maintenance** | Adresse publique de la pile, viewer par défaut des liens de partage, sauvegardes | Écrit `.env` ; restaure un fichier depuis `data/admin-backups/` |
+| **Maintenance** | Adresse publique, langue de l'interface, viewer par défaut des liens de partage, sauvegardes | Écrit `.env` et `data/app-settings/settings.json` ; restaure un fichier depuis `data/admin-backups/` |
 | **Journal** | Qui a fait quoi et quand : comptes, configuration, sauvegardes, requêtes rejetées | Lit le flux d'audit dans Redis |
 
 Chaque écriture crée une sauvegarde rotative dans `data/admin-backups/` (les 10 dernières sont conservées). Le panel **édite** `orthanc.json` au lieu de le régénérer : seule la valeur visée est remplacée, et les commentaires qui documentent chaque réglage survivent. Une régénération par `json.dumps()` les effaçait — constaté sur une installation réelle, où la première modification faite depuis le panel avait supprimé les 44 commentaires du fichier. Le résultat est relu et comparé à la structure attendue avant d'être écrit ; si la mise en forme ne peut pas être conservée, la réponse de l'API le dit au lieu de laisser le découvrir plus tard. La gestion des comptes ne demande aucun accès au socket Docker : Authelia surveille son fichier d'utilisateurs et le relit seul.
@@ -157,7 +157,7 @@ Deux emplacements, et la frontière entre les deux n'est pas affaire de goût :
 
 | | `.env` | `data/app-settings/settings.json` |
 |---|---|---|
-| Contenu | Secrets, identifiants, `PUID`/`PGID`, `SSL_MODE`, `PUBLIC_URL` | Préférences applicatives (viewer par défaut) |
+| Contenu | Secrets, identifiants, `PUID`/`PGID`, `SSL_MODE`, `PUBLIC_URL` | Préférences applicatives (viewer par défaut, langue) |
 | Lu par | Docker Compose, **avant** qu'un conteneur démarre | auth-service, en fonctionnement |
 | Modifié par | `bootstrap.sh`, et le panel pour `PUBLIC_URL` | Le panel |
 | Prise en compte | Au redémarrage de la pile | Immédiate |
@@ -165,6 +165,8 @@ Deux emplacements, et la frontière entre les deux n'est pas affaire de goût :
 Un réglage que seul auth-service consulte n'a rien à faire dans le `.env` : l'y mettre oblige à monter ce fichier en écriture dans le conteneur, à le réécrire sur place — un `rename` échoue sur un bind-mount de fichier — et mélange des préférences d'interface avec des mots de passe. Le fichier de réglages, lui, ne contient aucun secret, s'écrit de façon atomique, et un test le vérifie.
 
 Les installations antérieures ne cassent pas : un réglage absent du fichier est repris de l'ancienne variable d'environnement, et la première modification depuis le panel le fait basculer.
+
+La langue de l'interface suit le même chemin. Elle était figée au chargement du module depuis `LANGUAGE` : en changer imposait de recréer le conteneur, pour une préférence d'affichage. Les traductions sont désormais résolues à l'affichage — avec un cache invalidé par la date de modification du fichier de réglages, pour ne pas relire celui-ci à chaque libellé — et le panel la change à chaud. `bootstrap.sh` continue de la déduire de la langue du système au premier lancement, mais l'écrit dans les réglages plutôt que dans le `.env`.
 
 L'onglet Maintenance permet aussi de changer l'URL publique (`PUBLIC_URL`), ce qui met à jour `.env` et la configuration Authelia d'un seul geste. Le changement prend effet au redémarrage de la pile, et impose de se reconnecter sur la nouvelle adresse — le cookie de session étant lié à l'ancien domaine.
 

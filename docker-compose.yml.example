@@ -122,7 +122,10 @@ services:
       - ./.env:/host/env/.env:rw
     environment:
       # Essential Configuration (from .env)
-      - LANGUAGE=${LANGUAGE}
+      # Repli pour les installations anterieures : la langue vit
+      # desormais dans data/app-settings/settings.json et se change
+      # depuis le panel. Vide ici ne signifie donc pas "anglais".
+      - LANGUAGE=${LANGUAGE:-}
       - AUTH_USERNAME=${AUTH_USERNAME}
       - AUTH_PASSWORD=${AUTH_PASSWORD}
       - REDIS_HOST=redis

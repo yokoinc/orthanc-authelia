@@ -195,7 +195,6 @@ else
         -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG_PASS|" \
         -e "s|^AUTH_PASSWORD=.*|AUTH_PASSWORD=$AUTH_PASS|" \
         -e "s|^PUBLIC_URL=.*|PUBLIC_URL=https://pacs.localhost:30443|" \
-        -e "s|^LANGUAGE=.*|LANGUAGE=${LANGUAGE_VALUE}|" \
         -e "s|^UPLOAD_USER=.*|UPLOAD_USER=${UPLOAD_USER_VALUE}|" \
         -e "s|^UPLOAD_PASSWORD=.*|UPLOAD_PASSWORD=${UPLOAD_PASS_VALUE}|" \
         -e "s|^PUID=.*|PUID=${PUID}|" \
@@ -212,7 +211,7 @@ else
     } >> .env
 
     ok ".env genere avec 6 secrets aleatoires (Authelia x3 + Postgres + Orthanc + import DICOM)"
-    ok "Interface en ${LANGUAGE_VALUE} (d'apres la langue du systeme ; modifiable par LANGUAGE dans .env)"
+    ok "Interface en ${LANGUAGE_VALUE} (d'apres la langue du systeme ; modifiable depuis le panel)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -228,6 +227,15 @@ for dossier in data/admin-backups data/app-settings; do
         ok "$dossier/ cree"
     fi
 done
+
+# Langue de l'interface. Elle vit avec les reglages applicatifs et non dans le
+# .env : c'est une preference d'affichage, modifiable depuis le panel sans
+# recreer le moindre container.
+if [[ ! -f data/app-settings/settings.json ]]; then
+    printf '{\n  "langue": "%s"\n}\n' "${LANGUAGE_VALUE:-en}" \
+        > data/app-settings/settings.json
+    ok "langue de l'interface : ${LANGUAGE_VALUE:-en}"
+fi
 
 # ---------------------------------------------------------------------------
 # Configs Authelia + Orthanc

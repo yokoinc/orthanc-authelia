@@ -28,12 +28,39 @@ const viewerInitial = ref('')
 const viewerModifiable = ref(false)
 const enregistrementViewer = ref(false)
 
+// --- Langue de l'interface -------------------------------------------------
+const LANGUES = [
+  { id: 'fr', libelle: 'Français' },
+  { id: 'en', libelle: 'English' },
+]
+const langue = ref('')
+const langueInitiale = ref('')
+const enregistrementLangue = ref(false)
+
+async function enregistrerLangue() {
+  enregistrementLangue.value = true
+  try {
+    await api('/console/api/admin/langue', {
+      method: 'PUT', body: { langue: langue.value },
+    })
+    langueInitiale.value = langue.value
+    // Les libellés sont injectés dans la page au chargement : sans
+    // rechargement, l'interface resterait dans l'ancienne langue.
+    window.location.reload()
+  } catch (e) {
+    ui.notify(e.message, 'err')
+    enregistrementLangue.value = false
+  }
+}
+
 async function chargerPartage() {
   try {
     const d = await api('/console/api/admin/sharing')
     viewer.value = d.default_viewer
     viewerInitial.value = d.default_viewer
     viewerModifiable.value = d.editable
+    langue.value = d.langue
+    langueInitiale.value = d.langue
   } catch (e) {
     ui.notify(e.message, 'err')
   }
@@ -160,6 +187,24 @@ onMounted(() => { charger(); chargerPartage() })
     </div>
     <div v-if="!urlModifiable" class="avert">
       {{ t('network_readonly', "Le fichier .env n'est pas accessible : l'adresse ne peut pas être modifiée depuis le panel.") }}
+    </div>
+
+    <h2 class="espace">{{ t('langue_title', 'Langue de l\'interface') }}</h2>
+    <p class="note">
+      {{ t('langue_note', "Langue du panel et des pages de partage. Le changement recharge la page.") }}
+    </p>
+
+    <div class="ligne">
+      <select v-model="langue">
+        <option v-for="l in LANGUES" :key="l.id" :value="l.id">{{ l.libelle }}</option>
+      </select>
+      <button
+        class="oe2-btn oe2-btn--primary"
+        :disabled="langue === langueInitiale || enregistrementLangue"
+        @click="enregistrerLangue"
+      >
+        {{ enregistrementLangue ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
+      </button>
     </div>
 
     <h2 class="espace">{{ t('sharing_title', 'Liens de partage') }}</h2>

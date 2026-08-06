@@ -37,19 +37,19 @@ if _os.path.isdir("/app/frontend"):
     def _spa_html() -> str:
         """index.html du SPA, traductions injectees.
 
-        LANGUAGE est lue dans l'environnement au demarrage : impossible de
-        figer les libelles dans le bundle au moment du build. Les injecter
-        dans la page evite d'exposer une route supplementaire -- le wizard
-        n'est pas authentifie, il aurait fallu lui ouvrir un passage dedie
-        dans la configuration nginx.
+        La langue se change depuis le panel : figer les libelles dans le
+        bundle au moment du build est donc exclu. Les injecter dans la page
+        evite d'exposer une route supplementaire -- le wizard n'est pas
+        authentifie, il aurait fallu lui ouvrir un passage dedie dans la
+        configuration nginx.
 
-        TRANSLATIONS et LANGUAGE sont definis plus bas dans ce fichier ; la
+        traductions() et _langue() sont definis plus bas dans ce fichier ; la
         resolution se fait a l'appel, pas a l'import, donc l'ordre importe
         peu.
         """
         html = Path(_SPA_INDEX).read_text(encoding="utf-8")
         charge = json.dumps(
-            {"lang": LANGUAGE, "ui": TRANSLATIONS.get("ui", {})},
+            {"lang": _langue(), "ui": traductions().get("ui", {})},
             ensure_ascii=False,
         )
         # </script> dans une valeur traduite fermerait la balise par
@@ -96,7 +96,27 @@ logging.basicConfig(
 logger = logging.getLogger("auth-service")
 
 # Language configuration
-LANGUAGE = os.getenv("LANGUAGE", "en")
+def _langue() -> str:
+    """Langue de l'interface, modifiable depuis le panel.
+
+    Lue dans les reglages plutot que dans l'environnement : une preference
+    d'affichage n'a pas a imposer de recreer le container pour changer. La
+    variable LANGUAGE reste consultee en second, pour les installations qui
+    l'ont encore dans leur .env.
+    """
+    try:
+        from admin_module import _lire_reglage
+
+        choisie = _lire_reglage("langue", "LANGUAGE")
+    except Exception:  # noqa: BLE001 - reglages illisibles ne cassent rien
+        choisie = ""
+    if choisie in LANGUES_DISPONIBLES:
+        return choisie
+    return os.getenv("LANGUAGE", "en") if os.getenv("LANGUAGE") in LANGUES_DISPONIBLES else "en"
+
+
+# Langues pour lesquelles un fichier de traduction est livre.
+LANGUES_DISPONIBLES = ("en", "fr")
 
 # Orthanc API configuration (for patient name resolution)
 ORTHANC_API_URL = os.getenv("ORTHANC_API_URL", "http://orthanc:8042").rstrip("/")
@@ -269,17 +289,33 @@ def load_translations(language="en"):
             "js": {}
         }
 
-# Load translations based on configured language
-TRANSLATIONS = load_translations(LANGUAGE)
+# Traductions chargees a la demande, et non une fois pour toutes au demarrage.
+#
+# Le cache evite de relire le fichier a chaque libelle affiche ; il ne porte
+# que sur la langue courante, si bien qu'un changement depuis le panel prend
+# effet a la requete suivante.
+_traductions_cache: dict = {"langue": None, "data": None}
 
-# Extract UI messages for backward compatibility
-UI_MESSAGES = {
-    "INVALID_TOKEN": TRANSLATIONS["ui"]["invalid_token"],
-    "EXPIRED_TOKEN": TRANSLATIONS["ui"]["expired_token"],
-    "NO_STUDY": TRANSLATIONS["ui"]["no_study"],
-    "INVALID_STUDY": TRANSLATIONS["ui"]["invalid_study"],
-    "USAGE_LIMIT": TRANSLATIONS["ui"]["usage_limit"]
-}
+
+def traductions() -> dict:
+    """Table de traduction correspondant a la langue en vigueur."""
+    langue = _langue()
+    if _traductions_cache["langue"] != langue:
+        _traductions_cache["data"] = load_translations(langue)
+        _traductions_cache["langue"] = langue
+    return _traductions_cache["data"]
+
+
+def messages_ui() -> dict:
+    """Messages d'erreur des pages publiques, en majuscules par habitude."""
+    ui = traductions()["ui"]
+    return {
+        "INVALID_TOKEN": ui["invalid_token"],
+        "EXPIRED_TOKEN": ui["expired_token"],
+        "NO_STUDY": ui["no_study"],
+        "INVALID_STUDY": ui["invalid_study"],
+        "USAGE_LIMIT": ui["usage_limit"],
+    }
 
 # Configuration CDN
 FONT_AWESOME_CDN = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
@@ -436,11 +472,11 @@ def render_error_template(title: str, message: str, icon_class: str, status_code
 def render_access_denied_template(message: str = None, back_link: str = "") -> HTMLResponse:
     """Render access denied template"""
     if message is None:
-        message = TRANSLATIONS["ui"]["access_denied_message"]
+        message = traductions()["ui"]["access_denied_message"]
 
-    back_link_html = f'<a href="{back_link}" class="oe2-centered__link">{TRANSLATIONS["ui"]["back_to_pacs"]}</a>' if back_link else ""
+    back_link_html = f'<a href="{back_link}" class="oe2-centered__link">{traductions()["ui"]["back_to_pacs"]}</a>' if back_link else ""
     content = render_template("access_denied.html",
-                             access_denied_title=TRANSLATIONS["ui"]["access_denied_title"],
+                             access_denied_title=traductions()["ui"]["access_denied_title"],
                              message=message,
                              back_link=back_link_html)
     return HTMLResponse(content=content, status_code=403)
@@ -682,7 +718,7 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
     group_list = [g.strip() for g in group.replace(";", ",").split(",") if g.strip()]
 
     if "admin" in group_list:
-        user_name = TRANSLATIONS["ui"]["administrator"]
+        user_name = traductions()["ui"]["administrator"]
         # Liste complete des permissions reconnues par le plugin Authorization,
         # relevee dans les motifs qu'il enregistre au demarrage.
         #
@@ -704,10 +740,10 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
             "share", "send", "settings", "edit-labels", "q-r-remote-modalities",
         ]
     elif "doctor" in group_list:
-        user_name = TRANSLATIONS["ui"]["doctor"]
+        user_name = traductions()["ui"]["doctor"]
         permissions = ["view", "download", "upload", "share", "send", "edit-labels"]
     else:
-        user_name = TRANSLATIONS["ui"]["external_user"]
+        user_name = traductions()["ui"]["external_user"]
         permissions = ["view", "download"]
 
     return JSONResponse(content={
@@ -1015,7 +1051,7 @@ async def token_test_interface(request: Request):
             content = f.read()
         return HTMLResponse(content=content)
     except FileNotFoundError:
-        return render_file_not_found_template(TRANSLATIONS["ui"]["test_page_not_found"], TRANSLATIONS["ui"]["test_page_not_found_message"])
+        return render_file_not_found_template(traductions()["ui"]["test_page_not_found"], traductions()["ui"]["test_page_not_found_message"])
 
 async def _server_name() -> str:
     """Nom du serveur, tel qu'Orthanc l'applique reellement.
@@ -1044,7 +1080,7 @@ async def token_management_interface(request: Request):
     try:
         verify_admin_auth(request)
     except HTTPException:
-        return render_access_denied_template(TRANSLATIONS["ui"]["admin_access_required"], "/ui/")
+        return render_access_denied_template(traductions()["ui"]["admin_access_required"], "/ui/")
     
     # Serve the token management interface
     try:
@@ -1053,7 +1089,7 @@ async def token_management_interface(request: Request):
         
         # Add JavaScript translations based on current language
         js_translations = {}
-        for key, value in TRANSLATIONS["js"].items():
+        for key, value in traductions()["js"].items():
             js_translations[key.upper()] = value
         
         if js_translations:
@@ -1064,7 +1100,7 @@ async def token_management_interface(request: Request):
         # n'ont plus de {PLACEHOLDER} correspondant dans le template (KPI cards
         # retirees, subtitle deplacee en HTML statique "Orthanc"). ASSET_VERSION
         # est aussi injecte automatiquement par render_template().
-        ui_translations = TRANSLATIONS["ui"]
+        ui_translations = traductions()["ui"]
         template_vars = {
             "SERVER_NAME": await _server_name(),
             "TITLE": ui_translations["title"],
@@ -1093,7 +1129,7 @@ async def token_management_interface(request: Request):
         
         return HTMLResponse(content=content)
     except FileNotFoundError:
-        return render_file_not_found_template(TRANSLATIONS["ui"]["interface_not_found"], TRANSLATIONS["ui"]["token_management_interface_not_found"])
+        return render_file_not_found_template(traductions()["ui"]["interface_not_found"], traductions()["ui"]["token_management_interface_not_found"])
 
 @app.get("/share/")
 async def share_redirect(request: Request):
@@ -1101,30 +1137,30 @@ async def share_redirect(request: Request):
     token = request.query_params.get("token")
     
     if not token:
-        return render_error_template(TRANSLATIONS["ui"]["invalid_link"], UI_MESSAGES["INVALID_TOKEN"], "fas fa-shield-alt", 400)
+        return render_error_template(traductions()["ui"]["invalid_link"], messages_ui()["INVALID_TOKEN"], "fas fa-shield-alt", 400)
     
     # Check if token exists and is valid
     token_data = get_token(token)
     if not token_data:
-        return render_error_template(TRANSLATIONS["ui"]["expired_token"], UI_MESSAGES["EXPIRED_TOKEN"], "fas fa-clock", 410)
+        return render_error_template(traductions()["ui"]["expired_token"], messages_ui()["EXPIRED_TOKEN"], "fas fa-clock", 410)
     
     # Check if token has expired
     if time.time() >= token_data["expires_at"]:
         delete_token(token)
-        return render_error_template(TRANSLATIONS["ui"]["expired_token"], UI_MESSAGES["EXPIRED_TOKEN"], "fas fa-clock", 410)
+        return render_error_template(traductions()["ui"]["expired_token"], messages_ui()["EXPIRED_TOKEN"], "fas fa-clock", 410)
     
     # Get study from token resources
     resources = token_data.get("resources", [])
     if not resources:
-        return render_error_template(TRANSLATIONS["ui"]["no_study"], UI_MESSAGES["NO_STUDY"], "fas fa-folder-open", 400)
+        return render_error_template(traductions()["ui"]["no_study"], messages_ui()["NO_STUDY"], "fas fa-folder-open", 400)
     
     study_uid = resources[0].get("DicomUid", "").strip()  # Remove any whitespace
     if not study_uid:
-        return render_error_template(TRANSLATIONS["ui"]["invalid_study"], UI_MESSAGES["INVALID_STUDY"], "fas fa-exclamation-triangle", 400)
+        return render_error_template(traductions()["ui"]["invalid_study"], messages_ui()["INVALID_STUDY"], "fas fa-exclamation-triangle", 400)
     
     # Increment token usage counter for share access
     if not increment_token_usage(token):
-        return render_error_template(TRANSLATIONS["ui"]["link_expired"], UI_MESSAGES["USAGE_LIMIT"], "fas fa-clock", 410)
+        return render_error_template(traductions()["ui"]["link_expired"], messages_ui()["USAGE_LIMIT"], "fas fa-clock", 410)
     
     # Redirect to appropriate viewer based on token type
     base_url = get_base_url(request)
@@ -1157,10 +1193,10 @@ async def share_redirect(request: Request):
     
     # Use redirect template with translations
     content = render_template("redirect.html",
-                             redirect_title=TRANSLATIONS["ui"]["redirect_title"],
-                             redirecting=TRANSLATIONS["ui"]["redirecting"],
-                             redirect_message=TRANSLATIONS["ui"]["redirect_message"],
-                             redirect_click_here=TRANSLATIONS["ui"]["redirect_click_here"],
+                             redirect_title=traductions()["ui"]["redirect_title"],
+                             redirecting=traductions()["ui"]["redirecting"],
+                             redirect_message=traductions()["ui"]["redirect_message"],
+                             redirect_click_here=traductions()["ui"]["redirect_click_here"],
                              ohif_url=viewer_url)
     
     return HTMLResponse(content=content)

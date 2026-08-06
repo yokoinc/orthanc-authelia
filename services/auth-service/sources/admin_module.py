@@ -205,17 +205,39 @@ def _normalise_public_url(raw: str) -> tuple[str, str]:
     return f"https://{parsed.netloc}", parsed.hostname
 
 
+# Cache du fichier de reglages, invalide par la date de modification.
+#
+# Les traductions consultent ces reglages a chaque libelle affiche : relire le
+# fichier a chaque acces ferait des dizaines de lectures par page. Un stat()
+# suffit a savoir s'il a change, et le cout d'un changement -- rare -- est une
+# seule relecture.
+_reglages_cache: dict[str, Any] = {"mtime": None, "data": {}}
+
+
 def _lire_reglages() -> dict[str, Any]:
     """Contenu du fichier de reglages. Dict vide s'il n'existe pas encore."""
-    if not SETTINGS_FILE.exists():
-        return {}
     try:
-        return json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        mtime = SETTINGS_FILE.stat().st_mtime
+    except OSError:
+        # Fichier absent : installation neuve, ou reglages jamais modifies.
+        _reglages_cache["mtime"] = None
+        _reglages_cache["data"] = {}
+        return {}
+
+    if _reglages_cache["mtime"] == mtime:
+        return _reglages_cache["data"]
+
+    try:
+        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
         # Un fichier de preferences illisible ne doit pas empecher le service
-        # de demarrer : on repart des valeurs par defaut en le signalant.
+        # de repondre : on repart des valeurs par defaut en le signalant.
         logger.warning("reglages illisibles (%s), valeurs par defaut", e)
-        return {}
+        data = {}
+
+    _reglages_cache["mtime"] = mtime
+    _reglages_cache["data"] = data
+    return data
 
 
 def _lire_reglage(nom: str, variable_env: str = "", defaut: Any = None) -> Any:
@@ -254,6 +276,9 @@ def _ecrire_reglage(nom: str, valeur: Any) -> None:
     # fichier intact plutot qu'un JSON tronque.
     _atomic_write(SETTINGS_FILE, json.dumps(reglages, indent=2,
                                             ensure_ascii=False) + "\n")
+    # Invalider explicitement : le mtime a parfois une granularite d'une
+    # seconde, et deux ecritures rapprochees seraient alors indistinguables.
+    _reglages_cache["mtime"] = None
 
 
 def _read_env_var(name: str) -> str:
@@ -1152,17 +1177,28 @@ VIEWERS_PARTAGE = (
 )
 
 
+# Langues pour lesquelles un fichier de traduction est livre.
+LANGUES_DISPONIBLES = ("en", "fr")
+
+
 class SharingPayload(BaseModel):
     default_viewer: str
+
+
+class LanguePayload(BaseModel):
+    langue: str
 
 
 @router.get("/api/admin/sharing")
 async def admin_sharing_get(admin: AdminUser = Depends(require_admin)):
     """Viewer preselectionne quand on partage un examen."""
     actuel = _lire_reglage("share_default_viewer", "SHARE_DEFAULT_VIEWER")
+    langue = _lire_reglage("langue", "LANGUAGE")
     return {
         "default_viewer": actuel if actuel in VIEWERS_PARTAGE else VIEWERS_PARTAGE[0],
         "available": list(VIEWERS_PARTAGE),
+        "langue": langue if langue in LANGUES_DISPONIBLES else LANGUES_DISPONIBLES[0],
+        "langues": list(LANGUES_DISPONIBLES),
         # Le dossier est monte, donc inscriptible : contrairement au .env, il
         # n'y a pas de cas ou le reglage serait en lecture seule.
         "editable": True,
@@ -1188,6 +1224,27 @@ async def admin_sharing_put(
     await _audit("sharing.default_viewer.updated", admin.username,
                  viewer=payload.default_viewer)
     return {"ok": True, "default_viewer": payload.default_viewer}
+
+
+@router.put("/api/admin/langue")
+async def admin_langue_put(
+    payload: LanguePayload, admin: AdminUser = Depends(require_admin),
+):
+    """Change la langue de l'interface.
+
+    Prend effet a la requete suivante : les traductions sont resolues a
+    l'affichage, et non chargees une fois pour toutes au demarrage.
+    """
+    if payload.langue not in LANGUES_DISPONIBLES:
+        raise HTTPException(
+            400,
+            f"langue inconnue : {payload.langue}. "
+            f"Attendu : {', '.join(LANGUES_DISPONIBLES)}",
+        )
+    _ecrire_reglage("langue", payload.langue)
+    await _audit("interface.langue.updated", admin.username,
+                 langue=payload.langue)
+    return {"ok": True, "langue": payload.langue}
 
 
 @router.get("/api/admin/network")

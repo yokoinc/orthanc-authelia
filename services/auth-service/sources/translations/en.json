@@ -135,6 +135,8 @@
     "sharing_note": "Viewer offered by default when sharing a study from Orthanc Explorer. The choice can still be changed for each individual share. Takes effect immediately.",
     "sharing_saved": "Default viewer saved.",
     "sharing_readonly": "The .env file is not reachable: the default viewer cannot be changed from the panel.",
+    "langue_title": "Interface language",
+    "langue_note": "Language of the panel and share pages. Changing it reloads the page.",
     "backups_note": "Created automatically before every write to the Orthanc configuration or the user list. The last ten are kept.",
     "backups_col_date": "Date",
     "backups_col_target": "File",

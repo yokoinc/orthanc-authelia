@@ -778,3 +778,76 @@ class TestMagasinReglages:
         contenu = reglages.read_text(encoding="utf-8").lower()
         for interdit in ("password", "secret", "token", "_key"):
             assert interdit not in contenu, interdit
+
+
+# ============================================================================
+# Langue de l'interface
+# ============================================================================
+
+class TestLangue:
+    """La langue etait figee au chargement du module, depuis le .env.
+
+    En changer imposait de recreer le container, pour une preference
+    d'affichage. Les traductions sont desormais resolues a l'affichage, ce qui
+    permet de la changer depuis le panel.
+    """
+
+    @pytest.fixture
+    def reglages(self, tmp_path, monkeypatch):
+        import admin_module
+        import auth_service
+
+        fichier = tmp_path / "app-settings" / "settings.json"
+        monkeypatch.setattr(admin_module, "SETTINGS_FILE", fichier)
+        monkeypatch.setattr(admin_module, "ENV_FILE", tmp_path / ".env")
+        monkeypatch.delenv("LANGUAGE", raising=False)
+        # Le cache de traductions survit d'un test a l'autre.
+        auth_service._traductions_cache["langue"] = None
+        return fichier
+
+    def test_defaut_anglais(self, reglages):
+        import auth_service
+        assert auth_service._langue() == "en"
+
+    def test_reglage_pris_en_compte(self, reglages):
+        import admin_module
+        import auth_service
+        admin_module._ecrire_reglage("langue", "fr")
+        assert auth_service._langue() == "fr"
+
+    def test_reprise_de_l_ancienne_variable(self, reglages, tmp_path):
+        """Une installation existante a LANGUAGE dans son .env."""
+        import auth_service
+        (tmp_path / ".env").write_text("LANGUAGE=fr\n", encoding="utf-8")
+        assert auth_service._langue() == "fr"
+
+    def test_langue_inconnue_ignoree(self, reglages):
+        import admin_module
+        import auth_service
+        admin_module._ecrire_reglage("langue", "klingon")
+        assert auth_service._langue() == "en"
+
+    def test_traductions_suivent_la_langue(self, reglages):
+        """Le point qui compte : plus de table figee au demarrage."""
+        import admin_module
+        import auth_service
+
+        admin_module._ecrire_reglage("langue", "fr")
+        fr = auth_service.traductions()["ui"]["invalid_token"]
+
+        admin_module._ecrire_reglage("langue", "en")
+        en = auth_service.traductions()["ui"]["invalid_token"]
+
+        assert fr != en, (fr, en)
+
+    def test_messages_ui_suivent_aussi(self, reglages):
+        """messages_ui() etait un dict construit une fois pour toutes."""
+        import admin_module
+        import auth_service
+
+        admin_module._ecrire_reglage("langue", "fr")
+        fr = auth_service.messages_ui()["INVALID_TOKEN"]
+        admin_module._ecrire_reglage("langue", "en")
+        en = auth_service.messages_ui()["INVALID_TOKEN"]
+
+        assert fr != en, (fr, en)
