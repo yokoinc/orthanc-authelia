@@ -93,7 +93,7 @@ access_control:
         - "^/console/api/setup/.*$"    # creation du compte + finalisation
 
     # Hub d'administration : authentification obligatoire. L'appartenance au
-    # groupe "admins" est verifiee ensuite cote FastAPI.
+    # groupe "admin" est verifiee ensuite cote FastAPI.
     - domain: ${AUTHELIA_DOMAIN}
       policy: one_factor
       resources:

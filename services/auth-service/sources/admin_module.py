@@ -504,7 +504,12 @@ class UserCreatePayload(BaseModel):
     displayname: str = Field(..., min_length=1, max_length=100)
     email: EmailStr
     password: str = Field(..., min_length=12)
-    groups: list[str] = Field(default_factory=lambda: ["doctors"])
+    # 'doctor' au singulier : c'est ce que reconnaissent la correspondance
+    # groupe -> droits (auth_service.py) et les regles d'acces d'Authelia. Le
+    # pluriel qui figurait ici ne correspondait a aucun groupe : un compte
+    # cree via l'API sans groupe explicite tombait en lecture seule, sans
+    # message. Meme piege que le groupe 'admins' corrige auparavant.
+    groups: list[str] = Field(default_factory=lambda: ["doctor"])
 
 
 class PasswordChangePayload(BaseModel):
