@@ -22,12 +22,18 @@ jobs:
       # Les dependances de test ne sont pas dans l'image de production : elles
       # sont figees dans requirements-dev.txt pour que la CI et le poste de
       # developpement executent exactement la meme chose.
+      #
+      # On monte le depot entier, pas seulement sources/ : certains tests
+      # relisent des fichiers livres a la racine (orthanc.json.example) pour
+      # verifier qu'une ecriture ne les abime pas. Avec un montage reduit ils
+      # s'esquivaient en silence -- une couverture qu'on croit avoir et qui
+      # n'existe pas.
       - name: Lancer la suite
         run: |
           docker run --rm --entrypoint sh \
             -e AUTH_USERNAME=ci -e AUTH_PASSWORD=mot-de-passe-ci-1234 \
             -e ORTHANC_ADMIN_USER=ci -e ORTHANC_ADMIN_PASS=ci \
-            -v "$PWD/services/auth-service/sources:/src" -w /src \
+            -v "$PWD:/depot" -w /depot/services/auth-service/sources \
             auth-service-test \
             -c 'pip install -q -r requirements-dev.txt && python -m pytest tests/ -q'
 

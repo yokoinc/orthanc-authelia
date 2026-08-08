@@ -7,9 +7,14 @@
 #   docker run --rm --entrypoint sh \
 #     -e AUTH_USERNAME=x -e AUTH_PASSWORD=xxxxxxxxxxxx \
 #     -e ORTHANC_ADMIN_USER=x -e ORTHANC_ADMIN_PASS=y \
-#     -v "$PWD/services/auth-service/sources:/src" -w /src \
+#     -v "$PWD:/depot" -w /depot/services/auth-service/sources \
 #     registry.yokoinc.ovh/orthanc-auth-service:1.0.16 \
 #     -c 'pip install -q -r requirements-dev.txt && python -m pytest tests/ -q'
+#
+# A lancer depuis la RACINE du depot, et en montant celle-ci : quelques tests
+# relisent des fichiers livres a la racine. Monter le seul dossier sources/
+# les fait s'esquiver -- c'est ainsi qu'une suite verte en local a casse la
+# CI.
 #
 # Les quatre variables d'environnement sont exigees au chargement du module
 # auth_service ; leurs valeurs n'ont aucune importance pour les tests.

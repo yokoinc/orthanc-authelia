@@ -598,12 +598,23 @@ class TestEcritureNonDestructive:
         assert self._relire(out) == {"A": 42, "B": "y", "C": False, "D": "z"}
 
     def test_fichier_reel_du_depot(self):
-        """Le fichier livre : aucun commentaire ne doit disparaitre."""
+        """Le fichier livre : aucun commentaire ne doit disparaitre.
+
+        Le fichier est cherche en remontant l'arborescence, et non a une
+        profondeur fixe : selon qu'on monte le depot entier ou le seul
+        dossier sources/, le nombre de niveaux differe. Un index fige a fait
+        echouer la CI alors que la suite passait en local.
+        """
         from admin_module import _ecrire_changements
         from pathlib import Path as _P
 
-        exemple = _P(__file__).resolve().parents[4] / "orthanc.json.example"
-        if not exemple.exists():           # arborescence reduite (image de test)
+        exemple = next(
+            (parent / "orthanc.json.example"
+             for parent in _P(__file__).resolve().parents
+             if (parent / "orthanc.json.example").exists()),
+            None,
+        )
+        if exemple is None:                # depot non monte (arborescence reduite)
             pytest.skip("orthanc.json.example hors de l'arborescence")
 
         source = exemple.read_text(encoding="utf-8")
