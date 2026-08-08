@@ -127,13 +127,21 @@ Le panel est une application Vue 3 (`services/auth-service/frontend/`) compilée
 | Onglet | Ce qu'il fait | Mécanisme |
 |---|---|---|
 | **Utilisateurs** | Créer, modifier, désactiver et supprimer les comptes ; changer un mot de passe | Écrit `users_database.yml`, relu à chaud par Authelia en quelques secondes |
-| **Configuration Orthanc** | ~40 paramètres de `orthanc.json`, rangés par thème et documentés, et un bouton pour redémarrer Orthanc | Écrit le JSON ; le redémarrage applique les changements |
+| **Configuration Orthanc** | ~60 paramètres de `orthanc.json`, rangés par thème et documentés — dont l'apparence d'Explorer et les liens de partage — et un bouton pour redémarrer Orthanc | Écrit le JSON ; le redémarrage applique les changements |
 | **Équipements** | Déclarer les modalités DICOM (scanner, IRM…) et tester leur connectivité par C-ECHO | Passe par l'API d'Orthanc ; effet immédiat, sans redémarrage |
 | **État** | Redis, Orthanc, fichiers de configuration | Lecture seule |
 | **Maintenance** | Adresse publique, langue de l'interface, viewer par défaut des liens de partage, sauvegardes | Écrit `.env`, `data/app-settings/settings.json` et `orthanc.json` ; restaure un fichier depuis `data/admin-backups/` |
 | **Journal** | Qui a fait quoi et quand : comptes, configuration, sauvegardes, requêtes rejetées | Lit le flux d'audit dans Redis |
 
 Chaque écriture crée une sauvegarde rotative dans `data/admin-backups/` (les 10 dernières sont conservées). Le panel **édite** `orthanc.json` au lieu de le régénérer : seule la valeur visée est remplacée, et les commentaires qui documentent chaque réglage survivent. Une régénération par `json.dumps()` les effaçait — constaté sur une installation réelle, où la première modification faite depuis le panel avait supprimé les 44 commentaires du fichier. Le résultat est relu et comparé à la structure attendue avant d'être écrit ; si la mise en forme ne peut pas être conservée, la réponse de l'API le dit au lieu de laisser le découvrir plus tard. La gestion des comptes ne demande aucun accès au socket Docker : Authelia surveille son fichier d'utilisateurs et le relit seul.
+
+#### Ne jamais avoir à ouvrir `orthanc.json`
+
+C'est le principe de conception du panel : un exploitant ne devrait pas avoir besoin d'un éditeur de texte pour faire fonctionner son PACS. `bootstrap.sh` génère toute l'installation sans poser de question, et les réglages d'exploitation se font depuis l'interface — y compris ceux d'Orthanc Explorer, qui imposaient encore d'éditer le fichier : thème, viewers proposés, durée par défaut des liens de partage, boutons d'accès rapide.
+
+Deux familles de champs en sont délibérément absentes. La plomberie d'authentification (`Authorization.*`, `AuthenticationEnabled`) : la rendre modifiable serait une régression de sécurité. Et `OrthancExplorer2.Enable` / `IsDefaultOrthancUI`, qui permettraient de désactiver l'interface **depuis** l'interface, sans autre retour possible que d'éditer le fichier — exactement ce qu'on cherche à éviter. Des tests verrouillent ces deux listes dans les deux sens : ce qui doit être réglable l'est, ce qui ne doit pas l'être ne l'est pas.
+
+Chaque champ déclare son type, sa valeur par défaut et, lorsqu'elles sont connues, ses bornes ou ses valeurs admises. L'interface en tire des listes déroulantes plutôt que des champs libres — personne n'a à retenir que la visionneuse de partage s'appelle `volview-viewer-publication` — et le serveur refuse de toute façon ce qui sort du cadre : un port hors de 1–65535, un délai négatif, un thème inconnu.
 
 #### Redémarrer Orthanc depuis le panel
 

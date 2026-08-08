@@ -659,6 +659,18 @@ class PasswordChangePayload(BaseModel):
 
 # Whitelist des chemins editables via UI. Refuse tout ce qui n'est pas ici.
 ORTHANC_DEFAULTS = {
+    # Valeurs livrees dans orthanc.json.example, pour qu'un champ vide
+    # indique ce qui s'appliquera.
+    "OrthancExplorer2.Theme": "dark",
+    "OrthancExplorer2.EnableReportQuickButton": True,
+    "OrthancExplorer2.Tokens.InstantLinksValidity": 200,
+    "OrthancExplorer2.UiOptions.DefaultShareDuration": 15,
+    "OrthancExplorer2.UiOptions.EnableShares": True,
+    "OrthancExplorer2.UiOptions.EnableViewerQuickButton": True,
+    "OrthancExplorer2.UiOptions.ShowOrthancName": True,
+    "OrthancExplorer2.UiOptions.EnableOpenInOhifViewer3": True,
+    "OrthancExplorer2.UiOptions.EnableOpenInStoneWebViewer": True,
+    "OrthancExplorer2.UiOptions.EnableOpenInVolView": True,
     # Valeurs par defaut relevees dans le fichier de configuration de
     # reference d'Orthanc 1.12.11, la version embarquee dans l'image.
     # Elles sont affichees a titre indicatif pour les parametres absents
@@ -708,6 +720,28 @@ ORTHANC_EDITABLE_PATHS = {
     # part dans son bundle. Se tromper de champ donne un reglage qui s'ecrit,
     # se relit, et ne change rien a l'ecran.
     "OrthancExplorer2.Tokens.ShareType": str,
+
+    # Reglages d'apparence et d'usage d'Explorer. Sans eux, changer le theme
+    # ou masquer un viewer imposait d'ouvrir orthanc.json a la main -- ce qui
+    # exclut de fait quiconque n'est pas a l'aise avec un editeur de texte.
+    #
+    # Enable et IsDefaultOrthancUI restent volontairement absents : les
+    # exposer permettrait de desactiver l'interface depuis l'interface, donc
+    # de se couper l'acces sans moyen de revenir en arriere autrement qu'en
+    # editant le fichier -- exactement ce qu'on cherche a eviter. Les
+    # *PublicRoot non plus : ce sont les chemins servis par nginx, les
+    # changer casserait les liens sans rien apporter.
+    "OrthancExplorer2.Theme": str,
+    "OrthancExplorer2.EnableReportQuickButton": bool,
+    "OrthancExplorer2.Tokens.InstantLinksValidity": int,
+    "OrthancExplorer2.UiOptions.DefaultShareDuration": int,
+    "OrthancExplorer2.UiOptions.EnableShares": bool,
+    "OrthancExplorer2.UiOptions.EnableViewerQuickButton": bool,
+    "OrthancExplorer2.UiOptions.ShowOrthancName": bool,
+    "OrthancExplorer2.UiOptions.EnableOpenInOhifViewer3": bool,
+    "OrthancExplorer2.UiOptions.EnableOpenInStoneWebViewer": bool,
+    "OrthancExplorer2.UiOptions.EnableOpenInVolView": bool,
+
     "Name": str,
     "DicomAet": str,
     "RemoteAccessAllowed": bool,
@@ -764,6 +798,58 @@ ORTHANC_EDITABLE_PATHS = {
 }
 
 
+# Contraintes de valeur, en plus du type.
+#
+# Le type seul ne suffit pas : DicomPort = 99999 est un entier, produit un JSON
+# parfaitement valide, et reste un numero de port qui n'existe pas. Orthanc
+# refuse alors de demarrer -- constate. Le retour arriere automatique du
+# redemarrage rattrape ce genre de cas, mais mieux vaut refuser la valeur tout
+# de suite, avec un message qui dit quoi corriger.
+#
+# On ne contraint que ce dont on est sur. Une borne inventee bloquerait une
+# configuration valide, ce qui est pire que pas de borne du tout : les champs
+# absents de cette table restent simplement typiques.
+ORTHANC_BORNES: dict[str, tuple[int, int]] = {
+    # Ports TCP.
+    "DicomPort": (1, 65535),
+    "HttpPort": (1, 65535),
+    # Delais et tailles : un negatif n'a pas de sens, et zero desactive
+    # lorsque c'est permis.
+    "DicomScpTimeout": (0, 86400),
+    "HttpTimeout": (0, 86400),
+    "StableAge": (0, 86400),
+    "Housekeeper.ThrottleDelay": (0, 86400),
+    "JobsHistorySize": (0, 100000),
+    "LimitFindResults": (0, 1000000),
+    "LimitFindInstances": (0, 1000000),
+    "MaximumStorageSize": (0, 10000000),
+    "MaximumPatientCount": (0, 10000000),
+    "DicomWeb.StowMaxInstances": (0, 1000000),
+    "DicomWeb.StowMaxSize": (0, 1000000),
+    # Au moins un fil d'execution, sinon Orthanc ne traite plus rien.
+    "DicomThreadsCount": (1, 256),
+    "ConcurrentJobs": (1, 256),
+    # Duree en jours proposee par defaut sur un lien de partage ; 0 = sans
+    # limite de date.
+    "OrthancExplorer2.UiOptions.DefaultShareDuration": (0, 3650),
+    # Validite d'un lien instantane, en secondes.
+    "OrthancExplorer2.Tokens.InstantLinksValidity": (1, 86400),
+}
+
+ORTHANC_VALEURS_ADMISES: dict[str, tuple[str, ...]] = {
+    # Explorer applique cette valeur a l'attribut data-bs-theme de Bootstrap,
+    # qui ne connait que ces deux modes.
+    "OrthancExplorer2.Theme": ("light", "dark"),
+    "LogLevel": ("default", "verbose", "trace"),
+    "MaximumStorageMode": ("Recycle", "Reject"),
+    "OrthancExplorer2.Tokens.ShareType": (
+        "ohif-viewer-publication",
+        "stone-viewer-publication",
+        "volview-viewer-publication",
+    ),
+}
+
+
 def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
     """Set config[a][b][c] = value. Refuse si le path ecrase un dict/array."""
     if dotted not in ORTHANC_EDITABLE_PATHS:
@@ -771,8 +857,29 @@ def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
     expected_type = ORTHANC_EDITABLE_PATHS[dotted]
     if not isinstance(value, expected_type):
         raise ValueError(f"{dotted}: attendu {expected_type.__name__}, recu {type(value).__name__}")
+
+    # En Python un booleen EST un entier : isinstance(True, int) est vrai.
+    # Sans ce refus explicite, "DicomPort": true franchit le controle de type,
+    # puis vaut 1 face aux bornes -- et Orthanc se retrouve a ecouter sur le
+    # port 1. Trouve par un test, apres que la garde precedente ait justement
+    # dispense les booleens du controle de bornes.
+    if expected_type is int and isinstance(value, bool):
+        raise ValueError(f"{dotted}: attendu int, recu bool")
     if dotted == "DicomAet" and len(value) > 16:
         raise ValueError("DicomAet: max 16 caracteres (norme DICOM)")
+
+    if dotted in ORTHANC_BORNES:
+        mini, maxi = ORTHANC_BORNES[dotted]
+        if not mini <= value <= maxi:
+            raise ValueError(
+                f"{dotted}: attendu entre {mini} et {maxi}, recu {value}")
+
+    if dotted in ORTHANC_VALEURS_ADMISES:
+        admises = ORTHANC_VALEURS_ADMISES[dotted]
+        if value not in admises:
+            raise ValueError(
+                f"{dotted}: valeur inconnue {value!r}. "
+                f"Attendu : {', '.join(admises)}")
 
     keys = dotted.split(".")
     node = config
@@ -1447,8 +1554,14 @@ async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
                 break
             node = node[k]
         result[dotted] = node
+        bornes = ORTHANC_BORNES.get(dotted)
         meta[dotted] = {
             "type": noms.get(attendu, "str"),
+            # Transmises a l'interface pour qu'elle propose une liste plutot
+            # qu'un champ libre, et signale une borne avant l'envoi.
+            "min": bornes[0] if bornes else None,
+            "max": bornes[1] if bornes else None,
+            "choices": list(ORTHANC_VALEURS_ADMISES.get(dotted, ())) or None,
             # Distingue "absent du fichier" de "present et vide" : dans le
             # premier cas Orthanc applique sa valeur par defaut.
             "present": present,
@@ -1590,6 +1703,54 @@ async def update_orthanc_config(
 # Route : /api/admin/orthanc/restart
 # ============================================================================
 
+async def _attendre_orthanc(tentatives: int = 30, pause: int = 2) -> str:
+    """Attend qu'Orthanc reponde. Renvoie sa version, ou "" s'il reste muet.
+
+    Orthanc ouvre son port avant d'avoir fini de charger ses plugins : on
+    interroge /system, qui ne repond qu'une fois le serveur reellement pret.
+    """
+    for _ in range(tentatives):
+        await asyncio.sleep(pause)
+        try:
+            sonde = await _orthanc("GET", "/system")
+            if sonde.status_code == 200:
+                return sonde.json().get("Version", "inconnue")
+        except Exception:  # noqa: BLE001 - normal pendant le redemarrage
+            pass
+    return ""
+
+
+def _derniere_sauvegarde_orthanc() -> Path | None:
+    """Sauvegarde d'orthanc.json la plus recente, si elle existe.
+
+    Les noms portent un horodatage (orthanc.json.bak.AAAAMMJJ-HHMMSS), donc
+    l'ordre alphabetique est l'ordre chronologique.
+    """
+    prefixe = ORTHANC_JSON.name + ".bak."
+    sauvegardes = sorted(BACKUPS_DIR.glob(prefixe + "*"), reverse=True)
+    return sauvegardes[0] if sauvegardes else None
+
+
+async def _demander_redemarrage() -> None:
+    """Demande le redemarrage du container au proxy Docker."""
+    async with httpx.AsyncClient(timeout=90) as client:
+        r = await client.post(
+            f"{DOCKER_PROXY_URL}/containers/{ORTHANC_CONTAINER}/restart",
+        )
+    if r.status_code == 404:
+        raise HTTPException(
+            502,
+            f"Conteneur '{ORTHANC_CONTAINER}' introuvable. Verifier "
+            f"ORTHANC_CONTAINER dans le fichier .env.",
+        )
+    if r.status_code not in (204, 304):
+        raise HTTPException(
+            502,
+            f"Le proxy Docker a refuse le redemarrage (HTTP {r.status_code}). "
+            f"Verifier ALLOW_RESTARTS sur le service socket-proxy.",
+        )
+
+
 @router.post("/api/admin/orthanc/restart")
 async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
     """Redemarre le conteneur Orthanc et attend qu'il reponde a nouveau.
@@ -1620,58 +1781,75 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
                  container=ORTHANC_CONTAINER)
 
     try:
-        async with httpx.AsyncClient(timeout=90) as client:
-            r = await client.post(
-                f"{DOCKER_PROXY_URL}/containers/{ORTHANC_CONTAINER}/restart",
-            )
+        await _demander_redemarrage()
     except httpx.HTTPError as e:
         await _audit("orthanc.restart.failed", admin.username, error=str(e))
-        raise HTTPException(
-            502, f"Proxy Docker injoignable : {e}",
-        ) from e
-
-    if r.status_code == 404:
+        raise HTTPException(502, f"Proxy Docker injoignable : {e}") from e
+    except HTTPException:
         await _audit("orthanc.restart.failed", admin.username,
-                     error="conteneur introuvable")
-        raise HTTPException(
-            502,
-            f"Conteneur '{ORTHANC_CONTAINER}' introuvable. Verifier "
-            f"ORTHANC_CONTAINER dans le fichier .env.",
-        )
-    if r.status_code not in (204, 304):
-        await _audit("orthanc.restart.failed", admin.username,
-                     error=f"HTTP {r.status_code}")
-        raise HTTPException(
-            502,
-            f"Le proxy Docker a refuse le redemarrage (HTTP {r.status_code}). "
-            f"Verifier ALLOW_RESTARTS sur le service socket-proxy.",
-        )
+                     container=ORTHANC_CONTAINER)
+        raise
 
-    # Orthanc reouvre son port avant d'avoir fini de charger ses plugins : on
-    # interroge /system, qui ne repond qu'une fois le serveur reellement pret.
-    for _ in range(30):
-        await asyncio.sleep(2)
-        try:
-            sonde = await _orthanc("GET", "/system")
-            if sonde.status_code == 200:
-                await _audit("orthanc.restarted", admin.username,
-                             container=ORTHANC_CONTAINER)
-                return {
-                    "ok": True,
-                    "message": "Orthanc a redemarre, la configuration est appliquee.",
-                    "version": sonde.json().get("Version", ""),
-                }
-        except Exception:  # noqa: BLE001 - normal pendant le redemarrage
-            pass
+    version = await _attendre_orthanc()
+    if version:
+        await _audit("orthanc.restarted", admin.username,
+                     container=ORTHANC_CONTAINER)
+        return {
+            "ok": True,
+            "message": "Orthanc a redemarre, la configuration est appliquee.",
+            "version": version,
+        }
 
+    # Orthanc ne revient pas. Le plus probable est que la configuration qu'on
+    # vient d'ecrire l'empeche de demarrer : une valeur peut etre du bon type,
+    # produire un JSON parfaitement valide, et rester inacceptable pour lui --
+    # un numero de port hors bornes, par exemple. Laisser un PACS eteint en
+    # renvoyant l'exploitant vers les journaux n'est pas une reponse : on
+    # restaure la derniere sauvegarde et on relance.
     await _audit("orthanc.restart.no_response", admin.username,
                  container=ORTHANC_CONTAINER)
+
+    sauvegarde = _derniere_sauvegarde_orthanc()
+    if sauvegarde is None:
+        raise HTTPException(
+            504,
+            "Orthanc ne repond pas apres 60 s et aucune sauvegarde de sa "
+            "configuration n'est disponible. Consulter ses journaux "
+            "(docker compose logs orthanc).",
+        )
+
+    try:
+        shutil.copy2(sauvegarde, ORTHANC_JSON)
+        await _demander_redemarrage()
+    except Exception as e:  # noqa: BLE001 - on est deja dans le pire des cas
+        await _audit("orthanc.rollback.failed", admin.username,
+                     backup=sauvegarde.name, error=str(e))
+        raise HTTPException(
+            500,
+            f"Orthanc ne repond pas, et la restauration de {sauvegarde.name} "
+            f"a echoue ({e}). Intervention manuelle requise.",
+        ) from e
+
+    version = await _attendre_orthanc()
+    if version:
+        await _audit("orthanc.rolled_back", admin.username,
+                     backup=sauvegarde.name)
+        raise HTTPException(
+            500,
+            f"Orthanc n'a pas redemarre avec la nouvelle configuration : "
+            f"elle a ete annulee et {sauvegarde.name} restauree. Le serveur "
+            f"fonctionne a nouveau. Verifier les valeurs saisies, puis "
+            f"consulter les journaux (docker compose logs orthanc).",
+        )
+
+    await _audit("orthanc.rollback.no_response", admin.username,
+                 backup=sauvegarde.name)
     raise HTTPException(
         504,
-        "Orthanc a ete redemarre mais ne repond pas apres 60 s. Sa "
-        "configuration l'empeche peut-etre de demarrer : consulter ses "
-        "journaux (docker compose logs orthanc) et, au besoin, restaurer une "
-        "sauvegarde depuis l'onglet Maintenance.",
+        f"Orthanc ne repond toujours pas apres restauration de "
+        f"{sauvegarde.name}. La cause est donc ailleurs que dans la derniere "
+        f"modification : consulter ses journaux "
+        f"(docker compose logs orthanc).",
     )
 
 

@@ -872,3 +872,287 @@ class TestLangue:
         en = auth_service.messages_ui()["INVALID_TOKEN"]
 
         assert fr != en, (fr, en)
+
+
+# ============================================================================
+# Retour arriere quand Orthanc ne redemarre pas
+# ============================================================================
+
+class TestRetourArriere:
+    """Une configuration peut etre valide et refusee par Orthanc.
+
+    Le type et la syntaxe ne disent rien de l'acceptabilite : DicomPort =
+    99999 est un entier, produit un JSON parfait, et empeche Orthanc de
+    demarrer. Sans retour arriere, le panel laisse un PACS eteint en
+    renvoyant l'exploitant vers les journaux.
+
+    Le test qui existait pour ce cas passait deja avant que le retour arriere
+    existe : sans sauvegarde disponible, on tombe sur un autre chemin qui
+    repond aussi 504. D'ou les cas ci-dessous, qui en placent une.
+    """
+
+    @staticmethod
+    def _admin():
+        from admin_module import AdminUser
+        return AdminUser(username="admin", groups=["admin"])
+
+    @pytest.fixture
+    def pile(self, tmp_path, monkeypatch):
+        """Un orthanc.json, une sauvegarde anterieure, et pas d'attente."""
+        import admin_module
+
+        config = tmp_path / "orthanc.json"
+        config.write_text('{"Name": "casse"}', encoding="utf-8")
+
+        sauvegardes = tmp_path / "backups"
+        sauvegardes.mkdir()
+        (sauvegardes / "orthanc.json.bak.20260101-120000").write_text(
+            '{"Name": "connue-bonne"}', encoding="utf-8")
+
+        monkeypatch.setattr(admin_module, "ORTHANC_JSON", config)
+        monkeypatch.setattr(admin_module, "BACKUPS_DIR", sauvegardes)
+        monkeypatch.setattr(admin_module, "DOCKER_PROXY_URL", "http://proxy:2375")
+
+        async def _muet(*a, **k):
+            return None
+
+        async def _sans_attente(_):
+            return None
+
+        monkeypatch.setattr(admin_module, "_audit", _muet)
+        monkeypatch.setattr(admin_module.asyncio, "sleep", _sans_attente)
+
+        class _Reponse:
+            status_code = 204
+
+        class _Client:
+            def __init__(self, *a, **k): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *a): return False
+            async def post(self, *a, **k): return _Reponse()
+
+        monkeypatch.setattr(admin_module.httpx, "AsyncClient", _Client)
+        return config
+
+    @staticmethod
+    def _orthanc_muet(monkeypatch):
+        import admin_module
+
+        async def _jamais(*a, **k):
+            raise ConnectionError("Orthanc ne repond pas")
+
+        monkeypatch.setattr(admin_module, "_orthanc", _jamais)
+
+    @staticmethod
+    def _orthanc_revient_apres_restauration(monkeypatch, config: Path):
+        """Orthanc ne repond que lorsque la configuration a ete restauree."""
+        import admin_module
+
+        class _Reponse:
+            status_code = 200
+
+            @staticmethod
+            def json():
+                return {"Version": "1.12.11"}
+
+        async def _selon_config(*a, **k):
+            if "connue-bonne" in config.read_text(encoding="utf-8"):
+                return _Reponse()
+            raise ConnectionError("configuration refusee")
+
+        monkeypatch.setattr(admin_module, "_orthanc", _selon_config)
+
+    def test_configuration_restauree_et_orthanc_repart(self, pile, monkeypatch):
+        """Le cas qui compte : le PACS doit revenir, pas rester eteint."""
+        import admin_module
+        from fastapi import HTTPException
+
+        self._orthanc_revient_apres_restauration(monkeypatch, pile)
+
+        with pytest.raises(HTTPException) as e:
+            _executer(admin_module.restart_orthanc(self._admin()))
+
+        # 500 et non 200 : la modification demandee n'a PAS ete appliquee.
+        assert e.value.status_code == 500
+        assert "restauree" in e.value.detail
+        assert "connue-bonne" in pile.read_text(encoding="utf-8")
+
+    def test_restauration_insuffisante(self, pile, monkeypatch):
+        """Si Orthanc reste muet meme apres restauration, la cause est
+        ailleurs : le dire plutot que de laisser croire a un rollback rate."""
+        import admin_module
+        from fastapi import HTTPException
+
+        self._orthanc_muet(monkeypatch)
+
+        with pytest.raises(HTTPException) as e:
+            _executer(admin_module.restart_orthanc(self._admin()))
+        assert e.value.status_code == 504
+        assert "ailleurs" in e.value.detail
+
+    def test_aucune_sauvegarde(self, pile, monkeypatch, tmp_path):
+        import admin_module
+        from fastapi import HTTPException
+
+        vide = tmp_path / "vides"
+        vide.mkdir()
+        monkeypatch.setattr(admin_module, "BACKUPS_DIR", vide)
+        self._orthanc_muet(monkeypatch)
+
+        with pytest.raises(HTTPException) as e:
+            _executer(admin_module.restart_orthanc(self._admin()))
+        assert e.value.status_code == 504
+        assert "aucune sauvegarde" in e.value.detail
+
+    def test_la_plus_recente_est_choisie(self, pile, tmp_path):
+        """Les noms portent un horodatage : l'ordre alphabetique fait foi."""
+        import admin_module
+
+        dossier = admin_module.BACKUPS_DIR
+        for horodatage in ("20260101-120000", "20260301-090000",
+                           "20260201-235959"):
+            (dossier / f"orthanc.json.bak.{horodatage}").touch()
+        choisie = admin_module._derniere_sauvegarde_orthanc()
+        assert choisie.name.endswith("20260301-090000")
+
+
+# ============================================================================
+# Contraintes de valeur
+# ============================================================================
+
+class TestBornesEtValeurs:
+    """Le type ne suffit pas : un entier peut etre un port qui n'existe pas."""
+
+    @staticmethod
+    def _changer(champ, valeur):
+        from admin_module import _apply_scalar_change
+        config = {"DicomModalitiesInDatabase": True, "OrthancPeersInDatabase": True}
+        _apply_scalar_change(config, champ, valeur)
+        return config
+
+    def test_port_hors_bornes(self):
+        with pytest.raises(ValueError, match="entre 1 et 65535"):
+            self._changer("DicomPort", 99999)
+
+    def test_port_zero(self):
+        with pytest.raises(ValueError, match="entre 1 et 65535"):
+            self._changer("DicomPort", 0)
+
+    def test_port_valide(self):
+        assert self._changer("DicomPort", 11112)["DicomPort"] == 11112
+
+    def test_zero_fil_d_execution(self):
+        """Orthanc ne traiterait plus rien."""
+        with pytest.raises(ValueError, match="entre 1 et 256"):
+            self._changer("ConcurrentJobs", 0)
+
+    def test_delai_negatif(self):
+        with pytest.raises(ValueError, match="entre 0"):
+            self._changer("StableAge", -1)
+
+    def test_valeur_hors_liste(self):
+        with pytest.raises(ValueError, match="default, verbose, trace"):
+            self._changer("LogLevel", "hurlant")
+
+    def test_valeur_de_la_liste(self):
+        assert self._changer("LogLevel", "verbose")["LogLevel"] == "verbose"
+
+    def test_booleen_refuse_sur_un_champ_entier(self):
+        """En Python True vaut 1 : sans garde, il passerait pour un port."""
+        with pytest.raises(ValueError, match="attendu int"):
+            self._changer("DicomPort", True)
+
+
+# ============================================================================
+# Reglages d'Explorer exposes dans le panel
+# ============================================================================
+
+class TestReglagesExplorer:
+    """Ce qui doit etre reglable sans ouvrir un fichier, et ce qui ne doit
+    pas l'etre du tout.
+
+    Le projet vise un exploitant qui n'edite pas de JSON a la main. Les
+    reglages d'apparence et de partage doivent donc etre dans le panel. Mais
+    deux champs en sont volontairement absents, et c'est ce que verrouille la
+    seconde moitie de ces tests : les exposer permettrait de desactiver
+    l'interface DEPUIS l'interface, sans autre retour en arriere que d'editer
+    le fichier -- precisement ce qu'on veut eviter.
+    """
+
+    @staticmethod
+    def _changer(champ, valeur):
+        from admin_module import _apply_scalar_change
+        config = {"DicomModalitiesInDatabase": True, "OrthancPeersInDatabase": True}
+        _apply_scalar_change(config, champ, valeur)
+        return config
+
+    @pytest.mark.parametrize("champ", [
+        "OrthancExplorer2.Theme",
+        "OrthancExplorer2.Tokens.ShareType",
+        "OrthancExplorer2.Tokens.InstantLinksValidity",
+        "OrthancExplorer2.UiOptions.DefaultShareDuration",
+        "OrthancExplorer2.UiOptions.EnableShares",
+        "OrthancExplorer2.UiOptions.ShowOrthancName",
+        "OrthancExplorer2.UiOptions.EnableOpenInOhifViewer3",
+        "OrthancExplorer2.UiOptions.EnableOpenInStoneWebViewer",
+        "OrthancExplorer2.UiOptions.EnableOpenInVolView",
+    ])
+    def test_reglable_sans_editer_le_fichier(self, champ):
+        from admin_module import ORTHANC_EDITABLE_PATHS
+        assert champ in ORTHANC_EDITABLE_PATHS
+
+    @pytest.mark.parametrize("champ", [
+        # Se couper l'acces a sa propre interface.
+        "OrthancExplorer2.Enable",
+        "OrthancExplorer2.IsDefaultOrthancUI",
+        # Chemins servis par nginx : les changer casse les liens.
+        "OrthancExplorer2.UiOptions.OhifViewer3PublicRoot",
+        "OrthancExplorer2.UiOptions.StoneWebViewerPublicRoot",
+        "OrthancExplorer2.UiOptions.VolViewPublicRoot",
+        # Plomberie d'authentification.
+        "Authorization.WebServiceUsername",
+        "Authorization.WebServicePassword",
+        "AuthenticationEnabled",
+    ])
+    def test_hors_de_portee_du_panel(self, champ):
+        from admin_module import ORTHANC_EDITABLE_PATHS
+        assert champ not in ORTHANC_EDITABLE_PATHS
+
+    def test_theme_limite_aux_modes_bootstrap(self):
+        """Explorer applique la valeur a data-bs-theme, qui ne connait que
+        clair et sombre."""
+        with pytest.raises(ValueError, match="light, dark"):
+            self._changer("OrthancExplorer2.Theme", "fluo")
+
+    def test_theme_valide(self):
+        config = self._changer("OrthancExplorer2.Theme", "light")
+        assert config["OrthancExplorer2"]["Theme"] == "light"
+
+    def test_duree_de_partage_bornee(self):
+        with pytest.raises(ValueError, match="entre 0 et 3650"):
+            self._changer("OrthancExplorer2.UiOptions.DefaultShareDuration", 9999)
+
+    def test_partage_sans_expiration_autorise(self):
+        """Zero est une valeur legitime : un lien sans date de fin."""
+        config = self._changer("OrthancExplorer2.UiOptions.DefaultShareDuration", 0)
+        assert config["OrthancExplorer2"]["UiOptions"]["DefaultShareDuration"] == 0
+
+    def test_chaque_champ_expose_a_un_libelle(self):
+        """Un champ sans libelle s'affiche sous son nom technique, ce qui
+        n'apprend rien a qui n'ecrit pas de JSON."""
+        from admin_module import ORTHANC_EDITABLE_PATHS
+        from pathlib import Path as _P
+        import re
+
+        descriptions = (_P(__file__).resolve().parents[2]
+                        / "frontend" / "src" / "orthanc_fields.js")
+        if not descriptions.exists():
+            pytest.skip("descriptions de champs hors de l'arborescence")
+
+        texte = descriptions.read_text(encoding="utf-8")
+        decrits = set(re.findall(r"'([A-Za-z][A-Za-z0-9.]*)':", texte))
+        decrits |= set(re.findall(r"^\s+([A-Za-z][A-Za-z0-9]*): \[", texte, re.M))
+
+        oublies = [c for c in ORTHANC_EDITABLE_PATHS
+                   if c.startswith("OrthancExplorer2") and c not in decrits]
+        assert not oublies, f"champs sans libelle : {oublies}"

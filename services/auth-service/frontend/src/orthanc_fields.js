@@ -2,7 +2,7 @@ import { t } from './i18n.js'
 
 // Regroupement et libelles des parametres Orthanc editables.
 //
-// L'API renvoie un dictionnaire plat de 43 cles techniques. Affichees telles
+// L'API renvoie un dictionnaire plat d'une soixantaine de cles techniques. Affichees telles
 // quelles a la suite, elles n'apprennent rien : "StableAge" ou
 // "IngestTranscoding" ne se devinent pas. Ce fichier ne fait que decrire --
 // aucune logique -- pour que l'onglet reste lisible et que l'ajout d'un
@@ -209,6 +209,46 @@ export const GROUPES = [
           t('cfg_Housekeeper_UnnecessaryDicomAsJsonFiles_help', 'Supprime les copies JSON devenues inutiles des examens.')],
       'Housekeeper.Triggers.DicomWebCache': [t('cfg_Housekeeper_DicomWebCache_label', 'Reconstruire le cache DICOMweb'),
           t('cfg_Housekeeper_DicomWebCache_help', 'Régénère les métadonnées que les visionneuses lisent sans télécharger les images.')],
+    },
+  },
+  {
+    id: 'interface',
+    titre: 'Interface et partage',
+    icone: 'fa-display',
+    champs: {
+      'OrthancExplorer2.Theme': [t('cfg_Theme_label', 'Thème'),
+          t('cfg_Theme_help', 'Clair ou sombre. Le sombre fatigue moins les yeux en salle de lecture.')],
+
+      'OrthancExplorer2.UiOptions.ShowOrthancName': [t('cfg_ShowOrthancName_label', 'Afficher le nom du serveur'),
+          t('cfg_ShowOrthancName_help', 'Utile quand on utilise plusieurs PACS : on voit d\'un coup d\'œil sur lequel on travaille.')],
+
+      'OrthancExplorer2.UiOptions.EnableViewerQuickButton': [t('cfg_EnableViewerQuickButton_label', 'Bouton d\'ouverture rapide'),
+          t('cfg_EnableViewerQuickButton_help', 'Ouvre un examen dans la visionneuse en un clic depuis la liste.')],
+
+      'OrthancExplorer2.EnableReportQuickButton': [t('cfg_EnableReportQuickButton_label', 'Bouton compte rendu'),
+          t('cfg_EnableReportQuickButton_help', 'Raccourci vers le compte rendu associé à l\'examen, lorsqu\'il existe.')],
+
+      'OrthancExplorer2.UiOptions.EnableOpenInOhifViewer3': [t('cfg_EnableOhif_label', 'Proposer OHIF'),
+          t('cfg_EnableOhif_help', 'Visionneuse polyvalente, adaptée à la plupart des examens.')],
+
+      'OrthancExplorer2.UiOptions.EnableOpenInStoneWebViewer': [t('cfg_EnableStone_label', 'Proposer Stone Web Viewer'),
+          t('cfg_EnableStone_help', 'Visionneuse légère, rapide à ouvrir sur une connexion lente.')],
+
+      'OrthancExplorer2.UiOptions.EnableOpenInVolView': [t('cfg_EnableVolView_label', 'Proposer VolView'),
+          t('cfg_EnableVolView_help', 'Rendu volumique 3D, pour les scanners et IRM.')],
+
+      'OrthancExplorer2.UiOptions.EnableShares': [t('cfg_EnableShares_label', 'Autoriser les liens de partage'),
+          t('cfg_EnableShares_help', 'Permet d\'envoyer un examen à un confrère par un lien, sans lui créer de compte. Désactiver retire la fonction de l\'interface.')],
+
+      'OrthancExplorer2.Tokens.ShareType': [t('cfg_ShareType_label', 'Visionneuse des liens de partage'),
+          t('cfg_ShareType_help', 'Celle proposée par défaut au moment de créer un lien. Reste modifiable à chaque partage.')],
+
+      'OrthancExplorer2.UiOptions.DefaultShareDuration': [t('cfg_DefaultShareDuration_label', 'Durée d\'un lien de partage (jours)'),
+          t('cfg_DefaultShareDuration_help', 'Validité proposée par défaut. 0 pour un lien sans date d\'expiration.')],
+
+      'OrthancExplorer2.Tokens.InstantLinksValidity': [t('cfg_InstantLinksValidity_label', 'Validité d\'un lien instantané (secondes)'),
+          t('cfg_InstantLinksValidity_help', 'Durée de vie du lien ouvert directement depuis l\'interface. Quelques minutes suffisent.')],
+
     },
   },
   {

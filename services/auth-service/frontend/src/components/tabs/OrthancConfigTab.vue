@@ -92,6 +92,20 @@ const groupesAffiches = computed(() => {
   return resultat
 })
 
+// Valeurs admises et bornes, telles que le serveur les declare. Les
+// reprendre ici plutot que de les redecrire evite qu'interface et validation
+// divergent : c'est le serveur qui refuse, l'interface ne fait que l'annoncer
+// plus tot.
+function choix(cle) {
+  return meta.value[cle]?.choices || null
+}
+function borneMin(cle) {
+  return meta.value[cle]?.min ?? null
+}
+function borneMax(cle) {
+  return meta.value[cle]?.max ?? null
+}
+
 const nbModifies = computed(
   () => Object.keys(fields.value).filter(isModified).length,
 )
@@ -190,6 +204,9 @@ onMounted(load)
               <em v-else-if="parDefaut(cle)" class="defaut">{{ t('orthanc_default', '· valeur par défaut d\'Orthanc') }}</em>
             </span>
             <span v-if="aide(cle)" class="aide">{{ aide(cle) }}</span>
+            <span v-if="borneMin(cle) !== null" class="aide">
+              {{ t('orthanc_range', 'Entre {min} et {max}.', { min: borneMin(cle), max: borneMax(cle) }) }}
+            </span>
           </div>
 
           <div class="valeur">
@@ -206,6 +223,21 @@ onMounted(load)
               <option :value="true">{{ t('yes', 'Oui') }}</option>
               <option :value="false">{{ t('no', 'Non') }}</option>
             </select>
+            <!-- Le serveur declare des valeurs admises : une liste evite
+                 d'avoir a connaitre par coeur des libelles comme
+                 « volview-viewer-publication », et supprime la faute de
+                 frappe. -->
+            <select
+              v-else-if="choix(cle)"
+              :id="'c-' + cle" v-model="fields[cle]"
+            >
+              <option :value="null">
+                {{ valeurDefaut(cle)
+                  ? t('orthanc_keep_default', 'Par défaut ({value})', { value: valeurDefaut(cle) })
+                  : t('orthanc_undefined', 'Non défini') }}
+              </option>
+              <option v-for="v in choix(cle)" :key="v" :value="v">{{ v }}</option>
+            </select>
             <textarea
               v-else-if="detectType(cle) === 'list'"
               :id="'c-' + cle" rows="4"
@@ -215,6 +247,7 @@ onMounted(load)
             <input
               v-else-if="detectType(cle) === 'number'"
               :id="'c-' + cle" v-model.number="fields[cle]" type="number"
+              :min="borneMin(cle)" :max="borneMax(cle)"
               :placeholder="valeurDefaut(cle)"
             >
             <input

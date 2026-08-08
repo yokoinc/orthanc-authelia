@@ -283,7 +283,8 @@
     "backup_creating": "Backing up…",
     "backup_created": "{count} file(s) backed up.",
     "orthanc_keep_default": "Default ({value})",
-    "orthanc_undefined": "Not set"
+    "orthanc_undefined": "Not set",
+    "orthanc_range": "Between {min} and {max}."
   },
   "js": {
     "expired": "Expired",
