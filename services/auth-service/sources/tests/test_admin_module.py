@@ -628,82 +628,92 @@ class TestEcritureNonDestructive:
 # Viewer par defaut des liens de partage
 # ============================================================================
 
-class TestViewerParDefaut:
-    """Le viewer preselectionne quand on partage un examen.
+class TestViewerDePartage:
+    """Le viewer preselectionne au moment de partager un examen.
 
-    La valeur est lue dans le .env a chaque appel, et non au demarrage : c'est
-    ce qui permet au changement de prendre effet sans recreer le container,
-    Explorer redemandant ces reglages a chaque ouverture du menu de partage.
-    Ces tests verrouillent ce comportement et le repli sur une valeur sure.
+    Ces tests ont ete refaits : les precedents verifiaient qu'une valeur
+    ecrite dans les reglages etait bien relue, sans jamais etablir que
+    quelqu'un la consulte. Elle ne l'etait pas -- Explorer lit
+    OrthancExplorer2.Tokens.ShareType dans orthanc.json, et son bundle ne
+    contient aucune occurrence du "default-viewer" que renvoyait
+    /settings/roles. Le reglage s'ecrivait, se relisait, et ne changeait rien
+    a l'ecran.
+
+    D'ou le garde-fou ci-dessous : le chemin vise doit rester celui
+    qu'Explorer lit.
     """
 
     @pytest.fixture
-    def env_temporaire(self, tmp_path, monkeypatch):
-        """Un .env isole, et un fichier de reglages absent.
-
-        Le fichier de reglages est explicitement pointe vers un chemin
-        inexistant : ces cas-ci verifient la reprise de l'ancienne variable
-        d'environnement, il ne faut pas qu'un fichier de reglages tramant
-        dans l'image de test la court-circuite.
-        """
+    def config_orthanc(self, tmp_path, monkeypatch):
         import admin_module
 
-        fichier = tmp_path / ".env"
-        fichier.write_text("PUBLIC_URL=https://exemple.fr\n", encoding="utf-8")
-        monkeypatch.setattr(admin_module, "ENV_FILE", fichier)
-        monkeypatch.setattr(admin_module, "SETTINGS_FILE",
-                            tmp_path / "absent" / "settings.json")
+        fichier = tmp_path / "orthanc.json"
+        fichier.write_text(
+            '{\n'
+            '  // Interface web\n'
+            '  "OrthancExplorer2": {\n'
+            '    "Tokens": {\n'
+            '      "ShareType": "volview-viewer-publication"\n'
+            '    }\n'
+            '  }\n'
+            '}\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(admin_module, "ORTHANC_JSON", fichier)
         return fichier
 
-    def test_absent_du_env_repli_sur_ohif(self, env_temporaire):
-        """Une installation existante n'a pas la variable : elle doit marcher."""
-        import auth_service
-        assert auth_service._default_share_viewer() == "ohif-viewer-publication"
+    def test_chemin_vise_est_celui_qu_explorer_lit(self):
+        """Garde-fou : Explorer fait `tokenType: this.tokens.ShareType`.
 
-    def test_valeur_du_env_prise_en_compte(self, env_temporaire):
-        import auth_service
-        env_temporaire.write_text(
-            "SHARE_DEFAULT_VIEWER=stone-viewer-publication\n", encoding="utf-8")
-        assert auth_service._default_share_viewer() == "stone-viewer-publication"
+        Si ce chemin disparait des champs modifiables, le reglage redevient
+        sans effet -- en silence, car il continuerait de s'ecrire et de se
+        relire correctement.
+        """
+        from admin_module import ORTHANC_EDITABLE_PATHS
+        assert "OrthancExplorer2.Tokens.ShareType" in ORTHANC_EDITABLE_PATHS
 
-    def test_valeur_inconnue_ignoree(self, env_temporaire):
-        """Une faute de frappe ne doit pas casser le menu de partage."""
-        import auth_service
-        env_temporaire.write_text("SHARE_DEFAULT_VIEWER=nimporte-quoi\n",
-                                  encoding="utf-8")
-        assert auth_service._default_share_viewer() == "ohif-viewer-publication"
+    def test_lecture_depuis_orthanc_json(self, config_orthanc):
+        from admin_module import _lire_share_type
+        assert _lire_share_type() == "volview-viewer-publication"
 
-    def test_lien_instantane_refuse(self, env_temporaire):
-        """viewer-instant-link n'est pas une publication : Explorer construit
-        l'URL lui-meme, il n'y a pas de page de partage a servir."""
-        import auth_service
-        env_temporaire.write_text("SHARE_DEFAULT_VIEWER=viewer-instant-link\n",
-                                  encoding="utf-8")
-        assert auth_service._default_share_viewer() == "ohif-viewer-publication"
+    def test_valeur_inconnue_ignoree(self, config_orthanc):
+        """Une valeur hors liste ne doit pas casser le menu de partage."""
+        from admin_module import _lire_share_type
+        config_orthanc.write_text(
+            '{"OrthancExplorer2": {"Tokens": {"ShareType": "nimporte-quoi"}}}',
+            encoding="utf-8")
+        assert _lire_share_type() == "ohif-viewer-publication"
 
-    def test_relu_a_chaque_appel(self, env_temporaire):
-        """Le point qui compte : pas de valeur figee au chargement du module."""
-        import auth_service
+    def test_champ_absent(self, config_orthanc):
+        from admin_module import _lire_share_type
+        config_orthanc.write_text('{"Name": "PACS"}', encoding="utf-8")
+        assert _lire_share_type() == "ohif-viewer-publication"
 
-        env_temporaire.write_text("SHARE_DEFAULT_VIEWER=volview-viewer-publication\n",
-                                  encoding="utf-8")
-        premier = auth_service._default_share_viewer()
-
-        env_temporaire.write_text("SHARE_DEFAULT_VIEWER=stone-viewer-publication\n",
-                                  encoding="utf-8")
-        second = auth_service._default_share_viewer()
-
-        assert premier == "volview-viewer-publication"
-        assert second == "stone-viewer-publication"
-
-    def test_env_illisible_repli(self, monkeypatch):
-        """Sans .env accessible, le menu de partage doit rester utilisable."""
+    def test_fichier_illisible(self, tmp_path, monkeypatch):
         import admin_module
-        import auth_service
+        from admin_module import _lire_share_type
+        monkeypatch.setattr(admin_module, "ORTHANC_JSON",
+                            tmp_path / "absent.json")
+        assert _lire_share_type() == "ohif-viewer-publication"
 
-        monkeypatch.setattr(admin_module, "ENV_FILE",
-                            Path("/chemin/qui/n/existe/pas/.env"))
-        assert auth_service._default_share_viewer() == "ohif-viewer-publication"
+    def test_ecriture_preserve_les_commentaires(self, config_orthanc):
+        """L'ecriture passe par la meme mecanique que le reste de la config."""
+        from admin_module import _ecrire_changements, _strip_json_comments
+        import json as _json
+
+        source = config_orthanc.read_text(encoding="utf-8")
+        out = _ecrire_changements(
+            source,
+            {"OrthancExplorer2.Tokens.ShareType": "ohif-viewer-publication"},
+        )
+        assert "// Interface web" in out
+        relu = _json.loads(_strip_json_comments(out))
+        assert relu["OrthancExplorer2"]["Tokens"]["ShareType"] == "ohif-viewer-publication"
+
+    def test_auth_service_renvoie_la_meme_valeur(self, config_orthanc):
+        """/settings/roles ne doit pas contredire ce qui s'applique."""
+        import auth_service
+        assert auth_service._default_share_viewer() == "volview-viewer-publication"
 
 
 # ============================================================================

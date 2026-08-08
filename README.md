@@ -130,7 +130,7 @@ Le panel est une application Vue 3 (`services/auth-service/frontend/`) compilée
 | **Configuration Orthanc** | ~40 paramètres de `orthanc.json`, rangés par thème et documentés, et un bouton pour redémarrer Orthanc | Écrit le JSON ; le redémarrage applique les changements |
 | **Équipements** | Déclarer les modalités DICOM (scanner, IRM…) et tester leur connectivité par C-ECHO | Passe par l'API d'Orthanc ; effet immédiat, sans redémarrage |
 | **État** | Redis, Orthanc, fichiers de configuration | Lecture seule |
-| **Maintenance** | Adresse publique, langue de l'interface, viewer par défaut des liens de partage, sauvegardes | Écrit `.env` et `data/app-settings/settings.json` ; restaure un fichier depuis `data/admin-backups/` |
+| **Maintenance** | Adresse publique, langue de l'interface, viewer par défaut des liens de partage, sauvegardes | Écrit `.env`, `data/app-settings/settings.json` et `orthanc.json` ; restaure un fichier depuis `data/admin-backups/` |
 | **Journal** | Qui a fait quoi et quand : comptes, configuration, sauvegardes, requêtes rejetées | Lit le flux d'audit dans Redis |
 
 Chaque écriture crée une sauvegarde rotative dans `data/admin-backups/` (les 10 dernières sont conservées). Le panel **édite** `orthanc.json` au lieu de le régénérer : seule la valeur visée est remplacée, et les commentaires qui documentent chaque réglage survivent. Une régénération par `json.dumps()` les effaçait — constaté sur une installation réelle, où la première modification faite depuis le panel avait supprimé les 44 commentaires du fichier. Le résultat est relu et comparé à la structure attendue avant d'être écrit ; si la mise en forme ne peut pas être conservée, la réponse de l'API le dit au lieu de laisser le découvrir plus tard. La gestion des comptes ne demande aucun accès au socket Docker : Authelia surveille son fichier d'utilisateurs et le relit seul.
@@ -149,7 +149,9 @@ Pour désactiver la fonction, laisser `DOCKER_PROXY_URL` vide dans `.env` et ret
 
 Deux garde-fous méritent d'être connus. On ne peut ni supprimer, ni désactiver, ni retirer du groupe `admin` le dernier administrateur actif : la pile se retrouverait sans personne pour l'administrer, et la seule issue serait d'éditer `users_database.yml` à la main. Et l'assistant de première installation se ferme définitivement une fois finalisé — il ne peut pas servir à créer un second administrateur.
 
-Le même onglet fixe le viewer proposé par défaut lorsqu'on partage un examen depuis Explorer — OHIF, Stone Web Viewer ou VolView. Contrairement à l'URL publique, ce réglage prend effet immédiatement : la valeur est relue à chaque appel, et Explorer redemande ces réglages chaque fois qu'on ouvre le menu de partage. Une valeur inconnue est ignorée au profit d'OHIF plutôt que de casser le menu. Le choix reste modifiable au cas par cas au moment du partage.
+Le même onglet fixe le viewer proposé par défaut lorsqu'on partage un examen depuis Explorer — OHIF, Stone Web Viewer ou VolView. Le choix reste modifiable au cas par cas au moment du partage.
+
+Ce réglage écrit `OrthancExplorer2.Tokens.ShareType` dans `orthanc.json` et n'entre donc en vigueur qu'après redémarrage d'Orthanc. Une première version passait par un réglage applicatif à effet immédiat, en s'appuyant sur le `default-viewer` que renvoie `/settings/roles` : c'était une erreur, car Explorer ne consulte jamais ce champ. Son bundle n'en contient aucune occurrence et fait `tokenType: this.tokens.ShareType`, c'est-à-dire sa propre configuration. Le réglage s'écrivait, se relisait — et ne changeait rien à l'écran. `/settings/roles` renvoie désormais ce même champ, pour qu'un client qui interrogerait cette API n'obtienne pas une réponse en contradiction avec ce qui s'applique.
 
 #### Où vit quel réglage
 
@@ -157,7 +159,7 @@ Deux emplacements, et la frontière entre les deux n'est pas affaire de goût :
 
 | | `.env` | `data/app-settings/settings.json` |
 |---|---|---|
-| Contenu | Secrets, identifiants, `PUID`/`PGID`, `SSL_MODE`, `PUBLIC_URL` | Préférences applicatives (viewer par défaut, langue) |
+| Contenu | Secrets, identifiants, `PUID`/`PGID`, `SSL_MODE`, `PUBLIC_URL` | Préférences applicatives (langue) |
 | Lu par | Docker Compose, **avant** qu'un conteneur démarre | auth-service, en fonctionnement |
 | Modifié par | `bootstrap.sh`, et le panel pour `PUBLIC_URL` | Le panel |
 | Prise en compte | Au redémarrage de la pile | Immédiate |

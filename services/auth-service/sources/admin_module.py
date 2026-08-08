@@ -211,20 +211,25 @@ def _normalise_public_url(raw: str) -> tuple[str, str]:
 # fichier a chaque acces ferait des dizaines de lectures par page. Un stat()
 # suffit a savoir s'il a change, et le cout d'un changement -- rare -- est une
 # seule relecture.
-_reglages_cache: dict[str, Any] = {"mtime": None, "data": {}}
+# La cle inclut le CHEMIN et pas seulement la date : deux fichiers distincts
+# ecrits dans la meme seconde partagent le meme mtime, et le cache servait
+# alors le contenu de l'un pour l'autre. Sans consequence en production, ou
+# le chemin ne change jamais -- mais c'est le genre de raccourci qui se paie
+# plus tard, et c'est un test qui l'a trouve.
+_reglages_cache: dict[str, Any] = {"cle": None, "data": {}}
 
 
 def _lire_reglages() -> dict[str, Any]:
     """Contenu du fichier de reglages. Dict vide s'il n'existe pas encore."""
     try:
-        mtime = SETTINGS_FILE.stat().st_mtime
+        cle = (str(SETTINGS_FILE), SETTINGS_FILE.stat().st_mtime)
     except OSError:
         # Fichier absent : installation neuve, ou reglages jamais modifies.
-        _reglages_cache["mtime"] = None
+        _reglages_cache["cle"] = None
         _reglages_cache["data"] = {}
         return {}
 
-    if _reglages_cache["mtime"] == mtime:
+    if _reglages_cache["cle"] == cle:
         return _reglages_cache["data"]
 
     try:
@@ -235,7 +240,7 @@ def _lire_reglages() -> dict[str, Any]:
         logger.warning("reglages illisibles (%s), valeurs par defaut", e)
         data = {}
 
-    _reglages_cache["mtime"] = mtime
+    _reglages_cache["cle"] = cle
     _reglages_cache["data"] = data
     return data
 
@@ -278,7 +283,7 @@ def _ecrire_reglage(nom: str, valeur: Any) -> None:
                                             ensure_ascii=False) + "\n")
     # Invalider explicitement : le mtime a parfois une granularite d'une
     # seconde, et deux ecritures rapprochees seraient alors indistinguables.
-    _reglages_cache["mtime"] = None
+    _reglages_cache["cle"] = None
 
 
 def _read_env_var(name: str) -> str:
@@ -697,6 +702,12 @@ ORTHANC_DEFAULTS = {
 
 
 ORTHANC_EDITABLE_PATHS = {
+    # Viewer preselectionne au moment de partager un examen. C'est CE champ
+    # qu'Explorer lit -- son JS fait `tokenType: this.tokens.ShareType` -- et
+    # non le "default-viewer" que renvoie /settings/roles, qui n'apparait nulle
+    # part dans son bundle. Se tromper de champ donne un reglage qui s'ecrit,
+    # se relit, et ne change rien a l'ecran.
+    "OrthancExplorer2.Tokens.ShareType": str,
     "Name": str,
     "DicomAet": str,
     "RemoteAccessAllowed": bool,
@@ -1181,6 +1192,23 @@ VIEWERS_PARTAGE = (
 LANGUES_DISPONIBLES = ("en", "fr")
 
 
+def _lire_share_type() -> str:
+    """Viewer preselectionne au partage, tel qu'il figure dans orthanc.json.
+
+    Lu dans le fichier et non dans Orthanc : c'est la valeur qui s'appliquera,
+    y compris quand un redemarrage reste a faire. Le panel signale par
+    ailleurs qu'il est necessaire.
+    """
+    try:
+        config = _load_orthanc_config()
+    except Exception:  # noqa: BLE001 - fichier absent ou illisible
+        return VIEWERS_PARTAGE[0]
+    valeur = (config.get("OrthancExplorer2", {})
+              .get("Tokens", {})
+              .get("ShareType", ""))
+    return valeur if valeur in VIEWERS_PARTAGE else VIEWERS_PARTAGE[0]
+
+
 class SharingPayload(BaseModel):
     default_viewer: str
 
@@ -1192,15 +1220,17 @@ class LanguePayload(BaseModel):
 @router.get("/api/admin/sharing")
 async def admin_sharing_get(admin: AdminUser = Depends(require_admin)):
     """Viewer preselectionne quand on partage un examen."""
-    actuel = _lire_reglage("share_default_viewer", "SHARE_DEFAULT_VIEWER")
+    actuel = _lire_share_type()
     langue = _lire_reglage("langue", "LANGUAGE")
     return {
         "default_viewer": actuel if actuel in VIEWERS_PARTAGE else VIEWERS_PARTAGE[0],
         "available": list(VIEWERS_PARTAGE),
+        # Ce reglage vit dans orthanc.json, lu par Explorer au demarrage : il
+        # ne prend effet qu'une fois Orthanc redemarre. La langue, elle, est
+        # relue a chaque affichage.
+        "restart_required": True,
         "langue": langue if langue in LANGUES_DISPONIBLES else LANGUES_DISPONIBLES[0],
         "langues": list(LANGUES_DISPONIBLES),
-        # Le dossier est monte, donc inscriptible : contrairement au .env, il
-        # n'y a pas de cas ou le reglage serait en lecture seule.
         "editable": True,
     }
 
@@ -1220,10 +1250,20 @@ async def admin_sharing_put(
             f"viewer inconnu : {payload.default_viewer}. "
             f"Attendu : {', '.join(VIEWERS_PARTAGE)}",
         )
-    _ecrire_reglage("share_default_viewer", payload.default_viewer)
+
+    # On delegue a la route de configuration plutot que d'ecrire ici : elle
+    # apporte deja la sauvegarde prealable, la validation des invariants,
+    # l'ecriture qui preserve les commentaires et le retour arriere en cas
+    # d'echec. Dupliquer tout cela pour un seul champ finirait par diverger.
+    resultat = await update_orthanc_config(
+        OrthancConfigPayload(
+            changes={"OrthancExplorer2.Tokens.ShareType": payload.default_viewer},
+        ),
+        admin,
+    )
     await _audit("sharing.default_viewer.updated", admin.username,
                  viewer=payload.default_viewer)
-    return {"ok": True, "default_viewer": payload.default_viewer}
+    return {**resultat, "default_viewer": payload.default_viewer}
 
 
 @router.put("/api/admin/langue")

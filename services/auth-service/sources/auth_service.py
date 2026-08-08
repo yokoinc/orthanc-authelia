@@ -504,29 +504,19 @@ VIEWER_PARTAGE_DEFAUT = "ohif-viewer-publication"
 def _default_share_viewer() -> str:
     """Viewer preselectionne quand on partage un examen depuis Explorer.
 
-    Lu dans les reglages a chaque appel plutot qu'au demarrage : le fichier
-    est monte dans le container, et Explorer redemande ces reglages a chaque
-    ouverture du menu de partage. Un changement depuis le panel prend donc
-    effet sans recreer quoi que ce soit.
-
-    Une valeur inconnue est ignoree : mieux vaut un viewer qui fonctionne
-    qu'un menu de partage casse par une faute de frappe.
+    Attention : Explorer ne consulte PAS cette valeur. Son bundle ne contient
+    aucune occurrence de "default-viewer" ; il lit
+    OrthancExplorer2.Tokens.ShareType dans sa propre configuration. On renvoie
+    donc ici le meme champ, pour qu'un client qui interrogerait cette API
+    n'obtienne pas une reponse en contradiction avec ce qui s'applique
+    reellement a l'ecran.
     """
     try:
-        from admin_module import _lire_reglage
+        from admin_module import _lire_share_type
 
-        choisi = _lire_reglage("share_default_viewer", "SHARE_DEFAULT_VIEWER")
-    except Exception:  # noqa: BLE001 - reglages illisibles ne cassent rien
+        return _lire_share_type()
+    except Exception:  # noqa: BLE001 - orthanc.json illisible ne casse rien
         return VIEWER_PARTAGE_DEFAUT
-
-    if choisi in VIEWERS_PARTAGE:
-        return choisi
-    if choisi:
-        logger.warning(
-            "SHARE_DEFAULT_VIEWER=%r inconnu, repli sur %s",
-            choisi, VIEWER_PARTAGE_DEFAUT,
-        )
-    return VIEWER_PARTAGE_DEFAUT
 
 
 @app.get("/settings/roles")

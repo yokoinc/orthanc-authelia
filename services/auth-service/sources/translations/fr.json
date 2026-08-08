@@ -132,7 +132,7 @@
     "network_readonly": "Le fichier .env n'est pas accessible : l'adresse ne peut pas être modifiée depuis le panel.",
     "backups_title": "Sauvegardes",
     "sharing_title": "Liens de partage",
-    "sharing_note": "Viewer proposé par défaut quand on partage un examen depuis Orthanc Explorer. Le choix reste modifiable au cas par cas au moment du partage. Prend effet immédiatement.",
+    "sharing_note": "Viewer proposé par défaut quand on partage un examen depuis Orthanc Explorer. Le choix reste modifiable au cas par cas au moment du partage. Ce réglage vit dans la configuration d'Orthanc : il ne prend effet qu'après redémarrage, depuis l'onglet Configuration.",
     "sharing_saved": "Viewer par défaut enregistré.",
     "sharing_readonly": "Le fichier .env n'est pas accessible : le viewer par défaut ne peut pas être modifié depuis le panel.",
     "langue_title": "Langue de l'interface",

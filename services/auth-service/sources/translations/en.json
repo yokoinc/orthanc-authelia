@@ -132,7 +132,7 @@
     "network_readonly": "The .env file is not reachable: the address cannot be changed from the panel.",
     "backups_title": "Backups",
     "sharing_title": "Share links",
-    "sharing_note": "Viewer offered by default when sharing a study from Orthanc Explorer. The choice can still be changed for each individual share. Takes effect immediately.",
+    "sharing_note": "Viewer offered by default when sharing a study from Orthanc Explorer. The choice can still be changed for each individual share. This setting lives in Orthanc's configuration: it only takes effect after a restart, from the Configuration tab.",
     "sharing_saved": "Default viewer saved.",
     "sharing_readonly": "The .env file is not reachable: the default viewer cannot be changed from the panel.",
     "langue_title": "Interface language",

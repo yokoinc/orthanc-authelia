@@ -209,7 +209,7 @@ onMounted(() => { charger(); chargerPartage() })
 
     <h2 class="espace">{{ t('sharing_title', 'Liens de partage') }}</h2>
     <p class="note">
-      {{ t('sharing_note', "Viewer proposé par défaut quand on partage un examen depuis Orthanc Explorer. Le choix reste modifiable au cas par cas au moment du partage. Prend effet immédiatement.") }}
+      {{ t('sharing_note', "Viewer proposé par défaut quand on partage un examen depuis Orthanc Explorer. Le choix reste modifiable au cas par cas au moment du partage. Ce réglage vit dans la configuration d'Orthanc : il ne prend effet qu'après redémarrage, depuis l'onglet Configuration.") }}
     </p>
 
     <div class="ligne">
