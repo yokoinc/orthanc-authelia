@@ -999,7 +999,7 @@ class TestModificationUtilisateur:
     def test_refus_de_degrader_le_dernier_admin(
         self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
     ):
-        """Se retirer du groupe admin quand on est le seul laisserait la pile
+        """Se retirer du groupe admin quand on est le seul laisserait la stack
         sans personne pour l'administrer. Refus attendu en 400 -- et non en
         500, qui ne distingue pas un refus deliberé d'une panne."""
         r = client.patch("/api/admin/users/cuffel.gregory", json={
