@@ -251,7 +251,7 @@ class TestStripJsonComments:
         assert json.loads(_strip_json_comments(raw)) == {"a": 1}
 
     def test_url_double_slash_preserved(self):
-        """Le // d'une URL ne doit pas etre pris pour un commentaire."""
+        """A URL's // must not be mistaken for a comment."""
         from admin_module import _strip_json_comments
         import json
         raw = '{"url": "http://auth-service:8000"}'
@@ -267,7 +267,7 @@ class TestStripJsonComments:
         assert out["glob"] == "/* pas un commentaire */"
 
     def test_escaped_quote_inside_string(self):
-        """Une quote echappee ne doit pas terminer la chaine prematurement."""
+        """An escaped quote must not end the string prematurely."""
         from admin_module import _strip_json_comments
         import json
         raw = '{"quoted": "il a dit \\"bonjour\\"", "n": 1}'
@@ -275,7 +275,7 @@ class TestStripJsonComments:
         assert out["n"] == 1
 
     def test_real_orthanc_config_shape(self):
-        """Cas reel : commentaires en tete et URL avec // dans la meme config."""
+        """Real case: leading comments and a URL with // in the same config."""
         from admin_module import _strip_json_comments
         import json
         raw = """{
@@ -297,12 +297,12 @@ class TestStripJsonComments:
 # ============================================================================
 
 class TestRestartOrthanc:
-    """La route qui redemarre Orthanc depuis le panel.
+    """The route that restarts Orthanc from the panel.
 
-    Elle appelle un proxy qui n'expose que /containers/<id>/restart. Ce qui
-    compte ici : ne jamais annoncer un succes sans qu'Orthanc ait reellement
-    repondu -- une configuration acceptee a l'ecriture peut tres bien
-    l'empecher de redemarrer, et l'exploitant doit l'apprendre tout de suite.
+    It calls a proxy exposing nothing but /containers/<id>/restart. What
+    matters here: never announce success without Orthanc having actually
+    answered -- a configuration accepted on write may well stop it from
+    restarting, and the operator must learn that straight away.
     """
 
     @staticmethod
@@ -456,16 +456,16 @@ def _run(coro):
 # ============================================================================
 
 class TestNonDestructiveWrite:
-    """Le panel edite le texte plutot que de regenerer le fichier.
+    """The panel edits the text rather than regenerating the file.
 
-    Une reecriture par json.dumps() efface commentaires, ordre et
-    groupements. Constate sur une installation reelle : la premiere
-    modification faite depuis le panel avait supprime les 44 commentaires du
-    fichier, soit l'essentiel de sa documentation.
+    A rewrite through json.dumps() erases comments, ordering and grouping.
+    Observed on a real installation: the first change made from the panel
+    had removed the file's 44 comments, that is to say most of its
+    documentation.
 
-    Les cas rassembles ici sont ceux ou une edition textuelle naive se
-    trompe : un nom de cle cite dans un commentaire, une accolade dans une
-    chaine, un commentaire colle a la valeur.
+    The cases gathered here are the ones a naive textual edit gets wrong: a
+    key name quoted in a comment, a brace inside a string, a comment stuck
+    against the value.
     """
 
     @staticmethod
@@ -629,18 +629,17 @@ class TestNonDestructiveWrite:
 # ============================================================================
 
 class TestShareViewer:
-    """Le viewer preselectionne au moment de partager un examen.
+    """The viewer preselected when sharing a study.
 
-    Ces tests ont ete refaits : les precedents verifiaient qu'une valeur
-    ecrite dans les settings_file etait bien relue, sans jamais etablir que
-    quelqu'un la consulte. Elle ne l'etait pas -- Explorer lit
-    OrthancExplorer2.Tokens.ShareType dans orthanc.json, et son bundle ne
-    contient aucune occurrence du "default-viewer" que renvoyait
-    /settings/roles. Le reglage s'ecrivait, se relisait, et ne changeait rien
-    a l'ecran.
+    These tests were redone: the previous ones checked that a value written
+    into the settings was read back, without ever establishing that anyone
+    consults it. Nobody did -- Explorer reads
+    OrthancExplorer2.Tokens.ShareType from orthanc.json, and its bundle holds
+    no occurrence of the "default-viewer" that /settings/roles returned. The
+    setting wrote, read back, and changed nothing on screen.
 
-    D'ou le garde-fou ci-dessous : le chemin vise doit rester celui
-    qu'Explorer lit.
+    Hence the guard below: the targeted path must stay the one Explorer
+    reads.
     """
 
     @pytest.fixture
@@ -721,12 +720,11 @@ class TestShareViewer:
 # ============================================================================
 
 class TestSettingsStore:
-    """Les settings_file que seul le panel utilise vivent hors du .env.
+    """Settings only the panel uses live outside .env.
 
-    Le .env n'a de raison d'etre que pour ce que docker compose doit connaitre
-    avant de demarrer un container. Y loger une preference d'interface oblige
-    a le monter en ecriture, a le reecrire sur place, et melange des libelles
-    avec des mots de passe.
+    .env exists only for what docker compose must know before starting a
+    container. Housing an interface preference there forces mounting it
+    writable, rewriting it in place, and mixes labels with passwords.
     """
 
     @pytest.fixture
@@ -806,11 +804,11 @@ class TestSettingsStore:
 # ============================================================================
 
 class TestLanguage:
-    """La langue etait figee au chargement du module, depuis le .env.
+    """The language used to be frozen at module load, from .env.
 
-    En changer imposait de recreer le container, pour une preference
-    d'affichage. Les translations sont desormais resolues a l'affichage, ce qui
-    permet de la changer depuis le panel.
+    Changing it meant recreating the container, for a display preference.
+    Translations are now resolved at display time, which allows changing it
+    from the panel.
     """
 
     @pytest.fixture
@@ -879,16 +877,16 @@ class TestLanguage:
 # ============================================================================
 
 class TestRollback:
-    """Une configuration peut etre valide et refusee par Orthanc.
+    """A configuration can be valid and still be refused by Orthanc.
 
-    Le type et la syntaxe ne disent rien de l'acceptabilite : DicomPort =
-    99999 est un entier, produit un JSON parfait, et empeche Orthanc de
-    demarrer. Sans retour arriere, le panel laisse un PACS eteint en
-    renvoyant l'exploitant vers les journaux.
+    Type and syntax say nothing about acceptability: DicomPort = 99999 is an
+    integer, produces perfect JSON, and stops Orthanc from starting. Without
+    a rollback, the panel leaves a PACS down while pointing the operator at
+    the logs.
 
-    Le test qui existait pour ce cas passait deja avant que le retour arriere
-    existe : sans sauvegarde disponible, on tombe sur un autre chemin qui
-    repond aussi 504. D'ou les cas ci-dessous, qui en placent une.
+    The test that existed for this case already passed before the rollback
+    did: with no backup available, we fall onto another path that also
+    answers 504. Hence the cases below, which place one.
     """
 
     @staticmethod
@@ -1021,7 +1019,7 @@ class TestRollback:
 # ============================================================================
 
 class TestRangesAndValues:
-    """Le type ne suffit pas : un entier peut etre un port qui n'existe pas."""
+    """The type is not enough: an integer can be a port that does not exist."""
 
     @staticmethod
     def _change(champ, valeur):
@@ -1068,15 +1066,15 @@ class TestRangesAndValues:
 # ============================================================================
 
 class TestExplorerSettings:
-    """Ce qui doit etre reglable sans ouvrir un fichier, et ce qui ne doit
-    pas l'etre du tout.
+    """What must be settable without opening a file, and what must not be
+    settable at all.
 
-    Le projet vise un exploitant qui n'edite pas de JSON a la main. Les
-    settings_file d'apparence et de partage doivent donc etre dans le panel. Mais
-    deux champs en sont volontairement absents, et c'est ce que verrouille la
-    seconde moitie de ces tests : les exposer permettrait de desactiver
-    l'interface DEPUIS l'interface, sans autre retour en arriere que d'editer
-    le fichier -- precisement ce qu'on veut eviter.
+    The project targets an operator who does not hand-edit JSON. Appearance
+    and sharing settings therefore belong in the panel. But two fields are
+    deliberately absent, and that is what the second half of these tests
+    locks down: exposing them would allow disabling the interface FROM the
+    interface, with no way back other than editing the file -- precisely
+    what we want to avoid.
     """
 
     @staticmethod
@@ -1163,15 +1161,14 @@ class TestExplorerSettings:
 # ============================================================================
 
 class TestListSettings:
-    """Colonnes affichees, ordre des visionneuses, durees de partage.
+    """Displayed columns, viewer ordering, share durations.
 
-    Le scanner ne relevait que les valeurs scalaires. Un chemin pointant sur
-    un tableau etait donc vu comme absent et partait dans la branche
-    « insertion », alors que la cle existait : le fichier se retrouvait avec
-    DEUX fois la meme cle. La relecture-comparaison ne le voyait pas,
-    json.loads ne retenant que la derniere -- le fichier restait donc
-    fonctionnel mais ambigu, et un analyseur retenant la premiere aurait
-    applique l'ancienne configuration.
+    The scanner only recorded scalar values. A path pointing at an array was
+    therefore seen as absent and went down the "insertion" branch, although
+    the key existed: the file ended up with the same key TWICE. The
+    read-back comparison did not catch it, json.loads keeping only the last
+    one -- so the file stayed functional but ambiguous, and a parser keeping
+    the first would have applied the previous configuration.
     """
 
     @staticmethod
@@ -1275,14 +1272,14 @@ class TestListSettings:
 # ============================================================================
 
 class TestSetupLock:
-    """Redis est un cache : le vider ne doit pas rouvrir l'installation.
+    """Redis is a cache: wiping it must not reopen the installation.
 
-    Le drapeau y vivait seul. Un volume efface, une migration, un
-    docker volume prune, et l'assistant se rouvrait sur un PACS en service --
-    ou n'importe qui pouvait alors se creer un compte administrateur.
+    The flag used to live there alone. A deleted volume, a migration, a
+    docker volume prune, and the wizard reopened on a live PACS -- where
+    anyone could then create themselves an administrator account.
 
-    On croise donc avec une verite persistante : l'existence d'un
-    administrateur actif autre que le compte d'amorcage.
+    So we cross-check against a persistent truth: the existence of an active
+    administrator other than the bootstrap account.
     """
 
     @pytest.fixture
@@ -1367,16 +1364,16 @@ class TestSetupLock:
 # ============================================================================
 
 class TestEffectiveConfig:
-    """Ecrire une valeur ne prouve pas qu'Orthanc l'applique.
+    """Writing a value does not prove Orthanc applies it.
 
-    Trois facons de diverger sans que rien ne le signale : une variable
-    ORTHANC__* du compose qui ecrase le fichier, un champ declare au mauvais
-    endroit de l'arborescence, un redemarrage jamais fait.
+    Three ways to diverge with nothing to signal it: an ORTHANC__* variable
+    from the compose file overriding the file, a field declared at the wrong
+    place in the tree, a restart never performed.
 
-    Le deuxieme cas n'est pas theorique : StudyListColumns vivait sous
-    OrthancExplorer2 alors qu'Explorer le lit sous UiOptions. Le reglage
-    n'avait jamais eu d'effet depuis qu'il existe, et c'est cette
-    verification qui l'a trouve.
+    The second case is not theoretical: StudyListColumns lived under
+    OrthancExplorer2 while Explorer reads it under UiOptions. The setting had
+    never had any effect since it existed, and this check is what found
+    it.
     """
 
     @pytest.fixture
