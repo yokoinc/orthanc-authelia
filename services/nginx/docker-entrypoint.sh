@@ -5,30 +5,30 @@
 
 set -e
 
-# PUBLIC_URL est la seule variable a renseigner dans .env : l'URL complete
-# par laquelle les navigateurs joignent la stack, port inclus s'il n'est pas
-# standard. DOMAIN (le nom d'hote seul) en est derive.
+# PUBLIC_URL is the only variable to fill in inside .env: the full URL
+# through which browsers reach the stack, port included when it is not
+# standard. DOMAIN (the bare host name) is derived from it.
 #
-# Les deux servent a des choses differentes dans les templates :
+# The two serve different purposes in the templates:
 #   DOMAIN     -> en-tetes Host, X-Forwarded-Host, CN du certificat
-#                 (un nom d'hote ne porte jamais de port)
+#                 (a host name never carries a port)
 #   PUBLIC_URL -> URLs absolues : redirections, origine CORS, X-Original-URL
-#                 (elles doivent inclure le port, sinon le navigateur part
-#                  sur 443 alors que la stack ecoute ailleurs)
+#                 (they must include the port, otherwise the browser
+#                  assumes 443 while the stack listens elsewhere)
 PUBLIC_URL=${PUBLIC_URL:-https://localhost}
 DOMAIN=$(echo "$PUBLIC_URL" | sed -E 's#^https?://##; s#:[0-9]+$##; s#/.*$##')
 SSL_MODE=${SSL_MODE:-selfsigned}
 
 # HSTS et certificat auto-signe ne vont pas ensemble.
 #
-# Une fois la directive enregistree, les navigateurs refusent d'afficher
-# l'exception de certificat : plus de bouton "Continuer quand meme", le site
-# devient inaccessible et le rechargement force n'y change rien. includeSubDomains
-# etend le blocage a tout *.localhost. L'utilisateur voit une page vide sans
+# Once the directive is recorded, browsers refuse to offer the certificate
+# exception: no more "Proceed anyway" button, the site becomes unreachable
+# and a forced reload changes nothing. includeSubDomains extends the block to
+# every *.localhost. The user sees a blank page with no
 # comprendre pourquoi, et purger l'enregistrement demande de passer par
 # chrome://net-internals/#hsts.
 #
-# max-age=0 ordonne au navigateur d'oublier la directive : les postes deja
+# max-age=0 tells the browser to forget the directive: machines already
 # pieges se debloquent d'eux-memes au premier chargement.
 if [ "$SSL_MODE" = "selfsigned" ]; then
     HSTS="max-age=0"
@@ -46,15 +46,16 @@ echo "SSL_MODE: $SSL_MODE"
 # Create SSL directory if it doesn't exist
 mkdir -p /etc/nginx/ssl
 
-# Certificat auto-signe : le generer s'il manque, et le refaire si le domaine
+# Self-signed certificate: generate it when missing, and reissue it when the
+# domain
 # a change.
 #
-# Le second cas n'est pas theorique. Le certificat vit dans un volume nomme,
-# donc il survit a toute recreation du container ; changer PUBLIC_URL depuis
-# le panel laissait un certificat au nom de l'ancien domaine, valable un an.
-# Le navigateur ne se plaint alors plus d'une auto-signature -- ce qui
-# s'accepte -- mais d'un certificat emis pour un autre site, ce qui ressemble
-# a une interception et se diagnostique beaucoup moins bien.
+# The second case is not theoretical. The certificate lives in a named
+# volume, so it survives any container recreation; changing PUBLIC_URL from
+# the panel used to leave a certificate bearing the previous domain, valid
+# for a year. The browser then no longer complains about a self-signature --
+# which one can accept -- but about a certificate issued for another site,
+# which looks like an interception and is far harder to diagnose.
 apk add --no-cache openssl 2>/dev/null || true
 
 BESOIN_CERT=0
@@ -62,9 +63,10 @@ if [ ! -f /etc/nginx/ssl/cert.pem ] || [ ! -f /etc/nginx/ssl/key.pem ]; then
     echo "SSL certificates not found."
     BESOIN_CERT=1
 elif [ "$SSL_MODE" = "selfsigned" ]; then
-    # Ne comparer QUE en mode auto-signe : un certificat fourni par
+    # Compare ONLY in self-signed mode: a certificate supplied by
     # l'exploitant (Let's Encrypt, autorite interne) peut legitimement porter
-    # un autre nom -- joker, SAN multiples -- et ne doit jamais etre ecrase.
+    # a different name -- wildcard, multiple SANs -- and must never be
+    # overwritten.
     CN_ACTUEL=$(openssl x509 -in /etc/nginx/ssl/cert.pem -noout -subject 2>/dev/null \
                 | sed -n 's/.*CN *= *\([^,/]*\).*/\1/p' | tr -d ' ')
     if [ -n "$CN_ACTUEL" ] && [ "$CN_ACTUEL" != "$DOMAIN" ]; then
