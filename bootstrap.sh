@@ -2,14 +2,14 @@
 # =============================================================================
 # ORTHANC-AUTHELIA — Bootstrap
 # =============================================================================
-# Prepare une installation fraiche avec des secrets generes aleatoirement
-# et les fichiers de config aux bons endroits.
+# Prepares a fresh installation with randomly generated secrets and the
+# configuration files in the right places.
 #
 # Usage :
 #   ./bootstrap.sh          # setup complet, refuse d'ecraser
-#   ./bootstrap.sh --force  # ecrase .env et les configs existantes
+#   ./bootstrap.sh --force  # overwrites .env and existing configs
 #
-# A la fin, il ne reste qu'a faire :
+# Once done, all that is left is:
 #   docker compose up -d
 # =============================================================================
 
@@ -20,14 +20,15 @@ if [[ "${1:-}" == "--force" ]]; then
     FORCE=1
 fi
 
-# Remplace une chaine par une autre dans un fichier, sans expression
-# reguliere. sed ne convient pas ici : les valeurs substituees sont des mots de
-# passe et des empreintes argon2id, qui contiennent des $ et des / -- soit les
-# delimiteurs et les references arriere de sed. L'expansion ${var//motif/valeur}
-# de bash traite les deux comme du texte brut.
+# Replace one string with another in a file, without regular expressions.
+# sed will not do here: the substituted values are passwords and argon2id
+# hashes, which contain $ and / -- that is, sed's delimiters and
+# back-references. Bash's ${var//pattern/value} expansion treats both as
+# plain text.
 #
-# Evite aussi une dependance a Python, absent de Git Bash sous Windows : le
-# script n'exige plus que bash, docker et openssl, tous trois presents avec
+# It also avoids a dependency on Python, absent from Git Bash on Windows:
+# the script now only requires bash, docker and openssl, all three shipped
+# with
 # Git for Windows et Docker Desktop.
 remplacer_dans() {
     local fichier=$1 motif=$2 valeur=$3 contenu
@@ -59,28 +60,29 @@ fi
 ok "docker + docker compose + openssl OK"
 
 # ---------------------------------------------------------------------------
-# Identite des conteneurs qui ecrivent dans le depot
+# Identity of the containers that write into the repository
 # ---------------------------------------------------------------------------
-# Authelia et auth-service ecrivent dans ./services/*/config. Sans identite
+# Authelia and auth-service write into ./services/*/config. Without an
+# explicit identity
 # imposee ils tournent en root et s'approprient ces dossiers, rendant toute
-# reinstallation impossible sans reprendre les droits a la main. On leur donne
-# celle de l'utilisateur courant : les fichiers crees lui appartiennent, et le
+# reinstalling is impossible without fixing permissions by hand. We give
+# them the current user's: the files created belong to them, and
 # probleme ne se pose plus du tout.
 PUID=$(id -u)
 PGID=$(id -g)
 
 # ---------------------------------------------------------------------------
-# Proprietaire des dossiers de configuration
+# Ownership of the configuration directories
 # ---------------------------------------------------------------------------
-# Authelia et Orthanc tournent en root dans leurs conteneurs et s'approprient
-# les dossiers qu'ils montent des le premier demarrage. A la reinstallation,
-# la copie des templates echoue alors sur un "Permission denied" laconique,
-# sans indiquer quoi faire -- et la procedure de remise a zero documentee dans
-# le README devient inapplicable.
+# Authelia and Orthanc run as root inside their containers and take
+# ownership of the directories they mount from the very first start. On a
+# reinstall, copying the templates then fails on a terse "Permission denied"
+# that says nothing about what to do -- and the reset procedure documented in
+# the README becomes unusable.
 #
-# On rend la main a l'utilisateur courant, via un conteneur puisque lui-meme
-# n'a justement plus les droits. Sans docker en root ni sudo : c'est le
-# demon docker qui fait le travail.
+# We hand ownership back to the current user, through a container since
+# they precisely no longer have the rights. No rootful docker, no sudo: the
+# docker daemon does the work.
 CONFIG_DIRS="services/authelia/config services/orthanc/config data"
 BESOIN_REPRISE=""
 for d in $CONFIG_DIRS; do
@@ -120,7 +122,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# .env avec secrets aleatoires
+# .env with random secrets
 # ---------------------------------------------------------------------------
 if [[ -f .env ]] && [[ $FORCE -eq 0 ]]; then
     info ".env existant — conserve. Utilise --force pour regenerer."
@@ -129,22 +131,21 @@ else
         cp .env ".env.bak.$(date +%Y%m%d-%H%M%S)"
         warn "Backup de l'ancien .env"
     fi
-    # Genere des secrets 64-char hex chacun
+    # Generate 64-character hex secrets
     S1=$(openssl rand -hex 32)
     S2=$(openssl rand -hex 32)
     S3=$(openssl rand -hex 32)
 
-    # Authelia chiffre sa base de sessions avec STORAGE_ENCRYPTION_KEY. Si la
-    # base existe deja, en generer une nouvelle la rend illisible :
+    # Authelia encrypts its session database with STORAGE_ENCRYPTION_KEY. If
+    # the database already exists, generating a new one makes it unreadable:
     #   "the configured encryption key does not appear to be valid for this
     #    database"
-    # et Authelia refuse de demarrer. On conserve donc la cle precedente.
+    # and Authelia refuses to start. So we keep the previous key.
     if [[ -f services/authelia/config/db.sqlite3 ]]; then
-        # || true indispensable : sur une installation neuve le .env
-        # n'existe pas encore alors que la base, elle, peut etre la.
-        # 2>/dev/null masque le message de grep mais pas son code de
-        # retour ; sous set -e l'affectation echoue et le script meurt
-        # sans rien afficher.
+        # The || true is essential: on a fresh install .env does not exist
+        # yet while the database may already be there. 2>/dev/null hides
+        # grep's message but not its exit status; under set -e the
+        # assignment fails and the script dies without printing anything.
         EXISTING_KEY=$(grep '^AUTHELIA_STORAGE_ENCRYPTION_KEY=' .env 2>/dev/null | cut -d= -f2- || true)
         if [[ -n ${EXISTING_KEY:-} ]]; then
             S2=$EXISTING_KEY
@@ -153,12 +154,13 @@ else
         fi
     fi
     # PostgreSQL n'applique POSTGRES_PASSWORD qu'a l'initialisation de son
-    # volume. Si le volume existe deja, en generer un nouveau rendrait la base
+    # volume. If the volume already exists, generating a new one would make
+    # the database
     # inaccessible ("password authentication failed for user orthanc") : on
     # conserve alors celui du .env precedent.
     PG_PASS=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
     if docker volume inspect orthanc_postgres_data >/dev/null 2>&1; then
-        # Meme piege : le volume PostgreSQL peut exister sans .env.
+        # Same trap: the PostgreSQL volume can exist without a .env.
         EXISTING_PG=$(grep '^POSTGRES_PASSWORD=' .env 2>/dev/null | cut -d= -f2- || true)
         if [[ -n ${EXISTING_PG:-} ]]; then
             PG_PASS=$EXISTING_PG
@@ -170,11 +172,11 @@ else
     ORTHANC_PASS=$(openssl rand -hex 32)
     # Identifiants de l'endpoint d'import programmatique (/api-upload/).
     # Sans eux, l'entrypoint nginx ne genere pas de fichier htpasswd et
-    # l'endpoint refuse tout : il vaut mieux le livrer utilisable, protege par
-    # un mot de passe genere, que desactive ou -- pire -- ouvert a tous.
-    # Langue de l'interface. Elle est deduite de celle du systeme quand une
-    # traduction correspondante existe : sans cela le panel s'affiche en
-    # anglais sur un poste francophone, sans que rien n'indique d'ou vient ce
+    # the endpoint refuses everything: better to ship it usable, protected
+    # by a generated password, than disabled or -- worse -- open to all.
+    # Interface language. Derived from the system's when a matching
+    # translation exists: without that the panel shows up in
+    # English on a French-speaking machine, with nothing to say where that
     # choix ni comment en changer.
     LANGUE_SYSTEME=${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}
     case "$LANGUE_SYSTEME" in
@@ -186,8 +188,8 @@ else
     UPLOAD_PASS_VALUE=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
 
     # PUBLIC_URL par defaut : URL locale complete, port du compose inclus.
-    # Le nom d'hote (pacs.localhost) doit contenir un point, sinon Authelia
-    # refuse le cookie domain (RFC 6265).
+    # The host name (pacs.localhost) must contain a dot, otherwise Authelia
+    # refuses the cookie domain (RFC 6265).
     sed \
         -e "s|^AUTHELIA_SESSION_SECRET=.*|AUTHELIA_SESSION_SECRET=$S1|" \
         -e "s|^AUTHELIA_STORAGE_ENCRYPTION_KEY=.*|AUTHELIA_STORAGE_ENCRYPTION_KEY=$S2|" \
@@ -201,7 +203,7 @@ else
         -e "s|^PGID=.*|PGID=${PGID}|" \
         .env.example > .env
 
-    # Compte Orthanc dedie a auth-service (POST /tools/reset). Pas dans
+    # Orthanc account dedicated to auth-service (POST /tools/reset). Not in
     # .env.example car specifique au panel admin.
     {
         echo ""
@@ -215,12 +217,12 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Dossiers ecrits par le panel d'administration
+# Directories written to by the admin panel
 # ---------------------------------------------------------------------------
-# Les creer ICI et pas ailleurs : si un dossier bind-monte n'existe pas sur
-# l'hote, Docker le cree lui-meme, et il appartient alors a root. Les
-# containers tournent sous PUID/PGID (voir .env) et echouent a y ecrire, avec
-# un "Permission denied" qui n'a plus rien a voir avec sa cause.
+# Create them HERE and nowhere else: when a bind-mounted directory does not
+# exist on the host, Docker creates it itself, and it then belongs to root.
+# The containers run under PUID/PGID (see .env) and fail to write into it,
+# with a "Permission denied" that no longer resembles its cause.
 for dossier in data/admin-backups data/app-settings; do
     if [[ ! -d "$dossier" ]]; then
         mkdir -p "$dossier"
@@ -228,9 +230,9 @@ for dossier in data/admin-backups data/app-settings; do
     fi
 done
 
-# Langue de l'interface. Elle vit avec les reglages applicatifs et non dans le
-# .env : c'est une preference d'affichage, modifiable depuis le panel sans
-# recreer le moindre container.
+# Interface language. It lives with the application settings rather than in
+# .env: it is a display preference, changeable from the panel without
+# recreating a single container.
 if [[ ! -f data/app-settings/settings.json ]]; then
     printf '{\n  "langue": "%s"\n}\n' "${LANGUAGE_VALUE:-en}" \
         > data/app-settings/settings.json
@@ -257,18 +259,19 @@ copy_if_missing "authelia-users.yml.example"         "services/authelia/config/u
 copy_if_missing "orthanc.json.example"               "services/orthanc/config/orthanc.json"
 
 # ---------------------------------------------------------------------------
-# Substitution des ${VAR} dans la config Authelia
+# Substituting ${VAR} in the Authelia configuration
 # ---------------------------------------------------------------------------
-# Authelia ne fait PAS d'expansion shell dans son YAML : les ${AUTHELIA_DOMAIN}
-# et ${REDIS_PORT:-6379} du template restent litteraux et font crasher le
+# Authelia does NOT perform shell expansion in its YAML: the
+# ${AUTHELIA_DOMAIN} and ${REDIS_PORT:-6379} of the template stay literal and
+# crash the
 # demarrage ("option 'domain' is not a valid cookie domain", "cannot parse
-# value as 'int'"). On les substitue ici, une fois, a la copie.
+# value as 'int'"). We substitute them here, once, at copy time.
 AUTHELIA_CFG="services/authelia/config/configuration.yml"
 if grep -q '\${' "$AUTHELIA_CFG" 2>/dev/null; then
     # shellcheck disable=SC1091
     PUBLIC_URL_VALUE=$(grep '^PUBLIC_URL=' .env | cut -d= -f2-)
-    # Nom d'hote seul, sans schema ni port : c'est ce qu'attend le cookie
-    # domain d'Authelia (un cookie ne porte jamais de port).
+    # Host name alone, without scheme or port: that is what Authelia's
+    # cookie domain expects (a cookie never carries a port).
     DOMAIN_VALUE=$(echo "$PUBLIC_URL_VALUE" | sed -E 's#^https?://##; s#:[0-9]+$##; s#/.*$##')
     sed -i \
         -e "s|\${AUTHELIA_DOMAIN}|${DOMAIN_VALUE}|g" \
@@ -281,16 +284,16 @@ if grep -q '\${' "$AUTHELIA_CFG" 2>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# Mot de passe du plugin Authorization dans orthanc.json
+# Authorization plugin password in orthanc.json
 # ---------------------------------------------------------------------------
-# Le plugin s'authentifie aupres d'auth-service en Basic auth avec les valeurs
-# de la section Authorization. Elles doivent correspondre a AUTH_USERNAME et
-# AUTH_PASSWORD du .env, sans quoi /user/get-profile repond 401 et Orthanc
-# refuse toute requete (403) sans message explicite.
+# The plugin authenticates against auth-service with Basic auth, using the
+# values from the Authorization section. They must match AUTH_USERNAME and
+# AUTH_PASSWORD in .env, failing which /user/get-profile answers 401 and
+# Orthanc refuses every request (403) with no explicit message.
 #
 # Les variables ORTHANC__AUTHORIZATION__WEB_SERVICE_* ne conviennent pas :
-# Orthanc ne les applique pas a cette section, la valeur du fichier reste
-# utilisee. On substitue donc a la copie.
+# Orthanc does not apply them to this section, so the file's value is what
+# is used. Hence the substitution at copy time.
 ORTHANC_CFG="services/orthanc/config/orthanc.json"
 if grep -q 'set-via-env-AUTH_PASSWORD' "$ORTHANC_CFG" 2>/dev/null; then
     AUTH_USER_VALUE=$(grep '^AUTH_USERNAME=' .env | cut -d= -f2-)
@@ -305,15 +308,15 @@ if grep -q 'set-via-env-AUTH_PASSWORD' "$ORTHANC_CFG" 2>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# Hash argon2id valide dans users_database.yml
+# Valid argon2id hash in users_database.yml
 # ---------------------------------------------------------------------------
-# Le template contient EXAMPLE_HASH_REPLACE_THIS qui n'est pas un hash argon2
+# The template ships EXAMPLE_HASH_REPLACE_THIS, which is not an argon2 hash
 # parsable : Authelia refuse de demarrer ("argon2 decode error"). On genere
-# un hash reel avec un mot de passe aleatoire jamais affiche ni conserve.
+# a real hash from a random password that is never displayed nor kept.
 #
-# Ce compte d'amorcage n'existe que parce qu'Authelia refuse aussi de demarrer
-# sur une base sans utilisateur ("users: non zero value required"). Il est
-# desactive et sans groupe ; la finalisation du wizard le supprime une fois le
+# This bootstrap account exists only because Authelia also refuses to start
+# on a database without users ("users: non zero value required"). It is
+# disabled and group-less; finalising the wizard removes it once the
 # vrai administrateur cree.
 USERS_DB="services/authelia/config/users_database.yml"
 if grep -q 'EXAMPLE_HASH_REPLACE_THIS' "$USERS_DB" 2>/dev/null; then
