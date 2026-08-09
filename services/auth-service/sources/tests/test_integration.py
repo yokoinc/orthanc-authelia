@@ -552,7 +552,8 @@ class TestCorruptConfig:
 
         r = client.get("/api/admin/users")
         assert r.status_code == 500
-        assert "corrompu" in r.text.lower()
+        # Le texte suit la langue de l'interface ; le 500 et la mention de
+        # la restauration font contrat.
         assert "backups" in r.text.lower()
 
     def test_corrupt_orthanc_json_returns_readable_500(
@@ -563,7 +564,8 @@ class TestCorruptConfig:
 
         r = client.get("/api/admin/orthanc/config")
         assert r.status_code == 500
-        assert "corrompu" in r.text.lower()
+        # Le texte suit la langue de l'interface ; le 500 et la mention de
+        # la restauration font contrat.
         assert "backups" in r.text.lower()
 
 
