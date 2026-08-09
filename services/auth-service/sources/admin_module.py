@@ -140,6 +140,41 @@ def _r() -> aioredis.Redis:
 
 
 # ============================================================================
+# Helpers: user-facing messages
+# ============================================================================
+
+def _msg(key: str, fallback: str, **params: Any) -> str:
+    """A message in the interface language, for anything the user will read.
+
+    HTTPException details are surfaced as-is by the panel, so they are
+    interface text, not code: they must follow the language the user picked.
+    Hard-coding them in French left an English interface showing French
+    errors.
+
+    Goes through the same translation files as the rest of the interface --
+    translations/{en,fr}.json, section "ui" -- which the frontend also reads
+    via window.__I18N__. One source, one language setting, no parallel
+    mechanism to keep in sync.
+
+    `fallback` is the French wording, used when the key is missing: a missing
+    translation degrades to a readable sentence rather than to a raw key.
+    """
+    try:
+        from auth_service import translations
+
+        template = translations().get("ui", {}).get(key) or fallback
+    except Exception:  # noqa: BLE001 - translations unavailable, use fallback
+        template = fallback
+
+    try:
+        return template.format(**params) if params else template
+    except (KeyError, IndexError):
+        # A translation whose placeholders do not match must not crash the
+        # very error it is meant to describe.
+        return fallback.format(**params) if params else fallback
+
+
+# ============================================================================
 # Helpers : backups + audit + atomic write
 # ============================================================================
 
@@ -185,9 +220,11 @@ def _normalise_public_url(raw: str) -> tuple[str, str]:
     """
     parsed = urlparse(raw.strip())
     if parsed.scheme != "https":
-        raise HTTPException(400, "l'URL publique doit commencer par https://")
+        raise HTTPException(400, _msg("err_public_url_https",
+                                "l'URL publique doit commencer par https://"))
     if not parsed.hostname:
-        raise HTTPException(400, "hote manquant dans l'URL publique")
+        raise HTTPException(400, _msg("err_public_url_host",
+                                "hote manquant dans l'URL publique"))
     if parsed.path.strip("/"):
         raise HTTPException(
             400,
@@ -339,7 +376,8 @@ def _retarget_authelia_config(previous_origin: str, previous_host: str,
     Returns the number of substitutions made.
     """
     if not AUTHELIA_CONFIG.exists():
-        raise HTTPException(503, "configuration.yml d'Authelia introuvable")
+        raise HTTPException(503, _msg("err_authelia_config_missing",
+                                "configuration.yml d'Authelia introuvable"))
     text = AUTHELIA_CONFIG.read_text(encoding="utf-8")
     total = text.count(previous_origin) + text.count(previous_host)
     if not total:
@@ -362,7 +400,8 @@ async def _apply_public_url(new_url: str, actor: str) -> dict:
     origin, host = _normalise_public_url(new_url)
     previous_origin = _read_env_var("PUBLIC_URL").rstrip("/")
     if not previous_origin:
-        raise HTTPException(500, "PUBLIC_URL absente du .env, changement annule")
+        raise HTTPException(500, _msg("err_public_url_absent",
+                                "PUBLIC_URL absente du .env, changement annule"))
     if previous_origin == origin:
         return {"ok": True, "unchanged": True, "public_url": origin}
 
@@ -411,10 +450,10 @@ async def require_admin(request: Request) -> AdminUser:
     username = request.headers.get("remote-user", "")
     groups_raw = request.headers.get("remote-groups", "")
     if not username:
-        raise HTTPException(401, "auth requise")
+        raise HTTPException(401, _msg("err_auth_required", "auth requise"))
     groups = [g.strip() for g in groups_raw.split(",") if g.strip()]
     if "admin" not in groups:
-        raise HTTPException(403, "groupe admin requis")
+        raise HTTPException(403, _msg("err_admin_group_required", "groupe admin requis"))
     return AdminUser(username=username, groups=groups)
 
 
@@ -500,7 +539,8 @@ def _load_authelia() -> dict:
     try:
         raw = AUTHELIA_YML.read_text(encoding="utf-8")
     except OSError as e:
-        raise HTTPException(500, f"authelia yml illisible : {e}") from e
+        raise HTTPException(500, _msg("err_authelia_unreadable",
+                                "authelia yml illisible : {detail}", detail=e)) from e
     try:
         data = yaml.safe_load(raw)
     except yaml.YAMLError as e:
@@ -563,7 +603,8 @@ def _load_orthanc_config() -> dict:
     try:
         raw = ORTHANC_JSON.read_text(encoding="utf-8")
     except OSError as e:
-        raise HTTPException(500, f"orthanc.json illisible : {e}") from e
+        raise HTTPException(500, _msg("err_orthanc_json_unreadable",
+                                "orthanc.json illisible : {detail}", detail=e)) from e
     try:
         return json.loads(_strip_json_comments(raw))
     except json.JSONDecodeError as e:
@@ -608,7 +649,8 @@ def _write_authelia(data: dict) -> None:
             _validate_authelia(reloaded)
             _atomic_write(AUTHELIA_YML, serialized)
     except Timeout as e:
-        raise HTTPException(423, "fichier verrouille par un autre admin, retry dans 5s") from e
+        raise HTTPException(423, _msg("err_file_locked",
+                                "fichier verrouille par un autre admin, retry dans 5s")) from e
     except ValueError as e:
         # Violation d'invariant : refus deliberé, pas une panne. Sans cette
         # conversion, supprimer ou desactiver le dernier administrateur
@@ -1324,7 +1366,8 @@ async def setup_create_admin(payload: UserCreatePayload):
     # le cas le plus avance evitait de renvoyer vers /api/admin/users
     # quelqu'un qui n'a pas encore finalise son installation.
     if (await _r().get(SETUP_KEY)) == "1":
-        raise HTTPException(409, "setup deja finalise, utiliser /api/admin/users")
+        raise HTTPException(409, _msg("err_setup_done_use_users",
+                                "setup deja finalise, utiliser /api/admin/users"))
     if (await _r().get(SETUP_FIRST_ADMIN_KEY)) == "1":
         raise HTTPException(
             409,
@@ -1344,7 +1387,9 @@ async def setup_create_admin(payload: UserCreatePayload):
         payload.groups.append("admin")
     data = _load_authelia()
     if payload.username in data.get("users", {}):
-        raise HTTPException(409, f"user {payload.username} existe deja")
+        raise HTTPException(409, _msg("err_user_exists_named",
+                                "user {username} existe deja",
+                                username=payload.username))
     data.setdefault("users", {})[payload.username] = {
         "disabled": False,
         "displayname": payload.displayname,
@@ -1364,14 +1409,15 @@ async def setup_finalize():
     """Etape finale : verifie l'invariant admin actif, supprime le compte
     d'amorcage, puis marque le setup comme termine."""
     if (await _r().get(SETUP_KEY)) == "1":
-        raise HTTPException(409, "setup deja finalise")
+        raise HTTPException(409, _msg("err_setup_done", "setup deja finalise"))
     data = _load_authelia()
     admins = [
         u for u, i in data.get("users", {}).items()
         if not i.get("disabled") and "admin" in (i.get("groups") or [])
     ]
     if not admins:
-        raise HTTPException(400, "creer d'abord un admin (POST /auth/setup/create-admin)")
+        raise HTTPException(400, _msg("err_create_admin_first",
+                                "creer d'abord un admin (POST /auth/setup/create-admin)"))
 
     # Un vrai administrateur existe : le compte d'amorcage n'a plus de raison
     # d'etre et n'a pas a rester visible dans le panel. Suppression par nom
@@ -1541,7 +1587,7 @@ async def list_users(admin: AdminUser = Depends(require_admin)):
 async def add_user(payload: UserCreatePayload, admin: AdminUser = Depends(require_admin)):
     data = _load_authelia()
     if payload.username in data.get("users", {}):
-        raise HTTPException(409, "user existe deja")
+        raise HTTPException(409, _msg("err_user_exists", "user existe deja"))
     data.setdefault("users", {})[payload.username] = {
         "disabled": False,
         "displayname": payload.displayname,
@@ -1572,7 +1618,7 @@ async def update_user(
     """
     data = _load_authelia()
     if username not in data.get("users", {}):
-        raise HTTPException(404, "user inconnu")
+        raise HTTPException(404, _msg("err_user_unknown", "user inconnu"))
 
     infos = data["users"][username]
     modifies = []
@@ -1590,7 +1636,7 @@ async def update_user(
         modifies.append("disabled")
 
     if not modifies:
-        raise HTTPException(400, "aucun champ a modifier")
+        raise HTTPException(400, _msg("err_no_field_to_change", "aucun champ a modifier"))
 
     _write_authelia(data)
     await _audit(
@@ -1608,7 +1654,7 @@ async def change_password(
 ):
     data = _load_authelia()
     if username not in data.get("users", {}):
-        raise HTTPException(404, "user inconnu")
+        raise HTTPException(404, _msg("err_user_unknown", "user inconnu"))
     data["users"][username]["password"] = _hasher.hash(payload.new_password)
     _write_authelia(data)
     await _audit("authelia.password.changed", admin.username, target=username)
@@ -1618,10 +1664,11 @@ async def change_password(
 @router.delete("/api/admin/users/{username}")
 async def delete_user(username: str, admin: AdminUser = Depends(require_admin)):
     if username == admin.username:
-        raise HTTPException(400, "impossible de te supprimer toi-meme")
+        raise HTTPException(400, _msg("err_cannot_delete_self",
+                                "impossible de te supprimer toi-meme"))
     data = _load_authelia()
     if username not in data.get("users", {}):
-        raise HTTPException(404, "user inconnu")
+        raise HTTPException(404, _msg("err_user_unknown", "user inconnu"))
     del data["users"][username]
     _write_authelia(data)  # valide invariant "au moins 1 admin actif"
     await _audit("authelia.user.deleted", admin.username, target=username)
@@ -1717,7 +1764,8 @@ async def update_orthanc_config(
 
             _atomic_write(ORTHANC_JSON, serialized)
     except Timeout as e:
-        raise HTTPException(423, "orthanc.json verrouille, retry") from e
+        raise HTTPException(423, _msg("err_orthanc_json_locked",
+                                "orthanc.json verrouille, retry")) from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -1979,7 +2027,8 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
         await _request_restart()
     except httpx.HTTPError as e:
         await _audit("orthanc.restart.failed", admin.username, error=str(e))
-        raise HTTPException(502, f"Proxy Docker injoignable : {e}") from e
+        raise HTTPException(502, _msg("err_docker_proxy_unreachable",
+                                "Proxy Docker injoignable : {detail}", detail=e)) from e
     except HTTPException:
         await _audit("orthanc.restart.failed", admin.username,
                      container=ORTHANC_CONTAINER)
@@ -2173,7 +2222,7 @@ async def upsert_modality(
     orthanc.json.
     """
     if "/" in name or not name.strip():
-        raise HTTPException(400, "nom invalide")
+        raise HTTPException(400, _msg("err_invalid_name", "nom invalide"))
 
     r = await _orthanc(
         "PUT", f"/modalities/{name}",
@@ -2233,7 +2282,8 @@ async def read_audit(
     try:
         brut = await _r().xrevrange(AUDIT_STREAM, count=limit)
     except Exception as e:  # noqa: BLE001 - Redis indisponible ne doit pas casser le panel
-        raise HTTPException(503, f"journal illisible : {e}") from e
+        raise HTTPException(503, _msg("err_audit_unreadable",
+                                "journal illisible : {detail}", detail=e)) from e
 
     entrees = []
     for identifiant, champs in brut:
@@ -2338,14 +2388,15 @@ async def restore_backup(
     # les controles de forme plus bas tout en pointant hors du dossier, d'ou
     # cette verification sur le chemin resolu.
     if "/" in backup_name or "\\" in backup_name or ".." in backup_name:
-        raise HTTPException(400, "nom de backup invalide")
+        raise HTTPException(400, _msg("err_invalid_backup_name", "nom de backup invalide"))
 
     src = (BACKUPS_DIR / backup_name).resolve()
     if not src.is_relative_to(BACKUPS_DIR.resolve()):
-        raise HTTPException(400, "nom de backup invalide")
+        raise HTTPException(400, _msg("err_invalid_backup_name", "nom de backup invalide"))
 
     if not src.exists() or ".bak." not in backup_name:
-        raise HTTPException(404, "backup introuvable ou nom invalide")
+        raise HTTPException(404, _msg("err_backup_not_found",
+                                "backup introuvable ou nom invalide"))
 
     if backup_name.startswith("orthanc.json.bak."):
         dest = ORTHANC_JSON
@@ -2362,7 +2413,7 @@ async def restore_backup(
         dest = AUTHELIA_CONFIG
         reload = None  # Authelia surveille aussi ce fichier
     else:
-        raise HTTPException(400, "type de backup non gere")
+        raise HTTPException(400, _msg("err_backup_type", "type de backup non gere"))
 
     _backup(dest, tag="pre-restore")
     shutil.copy2(src, dest)
