@@ -14,20 +14,6 @@ const enregistrementUrl = ref(false)
 
 const urlModifiee = computed(() => url.value !== urlInitiale.value && url.value.length > 7)
 
-// --- Liens de partage ------------------------------------------------------
-// Viewer preselectionne quand on partage un examen depuis Explorer. Les
-// libelles restent ici : le serveur ne connait que les identifiants, et c'est
-// l'interface qui les traduit.
-const VIEWERS = [
-  { id: 'ohif-viewer-publication', libelle: 'OHIF' },
-  { id: 'stone-viewer-publication', libelle: 'Stone Web Viewer' },
-  { id: 'volview-viewer-publication', libelle: 'VolView' },
-]
-const viewer = ref('')
-const viewerInitial = ref('')
-const viewerModifiable = ref(false)
-const enregistrementViewer = ref(false)
-
 // --- Langue de l'interface -------------------------------------------------
 const LANGUES = [
   { id: 'fr', libelle: 'Français' },
@@ -40,8 +26,8 @@ const enregistrementLangue = ref(false)
 async function enregistrerLangue() {
   enregistrementLangue.value = true
   try {
-    await api('/console/api/admin/langue', {
-      method: 'PUT', body: { langue: langue.value },
+    await api('/console/api/admin/language', {
+      method: 'PUT', body: { language: langue.value },
     })
     langueInitiale.value = langue.value
     // Les libellés sont injectés dans la page au chargement : sans
@@ -53,14 +39,11 @@ async function enregistrerLangue() {
   }
 }
 
-async function chargerPartage() {
+async function chargerPreferences() {
   try {
-    const d = await api('/console/api/admin/sharing')
-    viewer.value = d.default_viewer
-    viewerInitial.value = d.default_viewer
-    viewerModifiable.value = d.editable
-    langue.value = d.langue
-    langueInitiale.value = d.langue
+    const d = await api('/console/api/admin/preferences')
+    langue.value = d.language
+    langueInitiale.value = d.language
   } catch (e) {
     ui.notify(e.message, 'err')
   }
@@ -162,7 +145,7 @@ async function restaurer(nom) {
   }
 }
 
-onMounted(() => { charger(); chargerPartage() })
+onMounted(() => { charger(); chargerPreferences() })
 </script>
 
 <template>
@@ -205,27 +188,6 @@ onMounted(() => { charger(); chargerPartage() })
       >
         {{ enregistrementLangue ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
       </button>
-    </div>
-
-    <h2 class="espace">{{ t('sharing_title', 'Liens de partage') }}</h2>
-    <p class="note">
-      {{ t('sharing_note', "Viewer proposé par défaut quand on partage un examen depuis Orthanc Explorer. Le choix reste modifiable au cas par cas au moment du partage. Ce réglage vit dans la configuration d'Orthanc : il ne prend effet qu'après redémarrage, depuis l'onglet Configuration.") }}
-    </p>
-
-    <div class="ligne">
-      <select v-model="viewer" :disabled="!viewerModifiable">
-        <option v-for="v in VIEWERS" :key="v.id" :value="v.id">{{ v.libelle }}</option>
-      </select>
-      <button
-        class="oe2-btn oe2-btn--primary"
-        :disabled="viewer === viewerInitial || enregistrementViewer || !viewerModifiable"
-        @click="enregistrerViewer"
-      >
-        {{ enregistrementViewer ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
-      </button>
-    </div>
-    <div v-if="!viewerModifiable" class="avert">
-      {{ t('sharing_readonly', "Le fichier .env n'est pas accessible : le viewer par défaut ne peut pas être modifié depuis le panel.") }}
     </div>
 
     <div class="entete espace">

@@ -474,7 +474,7 @@ class TestEcritureNonDestructive:
         return json.loads(_strip_json_comments(texte))
 
     def test_commentaires_preserves(self):
-        from admin_module import _ecrire_changements
+        from admin_module import _apply_text_changes
         source = """{
   // Nom affiche dans l'interface
   "Name": "Orthanc",
@@ -482,48 +482,48 @@ class TestEcritureNonDestructive:
   // Titre applicatif DICOM, 16 caracteres au plus
   "DicomAet": "ORTHANC"
 }"""
-        out = _ecrire_changements(source, {"Name": "PACS"})
+        out = _apply_text_changes(source, {"Name": "PACS"})
         assert out.count("//") == 2
         assert "Nom affiche dans l'interface" in out
         assert self._relire(out) == {"Name": "PACS", "DicomAet": "ORTHANC"}
 
     def test_seule_la_ligne_visee_change(self):
         """Une modification ne doit pas reformater le reste du fichier."""
-        from admin_module import _ecrire_changements
+        from admin_module import _apply_text_changes
         source = '{\n  "A": 1,\n  "B": 2,\n  "C": 3\n}'
-        out = _ecrire_changements(source, {"B": 20})
+        out = _apply_text_changes(source, {"B": 20})
         avant, apres = source.splitlines(), out.splitlines()
         assert len(avant) == len(apres)
         assert [i for i, (a, b) in enumerate(zip(avant, apres)) if a != b] == [2]
 
     def test_cle_citee_dans_un_commentaire(self):
         """Le piege classique : le nom de la cle apparait aussi en commentaire."""
-        from admin_module import _ecrire_changements
+        from admin_module import _apply_text_changes
         source = """{
   // Ne pas confondre avec "Name" du bloc DicomWeb ci-dessous
   "Name": "Orthanc"
 }"""
-        out = _ecrire_changements(source, {"Name": "PACS"})
+        out = _apply_text_changes(source, {"Name": "PACS"})
         assert 'avec "Name" du bloc' in out       # le commentaire est intact
         assert self._relire(out) == {"Name": "PACS"}
 
     def test_accolade_dans_une_chaine(self):
         """Une accolade entre guillemets ne doit pas etre lue comme un bloc."""
-        from admin_module import _ecrire_changements
+        from admin_module import _apply_text_changes
         source = '{\n  "Motif": "prefixe{suffixe}",\n  "Name": "Orthanc"\n}'
-        out = _ecrire_changements(source, {"Name": "PACS"})
+        out = _apply_text_changes(source, {"Name": "PACS"})
         assert self._relire(out) == {"Motif": "prefixe{suffixe}", "Name": "PACS"}
 
     def test_commentaire_en_fin_de_ligne(self):
         """La valeur s'arrete avant le //, qui doit survivre tel quel."""
-        from admin_module import _ecrire_changements
+        from admin_module import _apply_text_changes
         source = '{\n  "Taille": 500, // en megaoctets\n  "Name": "Orthanc"\n}'
-        out = _ecrire_changements(source, {"Taille": 800})
+        out = _apply_text_changes(source, {"Taille": 800})
         assert "// en megaoctets" in out
         assert self._relire(out)["Taille"] == 800
 
     def test_cle_imbriquee(self):
-        from admin_module import _ecrire_changements
+        from admin_module import _apply_text_changes
         source = """{
   "Name": "Orthanc",
   "DicomWeb": {
@@ -532,16 +532,16 @@ class TestEcritureNonDestructive:
     "Enable": true
   }
 }"""
-        out = _ecrire_changements(source, {"DicomWeb.StowMaxSize": 1000})
+        out = _apply_text_changes(source, {"DicomWeb.StowMaxSize": 1000})
         assert "Taille maximale" in out
         assert self._relire(out)["DicomWeb"] == {"StowMaxSize": 1000, "Enable": True}
 
     def test_cle_absente_ajoutee(self):
         """Orthanc laisse beaucoup de reglages implicites : les definir est un
         cas courant, pas une exception."""
-        from admin_module import _ecrire_changements
+        from admin_module import _apply_text_changes
         source = '{\n  // Reglages de base\n  "Name": "Orthanc"\n}'
-        out = _ecrire_changements(source, {"DicomAlwaysAllowStore": False})
+        out = _apply_text_changes(source, {"DicomAlwaysAllowStore": False})
         assert "// Reglages de base" in out
         assert self._relire(out) == {"Name": "Orthanc", "DicomAlwaysAllowStore": False}
         # Meme indentation que ses voisines : une cle decalee se remarque, et
@@ -551,16 +551,16 @@ class TestEcritureNonDestructive:
 
     def test_cle_ajoutee_apres_un_commentaire_final(self):
         """Le commentaire de fin de bloc doit rester en dernier."""
-        from admin_module import _ecrire_changements
+        from admin_module import _apply_text_changes
         source = '{\n  "Name": "Orthanc"\n  // fin du bloc\n}'
-        out = _ecrire_changements(source, {"DicomAet": "PACS"})
+        out = _apply_text_changes(source, {"DicomAet": "PACS"})
         assert self._relire(out) == {"Name": "Orthanc", "DicomAet": "PACS"}
         assert out.index('"DicomAet"') < out.index("// fin du bloc")
 
     def test_ajout_dans_un_objet_imbrique(self):
-        from admin_module import _ecrire_changements
+        from admin_module import _apply_text_changes
         source = '{\n  "DicomWeb": {\n    "Enable": true\n  }\n}'
-        out = _ecrire_changements(source, {"DicomWeb.StowMaxSize": 500})
+        out = _apply_text_changes(source, {"DicomWeb.StowMaxSize": 500})
         assert self._relire(out)["DicomWeb"] == {"Enable": True, "StowMaxSize": 500}
         ligne = [l for l in out.splitlines() if "StowMaxSize" in l][0]
         assert ligne.startswith('    "'), repr(ligne)
@@ -568,20 +568,20 @@ class TestEcritureNonDestructive:
     def test_parent_absent_refuse(self):
         """Creer une arborescence demanderait de deviner une mise en forme :
         on prefere le signaler et laisser l'appelant regenerer."""
-        from admin_module import _ecrire_changements
+        from admin_module import _apply_text_changes
         with pytest.raises(ValueError, match="parent absent"):
-            _ecrire_changements('{\n  "Name": "Orthanc"\n}',
+            _apply_text_changes('{\n  "Name": "Orthanc"\n}',
                                 {"Absent.Cle": 1})
 
     def test_plusieurs_changements_a_la_fois(self):
-        from admin_module import _ecrire_changements
+        from admin_module import _apply_text_changes
         source = """{
   // en-tete
   "Name": "Orthanc",
   "DicomAet": "ORTHANC",
   "DicomPort": 4242
 }"""
-        out = _ecrire_changements(source, {
+        out = _apply_text_changes(source, {
             "Name": "PACS", "DicomPort": 11112, "DicomCheckCalledAet": True,
         })
         assert "// en-tete" in out
@@ -592,9 +592,9 @@ class TestEcritureNonDestructive:
 
     def test_types_scalaires(self):
         """booleen, entier, chaine et null doivent se relire a l'identique."""
-        from admin_module import _ecrire_changements
+        from admin_module import _apply_text_changes
         source = '{\n  "A": 1,\n  "B": "x",\n  "C": true,\n  "D": null\n}'
-        out = _ecrire_changements(source, {"A": 42, "B": "y", "C": False, "D": "z"})
+        out = _apply_text_changes(source, {"A": 42, "B": "y", "C": False, "D": "z"})
         assert self._relire(out) == {"A": 42, "B": "y", "C": False, "D": "z"}
 
     def test_fichier_reel_du_depot(self):
@@ -605,7 +605,7 @@ class TestEcritureNonDestructive:
         dossier sources/, le nombre de niveaux differe. Un index fige a fait
         echouer la CI alors que la suite passait en local.
         """
-        from admin_module import _ecrire_changements
+        from admin_module import _apply_text_changes
         from pathlib import Path as _P
 
         exemple = next(
@@ -619,7 +619,7 @@ class TestEcritureNonDestructive:
 
         source = exemple.read_text(encoding="utf-8")
         avant = source.count("//")
-        out = _ecrire_changements(source, {"Name": "PACS Cuffel"})
+        out = _apply_text_changes(source, {"Name": "PACS Cuffel"})
         assert out.count("//") == avant
         assert self._relire(out)["Name"] == "PACS Cuffel"
 
@@ -673,36 +673,36 @@ class TestViewerDePartage:
         assert "OrthancExplorer2.Tokens.ShareType" in ORTHANC_EDITABLE_PATHS
 
     def test_lecture_depuis_orthanc_json(self, config_orthanc):
-        from admin_module import _lire_share_type
-        assert _lire_share_type() == "volview-viewer-publication"
+        from admin_module import _read_share_type
+        assert _read_share_type() == "volview-viewer-publication"
 
     def test_valeur_inconnue_ignoree(self, config_orthanc):
         """Une valeur hors liste ne doit pas casser le menu de partage."""
-        from admin_module import _lire_share_type
+        from admin_module import _read_share_type
         config_orthanc.write_text(
             '{"OrthancExplorer2": {"Tokens": {"ShareType": "nimporte-quoi"}}}',
             encoding="utf-8")
-        assert _lire_share_type() == "ohif-viewer-publication"
+        assert _read_share_type() == "ohif-viewer-publication"
 
     def test_champ_absent(self, config_orthanc):
-        from admin_module import _lire_share_type
+        from admin_module import _read_share_type
         config_orthanc.write_text('{"Name": "PACS"}', encoding="utf-8")
-        assert _lire_share_type() == "ohif-viewer-publication"
+        assert _read_share_type() == "ohif-viewer-publication"
 
     def test_fichier_illisible(self, tmp_path, monkeypatch):
         import admin_module
-        from admin_module import _lire_share_type
+        from admin_module import _read_share_type
         monkeypatch.setattr(admin_module, "ORTHANC_JSON",
                             tmp_path / "absent.json")
-        assert _lire_share_type() == "ohif-viewer-publication"
+        assert _read_share_type() == "ohif-viewer-publication"
 
     def test_ecriture_preserve_les_commentaires(self, config_orthanc):
         """L'ecriture passe par la meme mecanique que le reste de la config."""
-        from admin_module import _ecrire_changements, _strip_json_comments
+        from admin_module import _apply_text_changes, _strip_json_comments
         import json as _json
 
         source = config_orthanc.read_text(encoding="utf-8")
-        out = _ecrire_changements(
+        out = _apply_text_changes(
             source,
             {"OrthancExplorer2.Tokens.ShareType": "ohif-viewer-publication"},
         )
@@ -739,53 +739,53 @@ class TestMagasinReglages:
         return fichier
 
     def test_ecriture_puis_lecture(self, reglages):
-        from admin_module import _ecrire_reglage, _lire_reglage
-        _ecrire_reglage("share_default_viewer", "stone-viewer-publication")
-        assert _lire_reglage("share_default_viewer") == "stone-viewer-publication"
+        from admin_module import _write_setting, _read_setting
+        _write_setting("share_default_viewer", "stone-viewer-publication")
+        assert _read_setting("share_default_viewer") == "stone-viewer-publication"
 
     def test_dossier_cree_au_besoin(self, reglages):
         """Une installation neuve n'a pas encore le fichier."""
-        from admin_module import _ecrire_reglage
+        from admin_module import _write_setting
         assert not reglages.parent.exists()
-        _ecrire_reglage("langue", "fr")
+        _write_setting("langue", "fr")
         assert reglages.exists()
 
     def test_plusieurs_reglages_coexistent(self, reglages):
-        from admin_module import _ecrire_reglage, _lire_reglage
-        _ecrire_reglage("a", 1)
-        _ecrire_reglage("b", "deux")
-        assert (_lire_reglage("a"), _lire_reglage("b")) == (1, "deux")
+        from admin_module import _write_setting, _read_setting
+        _write_setting("a", 1)
+        _write_setting("b", "deux")
+        assert (_read_setting("a"), _read_setting("b")) == (1, "deux")
 
     def test_reprise_de_l_ancienne_variable(self, reglages, tmp_path):
         """Une installation existante a le reglage dans son .env : il doit
         continuer a s'appliquer tant qu'on ne l'a pas redefini."""
-        from admin_module import _lire_reglage
+        from admin_module import _read_setting
         (tmp_path / ".env").write_text(
             "SHARE_DEFAULT_VIEWER=stone-viewer-publication\n", encoding="utf-8")
-        assert _lire_reglage("share_default_viewer",
+        assert _read_setting("share_default_viewer",
                              "SHARE_DEFAULT_VIEWER") == "stone-viewer-publication"
 
     def test_le_fichier_prime_sur_le_env(self, reglages, tmp_path):
         """Apres la premiere ecriture, la ligne du .env devient inerte."""
-        from admin_module import _ecrire_reglage, _lire_reglage
+        from admin_module import _write_setting, _read_setting
         (tmp_path / ".env").write_text(
             "SHARE_DEFAULT_VIEWER=stone-viewer-publication\n", encoding="utf-8")
-        _ecrire_reglage("share_default_viewer", "volview-viewer-publication")
-        assert _lire_reglage("share_default_viewer",
+        _write_setting("share_default_viewer", "volview-viewer-publication")
+        assert _read_setting("share_default_viewer",
                              "SHARE_DEFAULT_VIEWER") == "volview-viewer-publication"
 
     def test_fichier_illisible_ne_casse_rien(self, reglages):
         """Un JSON corrompu doit degrader vers les valeurs par defaut, pas
         empecher le service de repondre."""
-        from admin_module import _lire_reglage
+        from admin_module import _read_setting
         reglages.parent.mkdir(parents=True)
         reglages.write_text("{ceci n'est pas du JSON", encoding="utf-8")
-        assert _lire_reglage("share_default_viewer", defaut="ohif") == "ohif"
+        assert _read_setting("share_default_viewer", defaut="ohif") == "ohif"
 
     def test_ecriture_atomique(self, reglages):
         """Aucun fichier temporaire ne doit subsister apres l'ecriture."""
-        from admin_module import _ecrire_reglage
-        _ecrire_reglage("a", 1)
+        from admin_module import _write_setting
+        _write_setting("a", 1)
         restes = [f.name for f in reglages.parent.iterdir()
                   if f.name != "settings.json"]
         assert restes == [], restes
@@ -794,8 +794,8 @@ class TestMagasinReglages:
         """Garde-fou de conception : ce fichier n'est pas un coffre. Il vit
         dans data/, echappe au .gitignore des secrets, et pourrait etre
         recopie sans precaution."""
-        from admin_module import _ecrire_reglage
-        _ecrire_reglage("share_default_viewer", "ohif-viewer-publication")
+        from admin_module import _write_setting
+        _write_setting("share_default_viewer", "ohif-viewer-publication")
         contenu = reglages.read_text(encoding="utf-8").lower()
         for interdit in ("password", "secret", "token", "_key"):
             assert interdit not in contenu, interdit
@@ -809,7 +809,7 @@ class TestLangue:
     """La langue etait figee au chargement du module, depuis le .env.
 
     En changer imposait de recreer le container, pour une preference
-    d'affichage. Les traductions sont desormais resolues a l'affichage, ce qui
+    d'affichage. Les translations sont desormais resolues a l'affichage, ce qui
     permet de la changer depuis le panel.
     """
 
@@ -822,54 +822,54 @@ class TestLangue:
         monkeypatch.setattr(admin_module, "SETTINGS_FILE", fichier)
         monkeypatch.setattr(admin_module, "ENV_FILE", tmp_path / ".env")
         monkeypatch.delenv("LANGUAGE", raising=False)
-        # Le cache de traductions survit d'un test a l'autre.
-        auth_service._traductions_cache["langue"] = None
+        # Le cache de translations survit d'un test a l'autre.
+        auth_service._translations_cache["langue"] = None
         return fichier
 
     def test_defaut_anglais(self, reglages):
         import auth_service
-        assert auth_service._langue() == "en"
+        assert auth_service._language() == "en"
 
     def test_reglage_pris_en_compte(self, reglages):
         import admin_module
         import auth_service
-        admin_module._ecrire_reglage("langue", "fr")
-        assert auth_service._langue() == "fr"
+        admin_module._write_setting("langue", "fr")
+        assert auth_service._language() == "fr"
 
     def test_reprise_de_l_ancienne_variable(self, reglages, tmp_path):
         """Une installation existante a LANGUAGE dans son .env."""
         import auth_service
         (tmp_path / ".env").write_text("LANGUAGE=fr\n", encoding="utf-8")
-        assert auth_service._langue() == "fr"
+        assert auth_service._language() == "fr"
 
     def test_langue_inconnue_ignoree(self, reglages):
         import admin_module
         import auth_service
-        admin_module._ecrire_reglage("langue", "klingon")
-        assert auth_service._langue() == "en"
+        admin_module._write_setting("langue", "klingon")
+        assert auth_service._language() == "en"
 
     def test_traductions_suivent_la_langue(self, reglages):
         """Le point qui compte : plus de table figee au demarrage."""
         import admin_module
         import auth_service
 
-        admin_module._ecrire_reglage("langue", "fr")
-        fr = auth_service.traductions()["ui"]["invalid_token"]
+        admin_module._write_setting("langue", "fr")
+        fr = auth_service.translations()["ui"]["invalid_token"]
 
-        admin_module._ecrire_reglage("langue", "en")
-        en = auth_service.traductions()["ui"]["invalid_token"]
+        admin_module._write_setting("langue", "en")
+        en = auth_service.translations()["ui"]["invalid_token"]
 
         assert fr != en, (fr, en)
 
     def test_messages_ui_suivent_aussi(self, reglages):
-        """messages_ui() etait un dict construit une fois pour toutes."""
+        """ui_messages() etait un dict construit une fois pour toutes."""
         import admin_module
         import auth_service
 
-        admin_module._ecrire_reglage("langue", "fr")
-        fr = auth_service.messages_ui()["INVALID_TOKEN"]
-        admin_module._ecrire_reglage("langue", "en")
-        en = auth_service.messages_ui()["INVALID_TOKEN"]
+        admin_module._write_setting("langue", "fr")
+        fr = auth_service.ui_messages()["INVALID_TOKEN"]
+        admin_module._write_setting("langue", "en")
+        en = auth_service.ui_messages()["INVALID_TOKEN"]
 
         assert fr != en, (fr, en)
 
@@ -1012,7 +1012,7 @@ class TestRetourArriere:
         for horodatage in ("20260101-120000", "20260301-090000",
                            "20260201-235959"):
             (dossier / f"orthanc.json.bak.{horodatage}").touch()
-        choisie = admin_module._derniere_sauvegarde_orthanc()
+        choisie = admin_module._latest_orthanc_backup()
         assert choisie.name.endswith("20260301-090000")
 
 
@@ -1193,48 +1193,48 @@ class TestListes:
 }"""
 
     def test_le_tableau_est_localise(self):
-        from admin_module import _analyser_json
-        valeurs, _ = _analyser_json(self.SOURCE)
+        from admin_module import _scan_json
+        valeurs, _ = _scan_json(self.SOURCE)
         assert "StudyListColumns" in valeurs
 
     def test_remplacement_sans_doublon(self):
         """Le point central : une seule occurrence de la cle apres ecriture."""
-        from admin_module import _ecrire_changements
-        out = _ecrire_changements(self.SOURCE, {"StudyListColumns": ["Modality"]})
+        from admin_module import _apply_text_changes
+        out = _apply_text_changes(self.SOURCE, {"StudyListColumns": ["Modality"]})
         assert out.count('"StudyListColumns"') == 1
         assert self._relire(out)["StudyListColumns"] == ["Modality"]
 
     def test_commentaire_preserve(self):
-        from admin_module import _ecrire_changements
-        out = _ecrire_changements(self.SOURCE, {"StudyListColumns": ["Modality"]})
+        from admin_module import _apply_text_changes
+        out = _apply_text_changes(self.SOURCE, {"StudyListColumns": ["Modality"]})
         assert "// Colonnes de la liste d'examens" in out
 
     def test_voisins_intacts(self):
-        from admin_module import _ecrire_changements
-        out = _ecrire_changements(self.SOURCE, {"StudyListColumns": ["Modality"]})
+        from admin_module import _apply_text_changes
+        out = _apply_text_changes(self.SOURCE, {"StudyListColumns": ["Modality"]})
         assert self._relire(out)["Theme"] == "dark"
 
     def test_mise_en_forme_lisible(self):
         """Une dizaine d'entrees sur une seule ligne serait illisible dans un
         fichier qu'on relit pour comprendre."""
-        from admin_module import _ecrire_changements
-        out = _ecrire_changements(
+        from admin_module import _apply_text_changes
+        out = _apply_text_changes(
             self.SOURCE, {"StudyListColumns": ["PatientID", "Modality"]})
         lignes = [l for l in out.splitlines() if '"Modality"' in l]
         assert lignes and lignes[0].startswith("    "), out
 
     def test_liste_vide(self):
-        from admin_module import _ecrire_changements
-        out = _ecrire_changements(self.SOURCE, {"StudyListColumns": []})
+        from admin_module import _apply_text_changes
+        out = _apply_text_changes(self.SOURCE, {"StudyListColumns": []})
         assert self._relire(out)["StudyListColumns"] == []
 
     def test_cle_presente_mais_non_localisable(self):
         """Garde-fou general : tout type que l'analyse ne sait pas traiter
         doit etre refuse, jamais insere en double."""
-        from admin_module import _ecrire_changements
+        from admin_module import _apply_text_changes
         source = '{"Bloc": {"a": 1}}'
         with pytest.raises(ValueError, match="deja present"):
-            _ecrire_changements(source, {"Bloc": {"a": 2}})
+            _apply_text_changes(source, {"Bloc": {"a": 2}})
 
     # --- validation du contenu ---------------------------------------------
 
@@ -1313,7 +1313,7 @@ class TestVerrouInstallation:
         self._ecrire(sans_redis, {
             "bootstrap@localhost": {"disabled": False, "groups": ["admin"]},
         })
-        assert _executer(admin_module._installation_faite()) is False
+        assert _executer(admin_module._setup_completed()) is False
 
     def test_admin_existant_verrouille(self, sans_redis):
         """Le cas qui compte : Redis vide, mais un administrateur reel
@@ -1322,7 +1322,7 @@ class TestVerrouInstallation:
         self._ecrire(sans_redis, {
             "gregory.cuffel": {"disabled": False, "groups": ["admin"]},
         })
-        assert _executer(admin_module._installation_faite()) is True
+        assert _executer(admin_module._setup_completed()) is True
 
     def test_admin_desactive_ne_verrouille_pas(self, sans_redis):
         """Un compte desactive ne peut pas administrer : l'installation est
@@ -1331,21 +1331,21 @@ class TestVerrouInstallation:
         self._ecrire(sans_redis, {
             "ancien.admin": {"disabled": True, "groups": ["admin"]},
         })
-        assert _executer(admin_module._installation_faite()) is False
+        assert _executer(admin_module._setup_completed()) is False
 
     def test_utilisateur_simple_ne_verrouille_pas(self, sans_redis):
         import admin_module
         self._ecrire(sans_redis, {
             "medecin": {"disabled": False, "groups": ["doctors"]},
         })
-        assert _executer(admin_module._installation_faite()) is False
+        assert _executer(admin_module._setup_completed()) is False
 
     def test_fichier_illisible_verrouille(self, sans_redis):
         """Dans le doute, ne pas ouvrir : une erreur de lecture ne doit pas
         offrir la creation d'un compte administrateur."""
         import admin_module
         sans_redis.write_text("ceci: n'est pas: du YAML: valide:", encoding="utf-8")
-        assert _executer(admin_module._installation_faite()) is True
+        assert _executer(admin_module._setup_completed()) is True
 
     def test_le_drapeau_redis_suffit(self, tmp_path, monkeypatch):
         """L'ancien mecanisme reste valable quand Redis repond."""
@@ -1359,7 +1359,7 @@ class TestVerrouInstallation:
         monkeypatch.setattr(admin_module, "_r", lambda: _RedisPlein())
         monkeypatch.setattr(admin_module, "AUTHELIA_YML",
                             tmp_path / "absent.yml")
-        assert _executer(admin_module._installation_faite()) is True
+        assert _executer(admin_module._setup_completed()) is True
 
 
 # ============================================================================
@@ -1416,7 +1416,7 @@ class TestConfigurationEffective:
             systeme={"Name": "PACS Cuffel", "DicomAet": "PACSCUFFEL"},
             ui={"UiOptions": {"StudyListColumns": ["PatientID"]}},
         )
-        assert _executer(admin_module._verifier_application()) == []
+        assert _executer(admin_module._check_effective_config()) == []
 
     def test_ecart_detecte(self, config, monkeypatch):
         """Le cas d'une variable d'environnement qui ecrase le fichier."""
@@ -1426,7 +1426,7 @@ class TestConfigurationEffective:
             systeme={"Name": "Autre nom", "DicomAet": "PACSCUFFEL"},
             ui={"UiOptions": {"StudyListColumns": ["PatientID"]}},
         )
-        ecarts = _executer(admin_module._verifier_application())
+        ecarts = _executer(admin_module._check_effective_config())
         assert len(ecarts) == 1
         assert ecarts[0]["champ"] == "Name"
         assert ecarts[0]["dans_le_fichier"] == "PACS Cuffel"
@@ -1441,7 +1441,7 @@ class TestConfigurationEffective:
             systeme={"Name": "PACS Cuffel", "DicomAet": "PACSCUFFEL"},
             ui={"UiOptions": {"StudyListColumns": ["PatientBirthDate", "modalities"]}},
         )
-        ecarts = _executer(admin_module._verifier_application())
+        ecarts = _executer(admin_module._check_effective_config())
         champs = [e["champ"] for e in ecarts]
         assert "OrthancExplorer2.UiOptions.StudyListColumns" in champs
 
@@ -1453,7 +1453,7 @@ class TestConfigurationEffective:
         monkeypatch.setattr(admin_module, "ORTHANC_JSON", fichier)
         self._repondre(monkeypatch, systeme={"Name": "PACS", "DicomPort": 4242},
                        ui={})
-        assert _executer(admin_module._verifier_application()) == []
+        assert _executer(admin_module._check_effective_config()) == []
 
     def test_orthanc_muet(self, config, monkeypatch):
         """Rien a comparer ne doit pas se traduire par une alerte."""
@@ -1463,16 +1463,16 @@ class TestConfigurationEffective:
             raise ConnectionError("Orthanc ne repond pas")
 
         monkeypatch.setattr(admin_module, "_orthanc", _casse)
-        assert _executer(admin_module._verifier_application()) == []
+        assert _executer(admin_module._check_effective_config()) == []
 
     def test_droits_calcules_hors_verification(self):
         """EnableShares vaut vrai pour un administrateur et faux pour un
         utilisateur externe : c'est un droit, pas un reglage. Le comparer au
         fichier produirait une alerte permanente."""
-        from admin_module import ORTHANC_VERIFIABLES
+        from admin_module import ORTHANC_VERIFIABLE
         for champ in ("OrthancExplorer2.UiOptions.EnableShares",
                       "OrthancExplorer2.UiOptions.EnableViewerQuickButton"):
-            assert champ not in ORTHANC_VERIFIABLES
+            assert champ not in ORTHANC_VERIFIABLE
 
     def test_colonnes_declarees_sous_uioptions(self):
         """Garde-fou d'emplacement : Explorer lit ce champ sous UiOptions.

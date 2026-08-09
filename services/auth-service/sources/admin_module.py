@@ -207,7 +207,7 @@ def _normalise_public_url(raw: str) -> tuple[str, str]:
 
 # Cache du fichier de reglages, invalide par la date de modification.
 #
-# Les traductions consultent ces reglages a chaque libelle affiche : relire le
+# Les translations consultent ces reglages a chaque libelle affiche : relire le
 # fichier a chaque acces ferait des dizaines de lectures par page. Un stat()
 # suffit a savoir s'il a change, et le cout d'un changement -- rare -- est une
 # seule relecture.
@@ -216,21 +216,21 @@ def _normalise_public_url(raw: str) -> tuple[str, str]:
 # alors le contenu de l'un pour l'autre. Sans consequence en production, ou
 # le chemin ne change jamais -- mais c'est le genre de raccourci qui se paie
 # plus tard, et c'est un test qui l'a trouve.
-_reglages_cache: dict[str, Any] = {"cle": None, "data": {}}
+_settings_cache: dict[str, Any] = {"cle": None, "data": {}}
 
 
-def _lire_reglages() -> dict[str, Any]:
+def _read_settings() -> dict[str, Any]:
     """Contenu du fichier de reglages. Dict vide s'il n'existe pas encore."""
     try:
         cle = (str(SETTINGS_FILE), SETTINGS_FILE.stat().st_mtime)
     except OSError:
         # Fichier absent : installation neuve, ou reglages jamais modifies.
-        _reglages_cache["cle"] = None
-        _reglages_cache["data"] = {}
+        _settings_cache["cle"] = None
+        _settings_cache["data"] = {}
         return {}
 
-    if _reglages_cache["cle"] == cle:
-        return _reglages_cache["data"]
+    if _settings_cache["cle"] == cle:
+        return _settings_cache["data"]
 
     try:
         data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
@@ -240,12 +240,12 @@ def _lire_reglages() -> dict[str, Any]:
         logger.warning("reglages illisibles (%s), valeurs par defaut", e)
         data = {}
 
-    _reglages_cache["cle"] = cle
-    _reglages_cache["data"] = data
+    _settings_cache["cle"] = cle
+    _settings_cache["data"] = data
     return data
 
 
-def _lire_reglage(nom: str, variable_env: str = "", defaut: Any = None) -> Any:
+def _read_setting(nom: str, variable_env: str = "", defaut: Any = None) -> Any:
     """Valeur d'un reglage, avec reprise de l'ancienne variable d'environnement.
 
     `variable_env` permet aux installations anterieures de continuer a
@@ -253,7 +253,7 @@ def _lire_reglage(nom: str, variable_env: str = "", defaut: Any = None) -> Any:
     pas ete redefini depuis le panel. La premiere ecriture le fait basculer
     dans le fichier de reglages, et la ligne du .env devient sans effet.
     """
-    reglages = _lire_reglages()
+    reglages = _read_settings()
     if nom in reglages:
         return reglages[nom]
     if variable_env:
@@ -263,7 +263,7 @@ def _lire_reglage(nom: str, variable_env: str = "", defaut: Any = None) -> Any:
     return defaut
 
 
-def _ecrire_reglage(nom: str, valeur: Any) -> None:
+def _write_setting(nom: str, valeur: Any) -> None:
     """Ecrit un reglage. Le fichier et son dossier sont crees au besoin."""
     try:
         SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -274,7 +274,7 @@ def _ecrire_reglage(nom: str, valeur: Any) -> None:
             f"'./data/app-settings:/host/app-settings:rw' sur auth-service.",
         ) from e
 
-    reglages = _lire_reglages()
+    reglages = _read_settings()
     reglages[nom] = valeur
     # Meme precaution que pour les autres fichiers du panel : ecriture dans un
     # temporaire du meme dossier, puis rename. Une coupure laisse l'ancien
@@ -283,7 +283,7 @@ def _ecrire_reglage(nom: str, valeur: Any) -> None:
                                             ensure_ascii=False) + "\n")
     # Invalider explicitement : le mtime a parfois une granularite d'une
     # seconde, et deux ecritures rapprochees seraient alors indistinguables.
-    _reglages_cache["cle"] = None
+    _settings_cache["cle"] = None
 
 
 def _read_env_var(name: str) -> str:
@@ -828,7 +828,7 @@ ORTHANC_EDITABLE_PATHS = {
 # On ne contraint que ce dont on est sur. Une borne inventee bloquerait une
 # configuration valide, ce qui est pire que pas de borne du tout : les champs
 # absents de cette table restent simplement typiques.
-ORTHANC_BORNES: dict[str, tuple[int, int]] = {
+ORTHANC_RANGES: dict[str, tuple[int, int]] = {
     # Ports TCP.
     "DicomPort": (1, 65535),
     "HttpPort": (1, 65535),
@@ -857,14 +857,14 @@ ORTHANC_BORNES: dict[str, tuple[int, int]] = {
 
 # Type des elements d'une liste. Sans cela, ["PatientID", 42] passerait le
 # controle -- c'est bien une liste -- et Orthanc buterait dessus au demarrage.
-ORTHANC_TYPE_ELEMENTS: dict[str, type] = {
+ORTHANC_ELEMENT_TYPES: dict[str, type] = {
     "OrthancExplorer2.UiOptions.StudyListColumns": str,
     "OrthancExplorer2.UiOptions.ViewersOrdering": str,
     "OrthancExplorer2.UiOptions.ShareDurations": int,
 }
 
 
-ORTHANC_VALEURS_ADMISES: dict[str, tuple[str, ...]] = {
+ORTHANC_ALLOWED_VALUES: dict[str, tuple[str, ...]] = {
     # Explorer applique cette valeur a l'attribut data-bs-theme de Bootstrap,
     # qui ne connait que ces deux modes.
     "OrthancExplorer2.Theme": ("light", "dark"),
@@ -896,14 +896,14 @@ def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
     if dotted == "DicomAet" and len(value) > 16:
         raise ValueError("DicomAet: max 16 caracteres (norme DICOM)")
 
-    if dotted in ORTHANC_BORNES:
-        mini, maxi = ORTHANC_BORNES[dotted]
+    if dotted in ORTHANC_RANGES:
+        mini, maxi = ORTHANC_RANGES[dotted]
         if not mini <= value <= maxi:
             raise ValueError(
                 f"{dotted}: attendu entre {mini} et {maxi}, recu {value}")
 
-    if dotted in ORTHANC_TYPE_ELEMENTS:
-        attendu_el = ORTHANC_TYPE_ELEMENTS[dotted]
+    if dotted in ORTHANC_ELEMENT_TYPES:
+        attendu_el = ORTHANC_ELEMENT_TYPES[dotted]
         for element in value:
             # Meme piege que plus haut : un booleen est un entier.
             if isinstance(element, bool) or not isinstance(element, attendu_el):
@@ -917,8 +917,8 @@ def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
         if len(set(value)) != len(value):
             raise ValueError(f"{dotted}: la liste contient des doublons")
 
-    if dotted in ORTHANC_VALEURS_ADMISES:
-        admises = ORTHANC_VALEURS_ADMISES[dotted]
+    if dotted in ORTHANC_ALLOWED_VALUES:
+        admises = ORTHANC_ALLOWED_VALUES[dotted]
         if value not in admises:
             raise ValueError(
                 f"{dotted}: valeur inconnue {value!r}. "
@@ -960,7 +960,7 @@ def _fin_de_chaine(texte: str, debut: int) -> int:
     return n - 1
 
 
-def _analyser_json(texte: str) -> tuple[dict[str, tuple[int, int]],
+def _scan_json(texte: str) -> tuple[dict[str, tuple[int, int]],
                                         dict[str, tuple[int, int]]]:
     """Releve, par chemin pointe, ou se trouvent les valeurs et les objets.
 
@@ -1059,7 +1059,7 @@ def _analyser_json(texte: str) -> tuple[dict[str, tuple[int, int]],
     return positions, objets
 
 
-def _inserer_cle(texte: str, objet: tuple[int, int], cle: str, valeur: Any) -> str:
+def _insert_key(texte: str, objet: tuple[int, int], cle: str, valeur: Any) -> str:
     """Ajoute `cle` a la fin de l'objet dont les bornes sont donnees.
 
     Se place apres la derniere valeur de l'objet, et non juste avant
@@ -1105,7 +1105,7 @@ def _inserer_cle(texte: str, objet: tuple[int, int], cle: str, valeur: Any) -> s
     return texte[:j + 1] + f",\n{indentation}{rendu}" + texte[j + 1:]
 
 
-def _rendre(valeur: Any, texte: str, debut: int) -> str:
+def _render_value(valeur: Any, texte: str, debut: int) -> str:
     """Serialise une valeur pour l'inserer dans le texte.
 
     Une liste est ecrite sur plusieurs lignes, indentee comme la cle qui la
@@ -1124,7 +1124,7 @@ def _rendre(valeur: Any, texte: str, debut: int) -> str:
     return "[\n" + elements + f"\n{marge}]"
 
 
-def _ecrire_changements(texte: str, changements: dict[str, Any]) -> str:
+def _apply_text_changes(texte: str, changements: dict[str, Any]) -> str:
     """Applique les changements au texte en preservant tout le reste.
 
     Une cle deja presente voit sa valeur remplacee sur place. Une cle absente
@@ -1136,7 +1136,7 @@ def _ecrire_changements(texte: str, changements: dict[str, Any]) -> str:
     arborescence demanderait de deviner une mise en forme. L'appelant retombe
     alors sur une reecriture complete, en connaissance de cause.
     """
-    positions, objets = _analyser_json(texte)
+    positions, objets = _scan_json(texte)
 
     presentes = {c: v for c, v in changements.items() if c in positions}
     absentes = {c: v for c, v in changements.items() if c not in positions}
@@ -1167,14 +1167,14 @@ def _ecrire_changements(texte: str, changements: dict[str, Any]) -> str:
     # De la fin vers le debut : les index releves restent valides.
     for chemin in sorted(presentes, key=lambda c: positions[c][0], reverse=True):
         debut, fin = positions[chemin]
-        texte = texte[:debut] + _rendre(presentes[chemin], texte, debut) + texte[fin:]
+        texte = texte[:debut] + _render_value(presentes[chemin], texte, debut) + texte[fin:]
 
     # Chaque insertion decale ce qui suit : on repart d'une analyse fraiche.
     for chemin, valeur in absentes.items():
-        _, objets = _analyser_json(texte)
+        _, objets = _scan_json(texte)
         parent = chemin.rsplit(".", 1)[0] if "." in chemin else ""
         cle = chemin.rsplit(".", 1)[-1]
-        texte = _inserer_cle(texte, objets[parent], cle, valeur)
+        texte = _insert_key(texte, objets[parent], cle, valeur)
 
     return texte
 
@@ -1276,7 +1276,7 @@ async def admin_whoami(admin: AdminUser = Depends(require_admin)):
     return resp
 
 
-async def _installation_faite() -> bool:
+async def _setup_completed() -> bool:
     """L'installation a-t-elle deja eu lieu ?
 
     Le drapeau vit dans Redis, qui est un cache : le vider -- volume efface,
@@ -1332,7 +1332,7 @@ async def setup_create_admin(payload: UserCreatePayload):
     # Dernier filet, celui qui ne depend pas du cache : un administrateur
     # reel existe deja. C'est ici qu'un tiers profiterait d'un Redis vide
     # pour se creer un compte sur une installation en service.
-    if await _installation_faite():
+    if await _setup_completed():
         raise HTTPException(
             409,
             "un administrateur existe deja sur cette installation — se "
@@ -1408,7 +1408,7 @@ async def setup_network(payload: PublicUrlPayload):
     de la pile, et invalide la session en cours puisque le cookie est lie a
     l'ancien domaine.
     """
-    if await _installation_faite():
+    if await _setup_completed():
         raise HTTPException(
             409, "setup deja finalise, utiliser /api/admin/network",
         )
@@ -1421,7 +1421,7 @@ async def setup_network(payload: PublicUrlPayload):
 
 # Les libelles restent cote frontend, qui les traduit ; ici on ne garde que ce
 # qui doit etre valide au serveur.
-VIEWERS_PARTAGE = (
+SHARE_VIEWERS = (
     "ohif-viewer-publication",
     "stone-viewer-publication",
     "volview-viewer-publication",
@@ -1429,10 +1429,10 @@ VIEWERS_PARTAGE = (
 
 
 # Langues pour lesquelles un fichier de traduction est livre.
-LANGUES_DISPONIBLES = ("en", "fr")
+AVAILABLE_LANGUAGES = ("en", "fr")
 
 
-def _lire_share_type() -> str:
+def _read_share_type() -> str:
     """Viewer preselectionne au partage, tel qu'il figure dans orthanc.json.
 
     Lu dans le fichier et non dans Orthanc : c'est la valeur qui s'appliquera,
@@ -1442,89 +1442,54 @@ def _lire_share_type() -> str:
     try:
         config = _load_orthanc_config()
     except Exception:  # noqa: BLE001 - fichier absent ou illisible
-        return VIEWERS_PARTAGE[0]
+        return SHARE_VIEWERS[0]
     valeur = (config.get("OrthancExplorer2", {})
               .get("Tokens", {})
               .get("ShareType", ""))
-    return valeur if valeur in VIEWERS_PARTAGE else VIEWERS_PARTAGE[0]
+    return valeur if valeur in SHARE_VIEWERS else SHARE_VIEWERS[0]
 
 
-class SharingPayload(BaseModel):
-    default_viewer: str
+class LanguagePayload(BaseModel):
+    language: str
 
 
-class LanguePayload(BaseModel):
-    langue: str
+@router.get("/api/admin/preferences")
+async def admin_preferences_get(admin: AdminUser = Depends(require_admin)):
+    """Preferences d'interface : celles qui ne vivent pas dans orthanc.json.
 
-
-@router.get("/api/admin/sharing")
-async def admin_sharing_get(admin: AdminUser = Depends(require_admin)):
-    """Viewer preselectionne quand on partage un examen."""
-    actuel = _lire_share_type()
-    langue = _lire_reglage("langue", "LANGUAGE")
+    Le viewer de partage n'est plus ici. C'est un champ de configuration
+    Orthanc comme un autre (OrthancExplorer2.Tokens.ShareType), edite depuis
+    l'onglet Configuration : l'exposer aussi ici donnait deux chemins pour
+    ecrire la meme valeur, dans deux onglets differents.
+    """
+    language = (_read_setting("language", "LANGUAGE")
+                or _read_setting("langue"))
     return {
-        "default_viewer": actuel if actuel in VIEWERS_PARTAGE else VIEWERS_PARTAGE[0],
-        "available": list(VIEWERS_PARTAGE),
-        # Ce reglage vit dans orthanc.json, lu par Explorer au demarrage : il
-        # ne prend effet qu'une fois Orthanc redemarre. La langue, elle, est
-        # relue a chaque affichage.
-        "restart_required": True,
-        "langue": langue if langue in LANGUES_DISPONIBLES else LANGUES_DISPONIBLES[0],
-        "langues": list(LANGUES_DISPONIBLES),
+        "language": language if language in AVAILABLE_LANGUAGES else AVAILABLE_LANGUAGES[0],
+        "languages": list(AVAILABLE_LANGUAGES),
         "editable": True,
     }
 
 
-@router.put("/api/admin/sharing")
-async def admin_sharing_put(
-    payload: SharingPayload, admin: AdminUser = Depends(require_admin),
-):
-    """Change le viewer preselectionne.
-
-    Pas de redemarrage : Explorer redemande ces reglages a chaque ouverture du
-    menu de partage, et la valeur est relue dans le .env a chaque appel.
-    """
-    if payload.default_viewer not in VIEWERS_PARTAGE:
-        raise HTTPException(
-            400,
-            f"viewer inconnu : {payload.default_viewer}. "
-            f"Attendu : {', '.join(VIEWERS_PARTAGE)}",
-        )
-
-    # On delegue a la route de configuration plutot que d'ecrire ici : elle
-    # apporte deja la sauvegarde prealable, la validation des invariants,
-    # l'ecriture qui preserve les commentaires et le retour arriere en cas
-    # d'echec. Dupliquer tout cela pour un seul champ finirait par diverger.
-    resultat = await update_orthanc_config(
-        OrthancConfigPayload(
-            changes={"OrthancExplorer2.Tokens.ShareType": payload.default_viewer},
-        ),
-        admin,
-    )
-    await _audit("sharing.default_viewer.updated", admin.username,
-                 viewer=payload.default_viewer)
-    return {**resultat, "default_viewer": payload.default_viewer}
-
-
-@router.put("/api/admin/langue")
-async def admin_langue_put(
-    payload: LanguePayload, admin: AdminUser = Depends(require_admin),
+@router.put("/api/admin/language")
+async def admin_language_put(
+    payload: LanguagePayload, admin: AdminUser = Depends(require_admin),
 ):
     """Change la langue de l'interface.
 
-    Prend effet a la requete suivante : les traductions sont resolues a
+    Prend effet a la requete suivante : les translations sont resolues a
     l'affichage, et non chargees une fois pour toutes au demarrage.
     """
-    if payload.langue not in LANGUES_DISPONIBLES:
+    if payload.language not in AVAILABLE_LANGUAGES:
         raise HTTPException(
             400,
-            f"langue inconnue : {payload.langue}. "
-            f"Attendu : {', '.join(LANGUES_DISPONIBLES)}",
+            f"langue inconnue : {payload.language}. "
+            f"Attendu : {', '.join(AVAILABLE_LANGUAGES)}",
         )
-    _ecrire_reglage("langue", payload.langue)
-    await _audit("interface.langue.updated", admin.username,
-                 langue=payload.langue)
-    return {"ok": True, "langue": payload.langue}
+    _write_setting("language", payload.language)
+    await _audit("interface.language.updated", admin.username,
+                 language=payload.language)
+    return {"ok": True, "language": payload.language}
 
 
 @router.get("/api/admin/network")
@@ -1687,14 +1652,14 @@ async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
                 break
             node = node[k]
         result[dotted] = node
-        bornes = ORTHANC_BORNES.get(dotted)
+        bornes = ORTHANC_RANGES.get(dotted)
         meta[dotted] = {
             "type": noms.get(attendu, "str"),
             # Transmises a l'interface pour qu'elle propose une liste plutot
             # qu'un champ libre, et signale une borne avant l'envoi.
             "min": bornes[0] if bornes else None,
             "max": bornes[1] if bornes else None,
-            "choices": list(ORTHANC_VALEURS_ADMISES.get(dotted, ())) or None,
+            "choices": list(ORTHANC_ALLOWED_VALUES.get(dotted, ())) or None,
             # Distingue "absent du fichier" de "present et vide" : dans le
             # premier cas Orthanc applique sa valeur par defaut.
             "present": present,
@@ -1731,7 +1696,7 @@ async def update_orthanc_config(
             # demarrage suivant.
             brut = ORTHANC_JSON.read_text(encoding="utf-8")
             try:
-                serialized = _ecrire_changements(brut, payload.changes)
+                serialized = _apply_text_changes(brut, payload.changes)
                 relu = json.loads(_strip_json_comments(serialized))
                 if relu != config:
                     raise ValueError("relecture divergente")
@@ -1859,7 +1824,7 @@ async def update_orthanc_config(
 # calcules, pas des reglages, et les comparer au fichier produirait une
 # alerte permanente. Un verificateur qui crie au loup sur une valeur
 # legitime ne sert plus a rien.
-ORTHANC_VERIFIABLES: dict[str, tuple[str, tuple[str, ...]]] = {
+ORTHANC_VERIFIABLE: dict[str, tuple[str, tuple[str, ...]]] = {
     "Name": ("/system", ("Name",)),
     "DicomAet": ("/system", ("DicomAet",)),
     "DicomPort": ("/system", ("DicomPort",)),
@@ -1881,7 +1846,7 @@ ORTHANC_VERIFIABLES: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
-async def _verifier_application() -> list[dict[str, Any]]:
+async def _check_effective_config() -> list[dict[str, Any]]:
     """Compare ce que declare orthanc.json a ce qu'Orthanc applique.
 
     Ne renvoie que les ecarts. Un champ absent du fichier n'en est pas un :
@@ -1894,7 +1859,7 @@ async def _verifier_application() -> list[dict[str, Any]]:
         return []
 
     reponses: dict[str, dict] = {}
-    for endpoint in {e for e, _ in ORTHANC_VERIFIABLES.values()}:
+    for endpoint in {e for e, _ in ORTHANC_VERIFIABLE.values()}:
         try:
             r = await _orthanc("GET", endpoint)
             reponses[endpoint] = r.json() if r.status_code == 200 else {}
@@ -1902,7 +1867,7 @@ async def _verifier_application() -> list[dict[str, Any]]:
             reponses[endpoint] = {}
 
     ecarts = []
-    for chemin, (endpoint, acces) in ORTHANC_VERIFIABLES.items():
+    for chemin, (endpoint, acces) in ORTHANC_VERIFIABLE.items():
         voulu = config
         for morceau in chemin.split("."):
             if not isinstance(voulu, dict) or morceau not in voulu:
@@ -1931,7 +1896,7 @@ async def _verifier_application() -> list[dict[str, Any]]:
     return ecarts
 
 
-async def _attendre_orthanc(tentatives: int = 30, pause: int = 2) -> str:
+async def _wait_for_orthanc(tentatives: int = 30, pause: int = 2) -> str:
     """Attend qu'Orthanc reponde. Renvoie sa version, ou "" s'il reste muet.
 
     Orthanc ouvre son port avant d'avoir fini de charger ses plugins : on
@@ -1948,7 +1913,7 @@ async def _attendre_orthanc(tentatives: int = 30, pause: int = 2) -> str:
     return ""
 
 
-def _derniere_sauvegarde_orthanc() -> Path | None:
+def _latest_orthanc_backup() -> Path | None:
     """Sauvegarde d'orthanc.json la plus recente, si elle existe.
 
     Les noms portent un horodatage (orthanc.json.bak.AAAAMMJJ-HHMMSS), donc
@@ -1959,7 +1924,7 @@ def _derniere_sauvegarde_orthanc() -> Path | None:
     return sauvegardes[0] if sauvegardes else None
 
 
-async def _demander_redemarrage() -> None:
+async def _request_restart() -> None:
     """Demande le redemarrage du container au proxy Docker."""
     async with httpx.AsyncClient(timeout=90) as client:
         r = await client.post(
@@ -2009,7 +1974,7 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
                  container=ORTHANC_CONTAINER)
 
     try:
-        await _demander_redemarrage()
+        await _request_restart()
     except httpx.HTTPError as e:
         await _audit("orthanc.restart.failed", admin.username, error=str(e))
         raise HTTPException(502, f"Proxy Docker injoignable : {e}") from e
@@ -2018,14 +1983,14 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
                      container=ORTHANC_CONTAINER)
         raise
 
-    version = await _attendre_orthanc()
+    version = await _wait_for_orthanc()
     if version:
         await _audit("orthanc.restarted", admin.username,
                      container=ORTHANC_CONTAINER)
         # Orthanc repond : cela ne dit pas encore qu'il applique ce qu'on a
         # ecrit. On compare, plutot que d'annoncer un succes sur la foi d'un
         # simple redemarrage.
-        ecarts = await _verifier_application()
+        ecarts = await _check_effective_config()
         if ecarts:
             await _audit("orthanc.config.divergente", admin.username,
                          champs=",".join(e["champ"] for e in ecarts))
@@ -2054,7 +2019,7 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
     await _audit("orthanc.restart.no_response", admin.username,
                  container=ORTHANC_CONTAINER)
 
-    sauvegarde = _derniere_sauvegarde_orthanc()
+    sauvegarde = _latest_orthanc_backup()
     if sauvegarde is None:
         raise HTTPException(
             504,
@@ -2065,7 +2030,7 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
 
     try:
         shutil.copy2(sauvegarde, ORTHANC_JSON)
-        await _demander_redemarrage()
+        await _request_restart()
     except Exception as e:  # noqa: BLE001 - on est deja dans le pire des cas
         await _audit("orthanc.rollback.failed", admin.username,
                      backup=sauvegarde.name, error=str(e))
@@ -2075,7 +2040,7 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
             f"a echoue ({e}). Intervention manuelle requise.",
         ) from e
 
-    version = await _attendre_orthanc()
+    version = await _wait_for_orthanc()
     if version:
         await _audit("orthanc.rolled_back", admin.username,
                      backup=sauvegarde.name)
@@ -2110,8 +2075,8 @@ async def config_effective(admin: AdminUser = Depends(require_admin)):
     d'environnement qui prend le pas sur le fichier, ou un champ place au
     mauvais endroit de l'arborescence.
     """
-    ecarts = await _verifier_application()
-    return {"ok": not ecarts, "ecarts": ecarts, "verifies": len(ORTHANC_VERIFIABLES)}
+    ecarts = await _check_effective_config()
+    return {"ok": not ecarts, "ecarts": ecarts, "verifies": len(ORTHANC_VERIFIABLE)}
 
 
 @router.get("/api/admin/health")
