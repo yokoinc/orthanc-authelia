@@ -428,7 +428,7 @@ if [[ -f /tmp/e2e.dcm ]]; then
     docker run --rm -v /tmp:/tmp-hote alpine rm -f /tmp-hote/e2e.dcm >/dev/null 2>&1
 fi
 
-# --- Proprietaire des fichiers ---------------------------------------------
+# --- File ownership --------------------------------------------------------
 # Authelia and auth-service write into the repository. If they run as root
 # they take ownership of the directories and any later reinstall fails on a
 # "Permission denied" -- the README's reset procedure becomes

@@ -12,27 +12,26 @@
   "DicomAet": "ORTHANC",
   "DicomCheckCalledAet": false,
 
-  // --- Qui a le droit de dialoguer en DICOM ---------------------------------
+  // --- Who may speak DICOM to this server -----------------------------------
   // Ces quatre reglages etaient laisses implicites : Orthanc appliquait ses
   // valeurs par defaut, dont DicomAlwaysAllowStore a true -- n'importe quel
-  // equipement, meme non declare, pouvait alors deposer des examens. Sur un
-  // PACS cela ne doit pas dependre d'une valeur par defaut qu'on ignore.
+  // device, even an undeclared one, could then drop studies here. On a PACS
+  // that must not hinge on a default value nobody knows about.
   //
-  // Les equipements autorises se declarent dans l'onglet Equipements du panel
-  // d'administration (ou dans "DicomModalities" ci-dessous).
+  // Authorised devices are declared in the admin panel's Devices tab (or in
+  // "DicomModalities" below).
 
-  // Repondre aux tests de connectivite, y compris d'un equipement inconnu :
-  // sans risque, et indispensable pour diagnostiquer un raccordement.
+  // Answer connectivity tests, including from an unknown device: harmless,
+  // and essential to diagnose a hook-up.
   "DicomAlwaysAllowEcho": true,
 
-  // Refuser les examens d'un equipement non declare. C'est le reglage qui
-  // protege reellement la base : le laisser a true reviendrait a accepter
-  // n'importe quel envoi arrivant sur le port DICOM.
+  // Refuse studies from an undeclared device. This is the setting that
+  // actually protects the database: leaving it true would mean accepting any
+  // upload arriving on the DICOM port.
   "DicomAlwaysAllowStore": false,
 
-  // Refuser recherches et transferts aux equipements non declares. Ce sont
-  // deja les valeurs par defaut d'Orthanc ; elles figurent ici pour que la
-  // politique se lise d'un coup d'oeil.
+  // Refuse queries and transfers from undeclared devices. These already are
+  // Orthanc's defaults; they appear here so the policy reads at a glance.
   "DicomAlwaysAllowFind": false,
   "DicomAlwaysAllowMove": false,
   "DicomCheckModalityHost": false,
@@ -47,13 +46,13 @@
   "MaximumPatientCount": 0,
   "StorageCompression": false,
 
-  // Persistance en base des modalites DICOM et des peers Orthanc.
+  // Persist DICOM modalities and Orthanc peers in the database.
   //
-  // Sans ces deux drapeaux, tout equipement ajoute depuis le panel
+  // Without these two flags, any device added from the panel
   // d'administration (ou via l'API REST) disparait au redemarrage
-  // d'Orthanc : la liste est relue depuis ce fichier a chaque demarrage.
+  // of Orthanc: the list is re-read from this file on every start.
   //
-  // Le panel refuse de les repasser a false, pour la meme raison.
+  // The panel refuses to set them back to false, for the same reason.
   "DicomModalitiesInDatabase": true,
   "OrthancPeersInDatabase": true,
 
@@ -69,9 +68,10 @@
     "Username": "orthanc",
     "Password": "change-this-postgres-password"
   },
-  // Note: les valeurs ci-dessus sont ecrasees en runtime par les env vars
+  // Note: the values above are overridden at runtime by the env vars
   // ORTHANC__POSTGRESQL__* injectees par docker-compose.yml a partir du .env.
-  // Modifier ici n'a d'effet que si tu retires les env vars du compose.
+  // Editing here only has an effect if the env vars are removed from the
+  // compose file.
 
   // No explicit "Plugins" array here: with orthancteam/orthanc, bundled plugins
   // are auto-discovered from the image's own plugin directory and enabled
@@ -163,11 +163,11 @@
     "WebServiceTokenValidationUrl": "http://auth-service:8000/tokens/validate",
     "WebServiceUserProfileUrl": "http://auth-service:8000/user/get-profile",
     "WebServiceTokenCreationBaseUrl": "http://auth-service:8000/tokens/",
-    // Credentials injectes en runtime par docker-compose depuis le .env
+    // Credentials injected at runtime by docker-compose from .env
     // (ORTHANC__AUTHORIZATION__WEB_SERVICE_USERNAME et _PASSWORD). Les
-    // valeurs ci-dessous ne servent que de repli si les env vars sont
-    // absentes — ne pas y mettre le vrai mot de passe : ce fichier est
-    // editable depuis le panel d'administration.
+    // values below only serve as a fallback when the env vars are absent
+    // -- do not put the real password here: this file is editable from the
+    // admin panel.
     "WebServiceUsername": "share-user",
     "WebServicePassword": "set-via-env-AUTH_PASSWORD",
     "StandardConfigurations": [
