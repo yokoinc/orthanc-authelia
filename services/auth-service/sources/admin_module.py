@@ -1,13 +1,13 @@
 """
-Module admin/setup pour auth-service (FastAPI).
+Admin and setup module for auth-service (FastAPI).
 
-A monter dans le auth_service.py principal via :
+Mount it from the main auth_service.py with:
     from admin_module import router as admin_router, setup_gate
     app.include_router(admin_router)
     app.middleware("http")(setup_gate)
 
-Depends : fastapi, redis.asyncio, pyyaml, argon2-cffi, httpx, filelock, pydantic
-Prerequis env vars : ORTHANC_ADMIN_USER, ORTHANC_ADMIN_PASS, ORTHANC_URL, REDIS_URL
+Requires: fastapi, redis.asyncio, pyyaml, argon2-cffi, httpx, filelock, pydantic
+Required env vars: ORTHANC_ADMIN_USER, ORTHANC_ADMIN_PASS, ORTHANC_URL, REDIS_URL
 """
 
 import json
@@ -39,10 +39,10 @@ from redis.exceptions import RedisError
 # ============================================================================
 
 ORTHANC_URL = os.environ.get("ORTHANC_URL", "http://orthanc:8042")
-# Ces creds ne sont VRAIMENT necessaires que pour les endpoints qui parlent
-# a Orthanc (reload, health check). Lecture non-stricte pour eviter un crash
-# a l'import si le container demarre sans que le compose n'ait ete mis a jour.
-# Les endpoints qui les utilisent verifient et retournent 503 si vides.
+# These credentials are only truly needed by the endpoints that talk to
+# Orthanc (reload, health check). Read leniently so the module still imports
+# when a container starts before the compose file has been updated: the
+# endpoints that use them check and return 503 when they are empty.
 ORTHANC_USER = os.environ.get("ORTHANC_ADMIN_USER", "")
 ORTHANC_PASS = os.environ.get("ORTHANC_ADMIN_PASS", "")
 
@@ -55,9 +55,9 @@ def _require_orthanc_creds():
             "l'endpoint est disponible mais ne peut pas appeler Orthanc",
         )
 
-# Les dossiers parents sont bind-mountes (pas les fichiers) : les ecritures
-# atomiques font un rename, impossible sur un mount de fichier (EBUSY), et
-# le nouvel inode ne serait pas vu par les autres containers.
+# Parent directories are bind-mounted, never the files themselves: atomic
+# writes rename, which fails on a file mount (EBUSY), and the resulting new
+# inode would stay invisible to the other containers.
 AUTHELIA_YML = Path(
     os.getenv("ADMIN_AUTHELIA_PATH", "/host/authelia-config/users_database.yml")
 )
@@ -66,33 +66,33 @@ ORTHANC_JSON = Path(
 )
 BACKUPS_DIR = Path(os.getenv("ADMIN_BACKUPS_DIR", "/host/backups"))
 
-# configuration.yml vit dans le meme dossier que users_database.yml, deja
-# bind-monte : rien de plus a monter pour le lire ou l'ecrire.
+# configuration.yml lives in the same directory as users_database.yml, which
+# is already bind-mounted: nothing more to mount to read or write it.
 AUTHELIA_CONFIG = Path(
     os.getenv("ADMIN_AUTHELIA_CONFIG_PATH", "/host/authelia-config/configuration.yml")
 )
-# Le .env, lui, vit a la racine du projet. Il est monte en tant que FICHIER,
-# pas via son dossier : monter la racine donnerait au container un acces en
-# ecriture au docker-compose.yml et aux scripts. Consequence, les ecritures
-# se font sur place (cf. _write_env_var).
-# Journal du module. auth_service configure le logging au demarrage ; on se
-# rattache a sa hierarchie pour que le niveau defini par LOG_LEVEL s'applique
-# aussi ici.
+# The .env file lives at the project root. It is mounted as a FILE rather
+# than through its directory: mounting the root would give the container
+# write access to docker-compose.yml and to the scripts. As a consequence,
+# writes happen in place (see _write_env_var).
+
+# Module logger. auth_service configures logging at startup; we hook into its
+# hierarchy so that the level set by LOG_LEVEL applies here too.
 logger = logging.getLogger("auth-service.admin")
 
 ENV_FILE = Path(os.getenv("ADMIN_ENV_PATH", "/host/env/.env"))
 
-# Reglages applicatifs, par opposition aux variables d'amorcage.
+# Application settings, as opposed to bootstrap variables.
 #
-# Le .env n'a de raison d'etre que pour ce que docker compose doit connaitre
-# AVANT qu'un container demarre : secrets, identifiants, PUID/PGID, SSL_MODE.
-# Un reglage que seul auth-service lit, une fois en marche, n'a rien a y faire
-# -- l'y mettre oblige a monter le .env en ecriture, a le reecrire sur place
-# faute de pouvoir faire un rename sur un bind-mount de fichier, et melange des
-# preferences d'interface avec des mots de passe.
+# The .env file only exists for what docker compose must know BEFORE a
+# container starts: secrets, credentials, PUID/PGID, SSL_MODE. A setting that
+# only auth-service reads, once running, has no business being there --
+# putting it in forces mounting .env writable, rewriting it in place since a
+# rename is impossible on a file bind-mount, and mixes interface preferences
+# with passwords.
 #
-# Ce fichier-ci vit dans un dossier monte, s'ecrit de facon atomique, et ne
-# contient aucun secret.
+# This file lives in a mounted directory, is written atomically, and holds no
+# secret.
 SETTINGS_FILE = Path(
     os.getenv("ADMIN_SETTINGS_PATH", "/host/app-settings/settings.json")
 )
@@ -100,41 +100,42 @@ SETTINGS_FILE = Path(
 SETUP_KEY = "orthanc_authelia:setup_completed"
 SETUP_FIRST_ADMIN_KEY = "orthanc_authelia:setup_first_admin_created"
 
-# Compte present dans users_database.yml.example au seul titre qu'Authelia
-# refuse de demarrer sur une base vide ("users: non zero value required").
-# Desactive et sans groupe, il est supprime a la finalisation du wizard.
+# Account shipped in users_database.yml.example for one reason only: Authelia
+# refuses to start on an empty database ("users: non zero value required").
+# Disabled and group-less, it is removed when the wizard is finalised.
 BOOTSTRAP_USERNAME = "bootstrap@localhost"
 AUDIT_STREAM = "admin:audit"
 CSRF_COOKIE = "orthanc_admin_csrf"
 
 IMAGE_VERSION = os.getenv("IMAGE_VERSION", "dev")
 
-# Redemarrage d'Orthanc. Le socket Docker n'est pas monte ici : on passe par un
-# proxy qui n'autorise que le redemarrage d'un conteneur (voir socket-proxy
-# dans docker-compose). Vide = la fonction est indisponible et le panel le dit,
-# plutot que d'echouer a l'usage.
+# Restarting Orthanc. The Docker socket is deliberately not mounted here: we
+# go through a proxy that only allows restarting a container (see socket-proxy
+# in docker-compose). Empty means the feature is unavailable, which the panel
+# states up front rather than failing at use time.
 DOCKER_PROXY_URL = os.getenv("DOCKER_PROXY_URL", "").rstrip("/")
 ORTHANC_CONTAINER = os.getenv("ORTHANC_CONTAINER", "orthanc-server")
 
-# argon2id parametres = defaults Authelia (compatibles avec ce qu'il verifie)
+# argon2id parameters match Authelia's defaults, so the hashes we write are
+# the ones it knows how to verify.
 _hasher = PasswordHasher(
     time_cost=3, memory_cost=65536, parallelism=4,
     hash_len=32, salt_len=16,
 )
 
-# Client Redis global (a injecter depuis auth_service.py)
+# Global Redis client, injected from auth_service.py
 _redis: aioredis.Redis | None = None
 
 
 def set_redis(client: aioredis.Redis) -> None:
-    """Appelé au startup de auth_service.py pour injecter la connexion Redis."""
+    """Called by auth_service.py at startup to inject the Redis connection."""
     global _redis
     _redis = client
 
 
 def _r() -> aioredis.Redis:
     if _redis is None:
-        raise RuntimeError("Redis pas initialise. Appeler set_redis() au startup.")
+        raise RuntimeError("Redis not initialised. Call set_redis() at startup.")
     return _redis
 
 
@@ -143,13 +144,13 @@ def _r() -> aioredis.Redis:
 # ============================================================================
 
 def _backup(path: Path, tag: str = "") -> Path:
-    """Copie path vers backups/{name}.bak.{ts}[.tag], rotation 10 derniers."""
+    """Copy path to backups/{name}.bak.{ts}[.tag], keeping the last 10."""
     BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     suffix = f".bak.{ts}" + (f".{tag}" if tag else "")
     dest = BACKUPS_DIR / (path.name + suffix)
     shutil.copy2(path, dest)
-    # Rotation : garder les 10 derniers backups de ce fichier
+    # Rotation: keep the ten most recent backups of this file
     prefix = path.name + ".bak."
     backups = sorted(BACKUPS_DIR.glob(prefix + "*"), reverse=True)
     for old in backups[10:]:
@@ -158,14 +159,14 @@ def _backup(path: Path, tag: str = "") -> Path:
 
 
 def _atomic_write(path: Path, content: str) -> None:
-    """Ecrit content dans path via un fichier temporaire + rename atomique."""
+    """Write content to path through a temporary file and an atomic rename."""
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)
 
 
 async def _audit(event: str, actor: str, **fields: Any) -> None:
-    """Ajoute une entree au stream Redis admin:audit."""
+    """Append an entry to the admin:audit Redis stream."""
     entry = {"event": event, "actor": actor, "ts": str(int(time.time()))}
     for k, v in fields.items():
         entry[k] = str(v)
@@ -177,10 +178,10 @@ async def _audit(event: str, actor: str, **fields: Any) -> None:
 # ============================================================================
 
 def _normalise_public_url(raw: str) -> tuple[str, str]:
-    """Valide l'URL publique. Renvoie (origine, hote sans port).
+    """Validate the public URL. Returns (origin, host without port).
 
-    L'origine sert aux redirections (port compris), l'hote au domaine des
-    cookies de session -- un cookie ne porte jamais de port.
+    The origin drives redirections, port included; the host is what session
+    cookies are scoped to -- a cookie never carries a port.
     """
     parsed = urlparse(raw.strip())
     if parsed.scheme != "https":
@@ -193,8 +194,8 @@ def _normalise_public_url(raw: str) -> tuple[str, str]:
             "indiquer l'origine seule, sans chemin "
             "(exemple : https://pacs.exemple.fr)",
         )
-    # RFC 6265 : un cookie pose sur un hote sans point n'est pas conservé par
-    # certains navigateurs. "localhost" fait exception, pas "monpacs".
+    # RFC 6265: some browsers drop a cookie set on a host without a dot.
+    # "localhost" is the exception, "mypacs" is not.
     if "." not in parsed.hostname and parsed.hostname != "localhost":
         raise HTTPException(
             400,
@@ -205,26 +206,27 @@ def _normalise_public_url(raw: str) -> tuple[str, str]:
     return f"https://{parsed.netloc}", parsed.hostname
 
 
-# Cache du fichier de reglages, invalide par la date de modification.
+# Settings file cache, invalidated by modification time.
 #
-# Les translations consultent ces reglages a chaque libelle affiche : relire le
-# fichier a chaque acces ferait des dizaines de lectures par page. Un stat()
-# suffit a savoir s'il a change, et le cout d'un changement -- rare -- est une
-# seule relecture.
-# La cle inclut le CHEMIN et pas seulement la date : deux fichiers distincts
-# ecrits dans la meme seconde partagent le meme mtime, et le cache servait
-# alors le contenu de l'un pour l'autre. Sans consequence en production, ou
-# le chemin ne change jamais -- mais c'est le genre de raccourci qui se paie
-# plus tard, et c'est un test qui l'a trouve.
+# Translations read these settings for every label displayed: re-reading the
+# file on each access would mean dozens of reads per page. A stat() is enough
+# to tell whether it changed, and the cost of a change -- rare -- is a single
+# re-read.
+#
+# The key includes the PATH and not just the timestamp: two distinct files
+# written within the same second share an mtime, and the cache would then
+# serve one file's content for the other. Harmless in production, where the
+# path never changes -- but exactly the kind of shortcut that bites later,
+# and a test is what caught it.
 _settings_cache: dict[str, Any] = {"cle": None, "data": {}}
 
 
 def _read_settings() -> dict[str, Any]:
-    """Contenu du fichier de reglages. Dict vide s'il n'existe pas encore."""
+    """Contents of the settings file. Empty dict when it does not exist yet."""
     try:
         cle = (str(SETTINGS_FILE), SETTINGS_FILE.stat().st_mtime)
     except OSError:
-        # Fichier absent : installation neuve, ou reglages jamais modifies.
+        # No file: fresh install, or settings never changed.
         _settings_cache["cle"] = None
         _settings_cache["data"] = {}
         return {}
@@ -235,9 +237,9 @@ def _read_settings() -> dict[str, Any]:
     try:
         data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as e:
-        # Un fichier de preferences illisible ne doit pas empecher le service
-        # de repondre : on repart des valeurs par defaut en le signalant.
-        logger.warning("reglages illisibles (%s), valeurs par defaut", e)
+        # An unreadable preferences file must not stop the service from
+        # answering: fall back to defaults and say so.
+        logger.warning("unreadable settings (%s), falling back to defaults", e)
         data = {}
 
     _settings_cache["cle"] = cle
@@ -245,26 +247,26 @@ def _read_settings() -> dict[str, Any]:
     return data
 
 
-def _read_setting(nom: str, variable_env: str = "", defaut: Any = None) -> Any:
-    """Valeur d'un reglage, avec reprise de l'ancienne variable d'environnement.
+def _read_setting(name: str, env_var: str = "", default: Any = None) -> Any:
+    """A setting's value, falling back to its former environment variable.
 
-    `variable_env` permet aux installations anterieures de continuer a
-    fonctionner : le reglage vivait dans le .env, il y est relu tant qu'il n'a
-    pas ete redefini depuis le panel. La premiere ecriture le fait basculer
-    dans le fichier de reglages, et la ligne du .env devient sans effet.
+    `env_var` keeps existing installations working: the setting used to live
+    in .env, and is still read from there until it gets redefined from the
+    panel. The first write moves it into the settings file, after which the
+    .env line has no effect.
     """
-    reglages = _read_settings()
-    if nom in reglages:
-        return reglages[nom]
-    if variable_env:
-        ancienne = _read_env_var(variable_env)
-        if ancienne:
-            return ancienne
-    return defaut
+    settings = _read_settings()
+    if name in settings:
+        return settings[name]
+    if env_var:
+        previous = _read_env_var(env_var)
+        if previous:
+            return previous
+    return default
 
 
-def _write_setting(nom: str, valeur: Any) -> None:
-    """Ecrit un reglage. Le fichier et son dossier sont crees au besoin."""
+def _write_setting(name: str, value: Any) -> None:
+    """Write a setting, creating the file and its directory when needed."""
     try:
         SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     except OSError as e:
@@ -274,20 +276,20 @@ def _write_setting(nom: str, valeur: Any) -> None:
             f"'./data/app-settings:/host/app-settings:rw' sur auth-service.",
         ) from e
 
-    reglages = _read_settings()
-    reglages[nom] = valeur
-    # Meme precaution que pour les autres fichiers du panel : ecriture dans un
-    # temporaire du meme dossier, puis rename. Une coupure laisse l'ancien
-    # fichier intact plutot qu'un JSON tronque.
-    _atomic_write(SETTINGS_FILE, json.dumps(reglages, indent=2,
+    settings = _read_settings()
+    settings[name] = value
+    # Same precaution as for the panel's other files: write to a temporary
+    # file in the same directory, then rename. An interruption leaves the
+    # previous file intact rather than a truncated JSON.
+    _atomic_write(SETTINGS_FILE, json.dumps(settings, indent=2,
                                             ensure_ascii=False) + "\n")
-    # Invalider explicitement : le mtime a parfois une granularite d'une
-    # seconde, et deux ecritures rapprochees seraient alors indistinguables.
+    # Invalidate explicitly: mtime granularity is sometimes one second, which
+    # would make two close writes indistinguishable.
     _settings_cache["cle"] = None
 
 
 def _read_env_var(name: str) -> str:
-    """Lit une variable du .env. Chaine vide si absente ou fichier illisible."""
+    """Read a variable from .env. Empty string when absent or unreadable."""
     if not ENV_FILE.exists():
         return ""
     for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
@@ -300,11 +302,11 @@ def _read_env_var(name: str) -> str:
 def _write_env_var(name: str, value: str) -> None:
     """Remplace (ou ajoute) name=value dans le .env, en ecrivant SUR PLACE.
 
-    Pas de write-tmp + rename ici, contrairement au reste du module : le .env
-    est un bind-mount de fichier. Le rename echouerait (EBUSY) et, s'il
-    aboutissait, docker compose relirait l'ancien inode. On reecrit donc le
-    meme fichier, apres sauvegarde -- une ecriture interrompue laisserait
-    sinon un .env tronque, et la pile ne redemarrerait plus.
+    No write-tmp + rename here, unlike everywhere else in this module: .env
+    is a file bind-mount. The rename would fail (EBUSY) and, were it to
+    succeed, docker compose would keep reading the old inode. So we rewrite
+    the same file, after a backup -- an interrupted write would otherwise
+    leave a truncated .env, and the stack would no longer start.
     """
     if not ENV_FILE.exists():
         raise HTTPException(
@@ -315,74 +317,74 @@ def _write_env_var(name: str, value: str) -> None:
         )
     _backup(ENV_FILE, tag="network")
     lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
-    remplace = False
+    replaced = False
     for i, line in enumerate(lines):
         if line.strip().startswith(f"{name}="):
             lines[i] = f"{name}={value}"
-            remplace = True
+            replaced = True
             break
-    if not remplace:
+    if not replaced:
         lines.append(f"{name}={value}")
     ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _retarget_authelia_config(ancienne_origine: str, ancien_hote: str,
-                              origine: str, hote: str) -> int:
-    """Repointe configuration.yml vers la nouvelle URL publique.
+def _retarget_authelia_config(previous_origin: str, previous_host: str,
+                              origin: str, host: str) -> int:
+    """Point configuration.yml at the new public URL.
 
-    Remplacement textuel, et non chargement/re-serialisation YAML : le
-    fichier est abondamment commente (regles d'acces, avertissements sur le
-    port des cookies) et un aller-retour via PyYAML effacerait tout.
+    Textual replacement rather than a YAML load and re-serialise: the file is
+    heavily commented (access rules, warnings about the cookie port) and a
+    round-trip through PyYAML would wipe all of it.
 
-    Renvoie le nombre de substitutions effectuees.
+    Returns the number of substitutions made.
     """
     if not AUTHELIA_CONFIG.exists():
         raise HTTPException(503, "configuration.yml d'Authelia introuvable")
-    texte = AUTHELIA_CONFIG.read_text(encoding="utf-8")
-    total = texte.count(ancienne_origine) + texte.count(ancien_hote)
+    text = AUTHELIA_CONFIG.read_text(encoding="utf-8")
+    total = text.count(previous_origin) + text.count(previous_host)
     if not total:
         raise HTTPException(
             500,
-            f"aucune trace de '{ancien_hote}' dans configuration.yml : "
+            f"aucune trace de '{previous_host}' dans configuration.yml : "
             "le fichier a ete modifie a la main, changement annule",
         )
     _backup(AUTHELIA_CONFIG, tag="network")
-    # L'origine complete d'abord : sinon le remplacement de l'hote seul
-    # casserait "https://ancien:30443" en "https://nouveau:30443" avec un
-    # port qui n'a plus lieu d'etre.
-    texte = texte.replace(ancienne_origine, origine).replace(ancien_hote, hote)
-    _atomic_write(AUTHELIA_CONFIG, texte)
+    # Full origin first: replacing the bare host would otherwise turn
+    # "https://old:30443" into "https://new:30443", keeping a port that no
+    # longer applies.
+    text = text.replace(previous_origin, origin).replace(previous_host, host)
+    _atomic_write(AUTHELIA_CONFIG, text)
     return total
 
 
-async def _apply_public_url(nouvelle: str, acteur: str) -> dict:
-    """Applique une nouvelle URL publique au .env et a la config Authelia."""
-    origine, hote = _normalise_public_url(nouvelle)
-    ancienne_origine = _read_env_var("PUBLIC_URL").rstrip("/")
-    if not ancienne_origine:
+async def _apply_public_url(new_url: str, actor: str) -> dict:
+    """Apply a new public URL to .env and to Authelia's configuration."""
+    origin, host = _normalise_public_url(new_url)
+    previous_origin = _read_env_var("PUBLIC_URL").rstrip("/")
+    if not previous_origin:
         raise HTTPException(500, "PUBLIC_URL absente du .env, changement annule")
-    if ancienne_origine == origine:
-        return {"ok": True, "unchanged": True, "public_url": origine}
+    if previous_origin == origin:
+        return {"ok": True, "unchanged": True, "public_url": origin}
 
-    _, ancien_hote = _normalise_public_url(ancienne_origine)
+    _, previous_host = _normalise_public_url(previous_origin)
     substitutions = _retarget_authelia_config(
-        ancienne_origine, ancien_hote, origine, hote,
+        previous_origin, previous_host, origin, host,
     )
-    _write_env_var("PUBLIC_URL", origine)
+    _write_env_var("PUBLIC_URL", origin)
     await _audit(
-        "network.public_url.changed", actor=acteur,
-        old=ancienne_origine, new=origine, substitutions=substitutions,
+        "network.public_url.changed", actor=actor,
+        old=previous_origin, new=origin, substitutions=substitutions,
     )
     return {
         "ok": True,
         "unchanged": False,
-        "public_url": origine,
+        "public_url": origin,
         "substitutions": substitutions,
         "restart_required": True,
         "message": (
-            f"URL publique enregistree : {origine}. Relancer la pile "
+            f"URL publique enregistree : {origin}. Relancer la pile "
             "(docker compose up -d) pour l'appliquer, puis se reconnecter "
-            f"sur {origine} — la session en cours est liee a l'ancien domaine."
+            f"sur {origin} — la session en cours est liee a l'ancien domaine."
         ),
     }
 
@@ -402,9 +404,9 @@ class AdminUser(BaseModel):
 
 async def require_admin(request: Request) -> AdminUser:
     """
-    Depends injecte dans les routes /api/admin/*. Utilise les headers propages
-    par nginx auth_request (Authelia met Remote-User + Remote-Groups apres
-    verification de la session).
+    Dependency injected into the /api/admin/* routes. Relies on the headers
+    forwarded by nginx auth_request: Authelia sets Remote-User and
+    Remote-Groups once it has verified the session.
     """
     username = request.headers.get("remote-user", "")
     groups_raw = request.headers.get("remote-groups", "")
@@ -422,19 +424,19 @@ async def require_admin(request: Request) -> AdminUser:
 
 async def setup_gate(request: Request, call_next):
     """
-    Aiguille entre le wizard et le hub selon le flag Redis setup_completed.
+    Route between the wizard and the hub based on the setup_completed flag.
 
-    Nginx expose la console sous /console/ et proxifie vers /ui/... cote
-    auth-service, donc les chemins vus ici sont /ui/setup et /ui/ (le hub).
-    Les redirections, elles, pointent sur les URLs telles que le navigateur
-    les voit, prefixe /console/ inclus.
+    Nginx exposes the console under /console/ and proxies to /ui/... on the
+    auth-service side, so the paths seen here are /ui/setup and /ui/ (the
+    hub). Redirections, on the other hand, point at the URLs as the browser
+    sees them, /console/ prefix included.
     """
     path = request.url.path
     if not path.startswith("/ui"):
         return await call_next(request)
 
-    # Les assets ne sont pas des pages : les rediriger casserait le chargement
-    # du SPA sur la page de setup.
+    # Assets are not pages: redirecting them would break loading of the SPA
+    # on the setup page.
     if path.startswith("/ui/assets"):
         return await call_next(request)
 
@@ -1412,7 +1414,7 @@ async def setup_network(payload: PublicUrlPayload):
         raise HTTPException(
             409, "setup deja finalise, utiliser /api/admin/network",
         )
-    return await _apply_public_url(payload.public_url, acteur="wizard")
+    return await _apply_public_url(payload.public_url, actor="wizard")
 
 
 # ============================================================================
@@ -1510,7 +1512,7 @@ async def admin_network(
     Meme consequence que pendant le wizard : redemarrage necessaire, et
     reconnexion sur la nouvelle adresse.
     """
-    return await _apply_public_url(payload.public_url, acteur=admin.username)
+    return await _apply_public_url(payload.public_url, actor=admin.username)
 
 
 # ============================================================================

@@ -780,7 +780,7 @@ class TestMagasinReglages:
         from admin_module import _read_setting
         reglages.parent.mkdir(parents=True)
         reglages.write_text("{ceci n'est pas du JSON", encoding="utf-8")
-        assert _read_setting("share_default_viewer", defaut="ohif") == "ohif"
+        assert _read_setting("share_default_viewer", default="ohif") == "ohif"
 
     def test_ecriture_atomique(self, reglages):
         """Aucun fichier temporaire ne doit subsister apres l'ecriture."""
