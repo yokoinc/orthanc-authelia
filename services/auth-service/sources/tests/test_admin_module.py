@@ -1156,3 +1156,115 @@ class TestReglagesExplorer:
         oublies = [c for c in ORTHANC_EDITABLE_PATHS
                    if c.startswith("OrthancExplorer2") and c not in decrits]
         assert not oublies, f"champs sans libelle : {oublies}"
+
+
+# ============================================================================
+# Reglages de type liste
+# ============================================================================
+
+class TestListes:
+    """Colonnes affichees, ordre des visionneuses, durees de partage.
+
+    Le scanner ne relevait que les valeurs scalaires. Un chemin pointant sur
+    un tableau etait donc vu comme absent et partait dans la branche
+    « insertion », alors que la cle existait : le fichier se retrouvait avec
+    DEUX fois la meme cle. La relecture-comparaison ne le voyait pas,
+    json.loads ne retenant que la derniere -- le fichier restait donc
+    fonctionnel mais ambigu, et un analyseur retenant la premiere aurait
+    applique l'ancienne configuration.
+    """
+
+    @staticmethod
+    def _relire(texte):
+        from admin_module import _strip_json_comments
+        return json.loads(_strip_json_comments(texte))
+
+    @staticmethod
+    def _changer(champ, valeur):
+        from admin_module import _apply_scalar_change
+        config = {"DicomModalitiesInDatabase": True, "OrthancPeersInDatabase": True}
+        _apply_scalar_change(config, champ, valeur)
+        return config
+
+    SOURCE = """{
+  // Colonnes de la liste d'examens
+  "StudyListColumns": ["PatientID", "PatientName"],
+  "Theme": "dark"
+}"""
+
+    def test_le_tableau_est_localise(self):
+        from admin_module import _analyser_json
+        valeurs, _ = _analyser_json(self.SOURCE)
+        assert "StudyListColumns" in valeurs
+
+    def test_remplacement_sans_doublon(self):
+        """Le point central : une seule occurrence de la cle apres ecriture."""
+        from admin_module import _ecrire_changements
+        out = _ecrire_changements(self.SOURCE, {"StudyListColumns": ["Modality"]})
+        assert out.count('"StudyListColumns"') == 1
+        assert self._relire(out)["StudyListColumns"] == ["Modality"]
+
+    def test_commentaire_preserve(self):
+        from admin_module import _ecrire_changements
+        out = _ecrire_changements(self.SOURCE, {"StudyListColumns": ["Modality"]})
+        assert "// Colonnes de la liste d'examens" in out
+
+    def test_voisins_intacts(self):
+        from admin_module import _ecrire_changements
+        out = _ecrire_changements(self.SOURCE, {"StudyListColumns": ["Modality"]})
+        assert self._relire(out)["Theme"] == "dark"
+
+    def test_mise_en_forme_lisible(self):
+        """Une dizaine d'entrees sur une seule ligne serait illisible dans un
+        fichier qu'on relit pour comprendre."""
+        from admin_module import _ecrire_changements
+        out = _ecrire_changements(
+            self.SOURCE, {"StudyListColumns": ["PatientID", "Modality"]})
+        lignes = [l for l in out.splitlines() if '"Modality"' in l]
+        assert lignes and lignes[0].startswith("    "), out
+
+    def test_liste_vide(self):
+        from admin_module import _ecrire_changements
+        out = _ecrire_changements(self.SOURCE, {"StudyListColumns": []})
+        assert self._relire(out)["StudyListColumns"] == []
+
+    def test_cle_presente_mais_non_localisable(self):
+        """Garde-fou general : tout type que l'analyse ne sait pas traiter
+        doit etre refuse, jamais insere en double."""
+        from admin_module import _ecrire_changements
+        source = '{"Bloc": {"a": 1}}'
+        with pytest.raises(ValueError, match="deja present"):
+            _ecrire_changements(source, {"Bloc": {"a": 2}})
+
+    # --- validation du contenu ---------------------------------------------
+
+    def test_element_de_mauvais_type(self):
+        with pytest.raises(ValueError, match="type int"):
+            self._changer("OrthancExplorer2.UiOptions.ShareDurations", [7, "trente"])
+
+    def test_duree_negative(self):
+        with pytest.raises(ValueError, match="negative"):
+            self._changer("OrthancExplorer2.UiOptions.ShareDurations", [-5])
+
+    def test_doublons_refuses(self):
+        with pytest.raises(ValueError, match="doublons"):
+            self._changer("OrthancExplorer2.StudyListColumns",
+                          ["PatientID", "PatientID"])
+
+    def test_entree_vide_refusee(self):
+        with pytest.raises(ValueError, match="entree vide"):
+            self._changer("OrthancExplorer2.StudyListColumns", ["PatientID", "  "])
+
+    def test_booleen_dans_une_liste_d_entiers(self):
+        """True vaut 1 en Python : sans garde, il passerait pour une duree."""
+        with pytest.raises(ValueError, match="type int"):
+            self._changer("OrthancExplorer2.UiOptions.ShareDurations", [True])
+
+    def test_liste_valide(self):
+        config = self._changer("OrthancExplorer2.UiOptions.ShareDurations",
+                               [0, 7, 30])
+        assert config["OrthancExplorer2"]["UiOptions"]["ShareDurations"] == [0, 7, 30]
+
+    def test_scalaire_refuse_sur_un_champ_liste(self):
+        with pytest.raises(ValueError, match="attendu list"):
+            self._changer("OrthancExplorer2.StudyListColumns", "PatientID")

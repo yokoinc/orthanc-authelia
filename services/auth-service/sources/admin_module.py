@@ -671,6 +671,14 @@ ORTHANC_DEFAULTS = {
     "OrthancExplorer2.UiOptions.EnableOpenInOhifViewer3": True,
     "OrthancExplorer2.UiOptions.EnableOpenInStoneWebViewer": True,
     "OrthancExplorer2.UiOptions.EnableOpenInVolView": True,
+    "OrthancExplorer2.StudyListColumns": [
+        "PatientID", "PatientName", "StudyDate", "StudyDescription",
+        "AccessionNumber", "InstitutionName", "Modality",
+    ],
+    "OrthancExplorer2.UiOptions.ViewersOrdering": [
+        "ohif", "stone-webviewer", "volview",
+    ],
+    "OrthancExplorer2.UiOptions.ShareDurations": [0, 7, 15, 30, 90, 365],
     # Valeurs par defaut relevees dans le fichier de configuration de
     # reference d'Orthanc 1.12.11, la version embarquee dans l'image.
     # Elles sont affichees a titre indicatif pour les parametres absents
@@ -741,6 +749,17 @@ ORTHANC_EDITABLE_PATHS = {
     "OrthancExplorer2.UiOptions.EnableOpenInOhifViewer3": bool,
     "OrthancExplorer2.UiOptions.EnableOpenInStoneWebViewer": bool,
     "OrthancExplorer2.UiOptions.EnableOpenInVolView": bool,
+
+    # Listes. Leur contenu n'est volontairement pas restreint a un ensemble
+    # ferme : le bundle d'Explorer mentionne des viewers absents de notre
+    # installation (osimis-web-viewer, wsi) et plusieurs variantes d'OHIF, et
+    # les colonnes admises n'y sont pas enumerables de facon fiable. Une
+    # liste inventee bloquerait une configuration valide, ce qui est pire que
+    # pas de liste. On valide donc le type des elements, et l'aide de chaque
+    # champ cite les valeurs courantes.
+    "OrthancExplorer2.StudyListColumns": list,
+    "OrthancExplorer2.UiOptions.ViewersOrdering": list,
+    "OrthancExplorer2.UiOptions.ShareDurations": list,
 
     "Name": str,
     "DicomAet": str,
@@ -836,6 +855,15 @@ ORTHANC_BORNES: dict[str, tuple[int, int]] = {
     "OrthancExplorer2.Tokens.InstantLinksValidity": (1, 86400),
 }
 
+# Type des elements d'une liste. Sans cela, ["PatientID", 42] passerait le
+# controle -- c'est bien une liste -- et Orthanc buterait dessus au demarrage.
+ORTHANC_TYPE_ELEMENTS: dict[str, type] = {
+    "OrthancExplorer2.StudyListColumns": str,
+    "OrthancExplorer2.UiOptions.ViewersOrdering": str,
+    "OrthancExplorer2.UiOptions.ShareDurations": int,
+}
+
+
 ORTHANC_VALEURS_ADMISES: dict[str, tuple[str, ...]] = {
     # Explorer applique cette valeur a l'attribut data-bs-theme de Bootstrap,
     # qui ne connait que ces deux modes.
@@ -873,6 +901,21 @@ def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
         if not mini <= value <= maxi:
             raise ValueError(
                 f"{dotted}: attendu entre {mini} et {maxi}, recu {value}")
+
+    if dotted in ORTHANC_TYPE_ELEMENTS:
+        attendu_el = ORTHANC_TYPE_ELEMENTS[dotted]
+        for element in value:
+            # Meme piege que plus haut : un booleen est un entier.
+            if isinstance(element, bool) or not isinstance(element, attendu_el):
+                raise ValueError(
+                    f"{dotted}: chaque entree doit etre de type "
+                    f"{attendu_el.__name__}, recu {element!r}")
+        if attendu_el is int and any(e < 0 for e in value):
+            raise ValueError(f"{dotted}: une duree negative n'a pas de sens")
+        if attendu_el is str and any(not e.strip() for e in value):
+            raise ValueError(f"{dotted}: une entree vide n'a pas de sens")
+        if len(set(value)) != len(value):
+            raise ValueError(f"{dotted}: la liste contient des doublons")
 
     if dotted in ORTHANC_VALEURS_ADMISES:
         admises = ORTHANC_VALEURS_ADMISES[dotted]
@@ -960,7 +1003,9 @@ def _analyser_json(texte: str) -> tuple[dict[str, tuple[int, int]],
         if c in "{[":
             # Le chemin de l'objet qu'on ouvre est celui du contexte courant,
             # cle du parent comprise : il faut donc le relever avant d'empiler.
-            pile.append({"type": c, "cle": None, "chemin": chemin(), "debut": i})
+            dans_objet = bool(pile) and pile[-1]["type"] == "{"
+            pile.append({"type": c, "cle": None, "chemin": chemin(),
+                         "debut": i, "nomme": attend_valeur and dans_objet})
             attend_valeur = False
             i += 1
         elif c in "}]":
@@ -968,6 +1013,12 @@ def _analyser_json(texte: str) -> tuple[dict[str, tuple[int, int]],
                 ferme = pile.pop()
                 if ferme["type"] == "{":
                     objets[ferme["chemin"]] = (ferme["debut"], i)
+                elif ferme["nomme"]:
+                    # Tableau porte par une cle : on retient ses bornes pour
+                    # pouvoir le remplacer entierement. Les elements qu'il
+                    # contient n'ont pas de chemin propre et ne sont donc pas
+                    # releves -- on ne modifie jamais une case isolee.
+                    positions[ferme["chemin"]] = (ferme["debut"], i + 1)
             attend_valeur = False
             i += 1
         elif c == ",":
@@ -1054,6 +1105,25 @@ def _inserer_cle(texte: str, objet: tuple[int, int], cle: str, valeur: Any) -> s
     return texte[:j + 1] + f",\n{indentation}{rendu}" + texte[j + 1:]
 
 
+def _rendre(valeur: Any, texte: str, debut: int) -> str:
+    """Serialise une valeur pour l'inserer dans le texte.
+
+    Une liste est ecrite sur plusieurs lignes, indentee comme la cle qui la
+    porte : ces tableaux comptent parfois une dizaine d'entrees, et une seule
+    ligne interminable serait illisible dans un fichier qu'on relit pour
+    comprendre.
+    """
+    if not isinstance(valeur, list) or not valeur:
+        return json.dumps(valeur, ensure_ascii=False)
+
+    ligne = texte.rfind("\n", 0, debut) + 1
+    avant = texte[ligne:debut]
+    marge = " " * (len(avant) - len(avant.lstrip()))
+    elements = ",\n".join(
+        f"{marge}  {json.dumps(e, ensure_ascii=False)}" for e in valeur)
+    return "[\n" + elements + f"\n{marge}]"
+
+
 def _ecrire_changements(texte: str, changements: dict[str, Any]) -> str:
     """Applique les changements au texte en preservant tout le reste.
 
@@ -1071,6 +1141,24 @@ def _ecrire_changements(texte: str, changements: dict[str, Any]) -> str:
     presentes = {c: v for c, v in changements.items() if c in positions}
     absentes = {c: v for c, v in changements.items() if c not in positions}
 
+    # Une cle que le scanner n'a pas relevee mais qui existe bel et bien dans
+    # la structure signale un type qu'il ne sait pas traiter. L'inserer
+    # produirait un doublon -- deux fois la meme cle dans le meme objet --
+    # que la relecture ne verrait pas, json.loads ne retenant que la
+    # derniere. Mieux vaut refuser et laisser l'appelant regenerer.
+    structure = json.loads(_strip_json_comments(texte))
+    for chemin in absentes:
+        noeud = structure
+        for morceau in chemin.split("."):
+            if not isinstance(noeud, dict) or morceau not in noeud:
+                noeud = None
+                break
+            noeud = noeud[morceau]
+        else:
+            raise ValueError(
+                f"{chemin} : deja present mais non localisable dans le texte "
+                f"(type non gere par l'analyse)")
+
     for chemin in absentes:
         parent = chemin.rsplit(".", 1)[0] if "." in chemin else ""
         if parent not in objets:
@@ -1079,7 +1167,7 @@ def _ecrire_changements(texte: str, changements: dict[str, Any]) -> str:
     # De la fin vers le debut : les index releves restent valides.
     for chemin in sorted(presentes, key=lambda c: positions[c][0], reverse=True):
         debut, fin = positions[chemin]
-        texte = texte[:debut] + json.dumps(presentes[chemin], ensure_ascii=False) + texte[fin:]
+        texte = texte[:debut] + _rendre(presentes[chemin], texte, debut) + texte[fin:]
 
     # Chaque insertion decale ce qui suit : on repart d'une analyse fraiche.
     for chemin, valeur in absentes.items():
