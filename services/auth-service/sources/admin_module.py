@@ -515,7 +515,7 @@ async def csrf_gate(request: Request, call_next):
 
 
 def issue_csrf_cookie(response: Response) -> str:
-    """A appeler dans la route qui rend admin.html pour poser le cookie."""
+    """Call from the route that renders admin.html, to set the cookie."""
     token = pysecrets.token_urlsafe(32)
     response.set_cookie(
         CSRF_COOKIE, token,
@@ -530,9 +530,9 @@ def issue_csrf_cookie(response: Response) -> str:
 
 def _load_authelia() -> dict:
     """
-    Charge users_database.yml. Leve HTTPException 500 lisible si le YAML est
-    corrompu (edite manuellement de travers) : pointe vers /api/admin/backups
-    pour restaurer un backup connu bon.
+    Load users_database.yml, raising a readable HTTPException 500 when the
+    YAML is corrupt -- typically hand-edited badly -- and pointing at
+    /api/admin/backups to restore a known-good copy.
     """
     if not AUTHELIA_YML.exists():
         return {"users": {}}
@@ -546,21 +546,22 @@ def _load_authelia() -> dict:
     except yaml.YAMLError as e:
         raise HTTPException(
             500,
-            f"authelia yml corrompu : {e}. Restaurer un backup via "
-            "POST /api/admin/backups/restore.",
+            _msg("err_authelia_corrupt",
+                 "authelia yml corrompu : {detail}. Restaurer un backup via "
+                 "POST /api/admin/backups/restore.", detail=e),
         ) from e
     return data or {"users": {}}
 
 
 def _strip_json_comments(raw: str) -> str:
     """
-    Retire les commentaires // et /* */ d'un JSON.
+    Strip // and /* */ comments from JSON.
 
-    Orthanc accepte les commentaires dans sa configuration, mais json.loads
-    les refuse. On ne peut pas se contenter d'une expression reguliere : le
-    fichier contient des URLs ("http://auth-service:8000") dont le // ne doit
-    pas etre traite comme un debut de commentaire. On parcourt donc le texte
-    en suivant l'etat "dans une chaine" / "hors chaine".
+    Orthanc accepts comments in its configuration, json.loads does not. A
+    regular expression will not do: the file holds URLs
+    ("http://auth-service:8000") whose // must not be mistaken for the start
+    of a comment. So we walk the text, tracking whether we are inside a
+    string.
     """
     out = []
     i, n = 0, len(raw)
@@ -569,7 +570,7 @@ def _strip_json_comments(raw: str) -> str:
         ch = raw[i]
         if in_string:
             out.append(ch)
-            if ch == "\\" and i + 1 < n:      # echappement : copier la paire
+            if ch == "\\" and i + 1 < n:      # escape: copy the pair
                 out.append(raw[i + 1])
                 i += 2
                 continue
@@ -583,11 +584,11 @@ def _strip_json_comments(raw: str) -> str:
             i += 1
             continue
         if ch == "/" and i + 1 < n:
-            if raw[i + 1] == "/":               # commentaire jusqu'a la ligne
+            if raw[i + 1] == "/":               # comment until end of line
                 while i < n and raw[i] != "\n":
                     i += 1
                 continue
-            if raw[i + 1] == "*":               # commentaire bloc
+            if raw[i + 1] == "*":               # block comment
                 i += 2
                 while i + 1 < n and not (raw[i] == "*" and raw[i + 1] == "/"):
                     i += 1
@@ -599,7 +600,7 @@ def _strip_json_comments(raw: str) -> str:
 
 
 def _load_orthanc_config() -> dict:
-    """Idem pour orthanc.json — meme strategie d'erreur explicite."""
+    """Same for orthanc.json, with the same explicit error strategy."""
     try:
         raw = ORTHANC_JSON.read_text(encoding="utf-8")
     except OSError as e:
@@ -610,15 +611,16 @@ def _load_orthanc_config() -> dict:
     except json.JSONDecodeError as e:
         raise HTTPException(
             500,
-            f"orthanc.json corrompu : {e}. Restaurer un backup via "
-            "POST /api/admin/backups/restore.",
+            _msg("err_orthanc_json_corrupt",
+                 "orthanc.json corrompu : {detail}. Restaurer un backup via "
+                 "POST /api/admin/backups/restore.", detail=e),
         ) from e
 
 
 def _validate_authelia(data: dict) -> None:
-    """Invariants qui empechent un YAML lockant tout le monde dehors."""
+    """Invariants that keep a YAML from locking everybody out."""
     if not isinstance(data.get("users"), dict) or not data["users"]:
-        raise ValueError("users: section vide ou absente")
+        raise ValueError("users: section vide ou absente")  # noqa: RUF001
     active_admins = [
         u for u, info in data["users"].items()
         if not info.get("disabled") and "admin" in (info.get("groups") or [])
@@ -634,7 +636,7 @@ def _validate_authelia(data: dict) -> None:
 
 
 def _write_authelia(data: dict) -> None:
-    """Backup + validate + atomic write. Verrouille via FileLock."""
+    """Backup, validate, atomic write -- guarded by a FileLock."""
     lock = FileLock(str(AUTHELIA_YML) + ".lock", timeout=5)
     try:
         with lock:
@@ -663,20 +665,20 @@ class UserCreatePayload(BaseModel):
     displayname: str = Field(..., min_length=1, max_length=100)
     email: EmailStr
     password: str = Field(..., min_length=12)
-    # 'doctor' au singulier : c'est ce que reconnaissent la correspondance
-    # groupe -> droits (auth_service.py) et les regles d'acces d'Authelia. Le
-    # pluriel qui figurait ici ne correspondait a aucun groupe : un compte
-    # cree via l'API sans groupe explicite tombait en lecture seule, sans
-    # message. Meme piege que le groupe 'admins' corrige auparavant.
+    # 'doctor', singular: that is what the group-to-permissions mapping
+    # (auth_service.py) and Authelia's access rules recognise. The plural that
+    # used to sit here matched no group at all, so an account created through
+    # the API without an explicit group silently ended up read-only. Same trap
+    # as the 'admins' group fixed earlier.
     groups: list[str] = Field(default_factory=lambda: ["doctor"])
 
 
 class UserUpdatePayload(BaseModel):
-    """Modification partielle : seuls les champs fournis sont appliques.
+    """Partial update: only the fields provided are applied.
 
-    None signifie "ne pas toucher", ce qui permet de changer les groupes sans
-    reenvoyer le nom et l'e-mail, et de desactiver un compte sans rien
-    reecrire d'autre.
+    None means "leave alone", which allows changing groups without resending
+    the display name and e-mail, and disabling an account without rewriting
+    anything else.
     """
     displayname: str | None = Field(None, min_length=1, max_length=100)
     email: EmailStr | None = None
@@ -685,9 +687,9 @@ class UserUpdatePayload(BaseModel):
 
 
 class ModalityPayload(BaseModel):
-    """Equipement DICOM distant : scanner, IRM, station de post-traitement."""
-    # Le titre AE est plafonne a 16 caracteres par la norme DICOM ; au-dela,
-    # l'equipement refuse l'association sans expliquer pourquoi.
+    """A remote DICOM device: scanner, MRI, post-processing workstation."""
+    # The AE title is capped at 16 characters by the DICOM standard; beyond
+    # that, the device refuses the association without explaining why.
     aet: str = Field(..., min_length=1, max_length=16)
     host: str = Field(..., min_length=1, max_length=255)
     port: int = Field(..., ge=1, le=65535)
@@ -701,10 +703,10 @@ class PasswordChangePayload(BaseModel):
 # Orthanc config : validation + edit + reload
 # ============================================================================
 
-# Whitelist des chemins editables via UI. Refuse tout ce qui n'est pas ici.
+# Allow-list of paths editable from the UI. Anything absent is refused.
 ORTHANC_DEFAULTS = {
-    # Valeurs livrees dans orthanc.json.example, pour qu'un champ vide
-    # indique ce qui s'appliquera.
+    # Values shipped in orthanc.json.example, so that an empty field still
+    # tells the user what will apply.
     "OrthancExplorer2.Theme": "dark",
     "OrthancExplorer2.EnableReportQuickButton": True,
     "OrthancExplorer2.Tokens.InstantLinksValidity": 200,
@@ -723,11 +725,10 @@ ORTHANC_DEFAULTS = {
         "ohif", "stone-webviewer", "volview",
     ],
     "OrthancExplorer2.UiOptions.ShareDurations": [0, 7, 15, 30, 90, 365],
-    # Valeurs par defaut relevees dans le fichier de configuration de
-    # reference d'Orthanc 1.12.11, la version embarquee dans l'image.
-    # Elles sont affichees a titre indicatif pour les parametres absents
-    # d'orthanc.json : sans elles, l'interface annonce "valeur par defaut"
-    # sans dire laquelle, ce qui n'apprend rien.
+    # Defaults taken from the reference configuration file of Orthanc
+    # 1.12.11, the version bundled in the image. They are shown for settings
+    # absent from orthanc.json: without them the interface says "default
+    # value" without saying which, which teaches nothing.
     'Name': 'MyOrthanc',
     'DicomAet': 'ORTHANC',
     'RemoteAccessAllowed': False,
@@ -766,23 +767,22 @@ ORTHANC_DEFAULTS = {
 
 
 ORTHANC_EDITABLE_PATHS = {
-    # Viewer preselectionne au moment de partager un examen. C'est CE champ
-    # qu'Explorer lit -- son JS fait `tokenType: this.tokens.ShareType` -- et
-    # non le "default-viewer" que renvoie /settings/roles, qui n'apparait nulle
-    # part dans son bundle. Se tromper de champ donne un reglage qui s'ecrit,
-    # se relit, et ne change rien a l'ecran.
+    # Viewer preselected when sharing a study. THIS is the field Explorer
+    # reads -- its JS does `tokenType: this.tokens.ShareType` -- and not the
+    # "default-viewer" returned by /settings/roles, which appears nowhere in
+    # its bundle. Targeting the wrong field yields a setting that writes,
+    # reads back, and changes nothing on screen.
     "OrthancExplorer2.Tokens.ShareType": str,
 
-    # Reglages d'apparence et d'usage d'Explorer. Sans eux, changer le theme
-    # ou masquer un viewer imposait d'ouvrir orthanc.json a la main -- ce qui
-    # exclut de fait quiconque n'est pas a l'aise avec un editeur de texte.
+    # Explorer's appearance and usage settings. Without them, changing the
+    # theme or hiding a viewer meant opening orthanc.json by hand -- which in
+    # practice excludes anyone not comfortable with a text editor.
     #
-    # Enable et IsDefaultOrthancUI restent volontairement absents : les
-    # exposer permettrait de desactiver l'interface depuis l'interface, donc
-    # de se couper l'acces sans moyen de revenir en arriere autrement qu'en
-    # editant le fichier -- exactement ce qu'on cherche a eviter. Les
-    # *PublicRoot non plus : ce sont les chemins servis par nginx, les
-    # changer casserait les liens sans rien apporter.
+    # Enable and IsDefaultOrthancUI are deliberately absent: exposing them
+    # would allow disabling the interface FROM the interface, cutting off
+    # access with no way back other than editing the file -- precisely what
+    # we are trying to avoid. Nor the *PublicRoot entries: those are the
+    # paths nginx serves, and changing them would break links for nothing.
     "OrthancExplorer2.Theme": str,
     "OrthancExplorer2.EnableReportQuickButton": bool,
     "OrthancExplorer2.Tokens.InstantLinksValidity": int,
@@ -794,13 +794,13 @@ ORTHANC_EDITABLE_PATHS = {
     "OrthancExplorer2.UiOptions.EnableOpenInStoneWebViewer": bool,
     "OrthancExplorer2.UiOptions.EnableOpenInVolView": bool,
 
-    # Listes. Leur contenu n'est volontairement pas restreint a un ensemble
-    # ferme : le bundle d'Explorer mentionne des viewers absents de notre
-    # installation (osimis-web-viewer, wsi) et plusieurs variantes d'OHIF, et
-    # les colonnes admises n'y sont pas enumerables de facon fiable. Une
-    # liste inventee bloquerait une configuration valide, ce qui est pire que
-    # pas de liste. On valide donc le type des elements, et l'aide de chaque
-    # champ cite les valeurs courantes.
+    # Lists. Their contents are deliberately not restricted to a closed set:
+    # Explorer's bundle mentions viewers absent from our installation
+    # (osimis-web-viewer, wsi) and several OHIF variants, and the accepted
+    # columns cannot be enumerated from it reliably. An invented list would
+    # block a valid configuration, which is worse than no list at all. So we
+    # validate the type of each entry, and each field's help text cites the
+    # common values.
     "OrthancExplorer2.UiOptions.StudyListColumns": list,
     "OrthancExplorer2.UiOptions.ViewersOrdering": list,
     "OrthancExplorer2.UiOptions.ShareDurations": list,
@@ -848,9 +848,9 @@ ORTHANC_EDITABLE_PATHS = {
     "DicomWeb.EnableMetadata": bool,
     "DicomWeb.PublicRoot": str,
     "AcceptedTransferSyntaxes": list,  # cas special : liste de strings
-    # Housekeeper : entretien de la base en tache de fond (recompression du
-    # stockage, mise a jour des tags principaux, cache DICOMweb). Il tourne
-    # depuis le debut sans qu'aucun de ses reglages ne soit accessible.
+    # Housekeeper: background database maintenance (storage recompression,
+    # main DICOM tags refresh, DICOMweb cache). It has been running since day
+    # one without a single one of its settings being reachable.
     "Housekeeper.Enable": bool,
     "Housekeeper.Force": bool,
     "Housekeeper.ThrottleDelay": int,
@@ -861,23 +861,23 @@ ORTHANC_EDITABLE_PATHS = {
 }
 
 
-# Contraintes de valeur, en plus du type.
+# Value constraints, on top of the type.
 #
-# Le type seul ne suffit pas : DicomPort = 99999 est un entier, produit un JSON
-# parfaitement valide, et reste un numero de port qui n'existe pas. Orthanc
-# refuse alors de demarrer -- constate. Le retour arriere automatique du
-# redemarrage rattrape ce genre de cas, mais mieux vaut refuser la valeur tout
-# de suite, avec un message qui dit quoi corriger.
+# The type alone is not enough: DicomPort = 99999 is an integer, produces
+# perfectly valid JSON, and is still a port number that does not exist.
+# Orthanc then refuses to start -- observed. The restart's automatic rollback
+# catches that kind of case, but refusing the value outright, with a message
+# saying what to fix, is better.
 #
-# On ne contraint que ce dont on est sur. Une borne inventee bloquerait une
-# configuration valide, ce qui est pire que pas de borne du tout : les champs
-# absents de cette table restent simplement typiques.
+# We only constrain what we are sure of. An invented bound would block a valid
+# configuration, which is worse than no bound at all: fields absent from this
+# table are simply type-checked.
 ORTHANC_RANGES: dict[str, tuple[int, int]] = {
-    # Ports TCP.
+    # TCP ports.
     "DicomPort": (1, 65535),
     "HttpPort": (1, 65535),
-    # Delais et tailles : un negatif n'a pas de sens, et zero desactive
-    # lorsque c'est permis.
+    # Delays and sizes: a negative makes no sense, and zero disables where
+    # that is allowed.
     "DicomScpTimeout": (0, 86400),
     "HttpTimeout": (0, 86400),
     "StableAge": (0, 86400),
@@ -889,18 +889,17 @@ ORTHANC_RANGES: dict[str, tuple[int, int]] = {
     "MaximumPatientCount": (0, 10000000),
     "DicomWeb.StowMaxInstances": (0, 1000000),
     "DicomWeb.StowMaxSize": (0, 1000000),
-    # Au moins un fil d'execution, sinon Orthanc ne traite plus rien.
+    # At least one worker thread, otherwise Orthanc processes nothing.
     "DicomThreadsCount": (1, 256),
     "ConcurrentJobs": (1, 256),
-    # Duree en jours proposee par defaut sur un lien de partage ; 0 = sans
-    # limite de date.
+    # Default validity offered on a share link, in days; 0 means no expiry.
     "OrthancExplorer2.UiOptions.DefaultShareDuration": (0, 3650),
-    # Validite d'un lien instantane, en secondes.
+    # Validity of an instant link, in seconds.
     "OrthancExplorer2.Tokens.InstantLinksValidity": (1, 86400),
 }
 
-# Type des elements d'une liste. Sans cela, ["PatientID", 42] passerait le
-# controle -- c'est bien une liste -- et Orthanc buterait dessus au demarrage.
+# Element type of a list. Without this, ["PatientID", 42] would pass the
+# check -- it is indeed a list -- and Orthanc would choke on it at startup.
 ORTHANC_ELEMENT_TYPES: dict[str, type] = {
     "OrthancExplorer2.UiOptions.StudyListColumns": str,
     "OrthancExplorer2.UiOptions.ViewersOrdering": str,
@@ -909,8 +908,8 @@ ORTHANC_ELEMENT_TYPES: dict[str, type] = {
 
 
 ORTHANC_ALLOWED_VALUES: dict[str, tuple[str, ...]] = {
-    # Explorer applique cette valeur a l'attribut data-bs-theme de Bootstrap,
-    # qui ne connait que ces deux modes.
+    # Explorer applies this value to Bootstrap's data-bs-theme attribute,
+    # which only knows these two modes.
     "OrthancExplorer2.Theme": ("light", "dark"),
     "LogLevel": ("default", "verbose", "trace"),
     "MaximumStorageMode": ("Recycle", "Reject"),
@@ -923,18 +922,18 @@ ORTHANC_ALLOWED_VALUES: dict[str, tuple[str, ...]] = {
 
 
 def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
-    """Set config[a][b][c] = value. Refuse si le path ecrase un dict/array."""
+    """Set config[a][b][c] = value, refusing to overwrite a dict or array."""
     if dotted not in ORTHANC_EDITABLE_PATHS:
         raise ValueError(f"{dotted}: non editable via UI")
     expected_type = ORTHANC_EDITABLE_PATHS[dotted]
     if not isinstance(value, expected_type):
         raise ValueError(f"{dotted}: attendu {expected_type.__name__}, recu {type(value).__name__}")
 
-    # En Python un booleen EST un entier : isinstance(True, int) est vrai.
-    # Sans ce refus explicite, "DicomPort": true franchit le controle de type,
-    # puis vaut 1 face aux bornes -- et Orthanc se retrouve a ecouter sur le
-    # port 1. Trouve par un test, apres que la garde precedente ait justement
-    # dispense les booleens du controle de bornes.
+    # In Python a boolean IS an integer: isinstance(True, int) is true.
+    # Without this explicit refusal, "DicomPort": true clears the type check,
+    # then counts as 1 against the bounds -- leaving Orthanc listening on port
+    # 1. Found by a test, after the previous guard had exempted booleans from
+    # the bounds check.
     if expected_type is int and isinstance(value, bool):
         raise ValueError(f"{dotted}: attendu int, recu bool")
     if dotted == "DicomAet" and len(value) > 16:
@@ -947,16 +946,16 @@ def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
                 f"{dotted}: attendu entre {mini} et {maxi}, recu {value}")
 
     if dotted in ORTHANC_ELEMENT_TYPES:
-        attendu_el = ORTHANC_ELEMENT_TYPES[dotted]
+        expected_element = ORTHANC_ELEMENT_TYPES[dotted]
         for element in value:
-            # Meme piege que plus haut : un booleen est un entier.
-            if isinstance(element, bool) or not isinstance(element, attendu_el):
+            # Same trap as above: a boolean is an integer.
+            if isinstance(element, bool) or not isinstance(element, expected_element):
                 raise ValueError(
                     f"{dotted}: chaque entree doit etre de type "
-                    f"{attendu_el.__name__}, recu {element!r}")
-        if attendu_el is int and any(e < 0 for e in value):
+                    f"{expected_element.__name__}, recu {element!r}")
+        if expected_element is int and any(e < 0 for e in value):
             raise ValueError(f"{dotted}: une duree negative n'a pas de sens")
-        if attendu_el is str and any(not e.strip() for e in value):
+        if expected_element is str and any(not e.strip() for e in value):
             raise ValueError(f"{dotted}: une entree vide n'a pas de sens")
         if len(set(value)) != len(value):
             raise ValueError(f"{dotted}: la liste contient des doublons")
@@ -976,7 +975,7 @@ def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
 
 
 # ============================================================================
-# Ecriture d'orthanc.json sans perdre ce qui l'entoure
+# Writing orthanc.json without losing what surrounds the values
 # ============================================================================
 #
 # Reconstruire le fichier avec json.dumps() efface tout ce que la structure ne
@@ -1004,168 +1003,168 @@ def _fin_de_chaine(texte: str, debut: int) -> int:
     return n - 1
 
 
-def _scan_json(texte: str) -> tuple[dict[str, tuple[int, int]],
-                                        dict[str, tuple[int, int]]]:
-    """Releve, par chemin pointe, ou se trouvent les valeurs et les objets.
+def _scan_json(text: str) -> tuple[dict[str, tuple[int, int]],
+                                   dict[str, tuple[int, int]]]:
+    """Locate values and objects, keyed by dotted path.
 
-    Parcourt le texte en tenant a jour une pile de conteneurs, en sautant
-    chaines et commentaires. Renvoie deux tables : les bornes de chaque valeur
-    scalaire, et celles de chaque objet -- ces dernieres servent a inserer une
-    cle absente au bon endroit. L'objet racine a pour chemin la chaine vide.
+    Walks the text keeping a stack of containers, skipping strings and
+    comments. Returns two tables: the bounds of each scalar value, and those
+    of each object -- the latter serve to insert a missing key in the right
+    place. The root object has the empty string as its path.
     """
     positions: dict[str, tuple[int, int]] = {}
-    objets: dict[str, tuple[int, int]] = {}
-    pile: list[dict] = []
-    n = len(texte)
+    objects: dict[str, tuple[int, int]] = {}
+    stack: list[dict] = []
+    n = len(text)
     i = 0
-    attend_valeur = False
+    expecting_value = False
 
-    def sauter(j: int) -> int:
-        """Avance jusqu'au prochain caractere significatif."""
+    def skip(j: int) -> int:
+        """Advance to the next meaningful character."""
         while j < n:
-            if texte[j] in " \t\r\n":
+            if text[j] in " \t\r\n":
                 j += 1
-            elif texte[j] == "/" and j + 1 < n and texte[j + 1] == "/":
-                f = texte.find("\n", j)
+            elif text[j] == "/" and j + 1 < n and text[j + 1] == "/":
+                f = text.find("\n", j)
                 j = n if f == -1 else f + 1
-            elif texte[j] == "/" and j + 1 < n and texte[j + 1] == "*":
-                f = texte.find("*/", j + 2)
+            elif text[j] == "/" and j + 1 < n and text[j + 1] == "*":
+                f = text.find("*/", j + 2)
                 j = n if f == -1 else f + 2
             else:
                 return j
         return n
 
-    def chemin() -> str:
-        return ".".join(e["cle"] for e in pile if e["cle"] is not None)
+    def path() -> str:
+        return ".".join(e["key"] for e in stack if e["key"] is not None)
 
     while i < n:
-        i = sauter(i)
+        i = skip(i)
         if i >= n:
             break
-        c = texte[i]
+        c = text[i]
 
         if c in "{[":
-            # Le chemin de l'objet qu'on ouvre est celui du contexte courant,
-            # cle du parent comprise : il faut donc le relever avant d'empiler.
-            dans_objet = bool(pile) and pile[-1]["type"] == "{"
-            pile.append({"type": c, "cle": None, "chemin": chemin(),
-                         "debut": i, "nomme": attend_valeur and dans_objet})
-            attend_valeur = False
+            # The path of the container being opened is the current context,
+            # parent key included: it must therefore be captured before
+            # pushing.
+            in_object = bool(stack) and stack[-1]["type"] == "{"
+            stack.append({"type": c, "key": None, "path": path(),
+                          "start": i, "named": expecting_value and in_object})
+            expecting_value = False
             i += 1
         elif c in "}]":
-            if pile:
-                ferme = pile.pop()
-                if ferme["type"] == "{":
-                    objets[ferme["chemin"]] = (ferme["debut"], i)
-                elif ferme["nomme"]:
-                    # Tableau porte par une cle : on retient ses bornes pour
-                    # pouvoir le remplacer entierement. Les elements qu'il
-                    # contient n'ont pas de chemin propre et ne sont donc pas
-                    # releves -- on ne modifie jamais une case isolee.
-                    positions[ferme["chemin"]] = (ferme["debut"], i + 1)
-            attend_valeur = False
+            if stack:
+                closed = stack.pop()
+                if closed["type"] == "{":
+                    objects[closed["path"]] = (closed["start"], i)
+                elif closed["named"]:
+                    # Array held by a key: we keep its bounds so it can be
+                    # replaced as a whole. The elements it contains have no
+                    # path of their own and are not recorded -- we never
+                    # modify a single slot.
+                    positions[closed["path"]] = (closed["start"], i + 1)
+            expecting_value = False
             i += 1
         elif c == ",":
-            if pile and pile[-1]["type"] == "{":
-                pile[-1]["cle"] = None
-            attend_valeur = False
+            if stack and stack[-1]["type"] == "{":
+                stack[-1]["key"] = None
+            expecting_value = False
             i += 1
         elif c == ":":
-            attend_valeur = True
+            expecting_value = True
             i += 1
         elif c == '"':
-            fin = _fin_de_chaine(texte, i)
-            if pile and pile[-1]["type"] == "{" and not attend_valeur:
-                pile[-1]["cle"] = texte[i + 1:fin]
-            elif attend_valeur and pile and pile[-1]["type"] == "{":
-                positions[chemin()] = (i, fin + 1)
-                attend_valeur = False
-            i = fin + 1
+            end = _fin_de_chaine(text, i)
+            if stack and stack[-1]["type"] == "{" and not expecting_value:
+                stack[-1]["key"] = text[i + 1:end]
+            elif expecting_value and stack and stack[-1]["type"] == "{":
+                positions[path()] = (i, end + 1)
+                expecting_value = False
+            i = end + 1
         else:
-            # Scalaire sans guillemets : nombre, true, false, null. On s'arrete
-            # au premier separateur ou au debut d'un commentaire de fin de
-            # ligne, sans quoi celui-ci serait avale avec la valeur.
+            # Unquoted scalar: number, true, false, null. We stop at the first
+            # separator or at the start of an end-of-line comment, which would
+            # otherwise be swallowed along with the value.
             j = i
             while j < n:
-                if texte[j] in ",}]\n":
+                if text[j] in ",}]\n":
                     break
-                if texte[j] == "/" and j + 1 < n and texte[j + 1] in "/*":
+                if text[j] == "/" and j + 1 < n and text[j + 1] in "/*":
                     break
                 j += 1
-            fin = j
-            while fin > i and texte[fin - 1] in " \t\r":
-                fin -= 1
-            if attend_valeur and pile and pile[-1]["type"] == "{":
-                positions[chemin()] = (i, fin)
-            attend_valeur = False
+            end = j
+            while end > i and text[end - 1] in " \t\r":
+                end -= 1
+            if expecting_value and stack and stack[-1]["type"] == "{":
+                positions[path()] = (i, end)
+            expecting_value = False
             i = j
 
-    return positions, objets
+    return positions, objects
 
 
-def _insert_key(texte: str, objet: tuple[int, int], cle: str, valeur: Any) -> str:
-    """Ajoute `cle` a la fin de l'objet dont les bornes sont donnees.
+def _insert_key(text: str, obj: tuple[int, int], key: str, value: Any) -> str:
+    """Append `key` at the end of the object whose bounds are given.
 
-    Se place apres la derniere valeur de l'objet, et non juste avant
-    l'accolade fermante : un commentaire final resterait ainsi a sa place, au
-    lieu de se retrouver coince entre la nouvelle cle et la precedente.
+    Placed after the object's last value rather than just before the closing
+    brace: a trailing comment then stays where it belongs, instead of ending
+    up wedged between the new key and the previous one.
     """
-    debut, fin = objet
+    start, end = obj
 
-    # Reculer depuis l'accolade fermante jusqu'au dernier caractere qui porte
-    # du contenu, en sautant blancs et commentaires.
-    j = fin - 1
-    while j > debut:
-        c = texte[j]
+    # Walk back from the closing brace to the last character carrying
+    # content, skipping whitespace and comments.
+    j = end - 1
+    while j > start:
+        c = text[j]
         if c in " \t\r\n":
             j -= 1
             continue
-        # Fin d'un commentaire de bloc ?
-        if c == "/" and j - 1 > debut and texte[j - 1] == "*":
-            ouverture = texte.rfind("/*", debut, j)
-            if ouverture == -1:
+        # End of a block comment?
+        if c == "/" and j - 1 > start and text[j - 1] == "*":
+            opening = text.rfind("/*", start, j)
+            if opening == -1:
                 break
-            j = ouverture - 1
+            j = opening - 1
             continue
-        # Ligne de commentaire ? On regarde si un // la precede sur la ligne.
-        debut_ligne = texte.rfind("\n", debut, j) + 1
-        marque = texte.find("//", debut_ligne, j + 1)
-        if marque != -1 and '"' not in texte[debut_ligne:marque]:
-            j = debut_ligne - 1
+        # Line comment? Check whether a // precedes it on the same line.
+        line_start = text.rfind("\n", start, j) + 1
+        marker = text.find("//", line_start, j + 1)
+        if marker != -1 and '"' not in text[line_start:marker]:
+            j = line_start - 1
             continue
         break
 
-    # Un cran de plus que l'accolade fermante. Celle de l'objet racine est en
-    # colonne 0 : la portion de ligne qui la precede est vide, ce qui donne
-    # bien une indentation de deux espaces.
-    ligne = texte.rfind("\n", 0, fin) + 1
-    avant_accolade = texte[ligne:fin]
-    blancs = len(avant_accolade) - len(avant_accolade.lstrip())
-    indentation = " " * (blancs + 2)
+    # One level deeper than the closing brace. The root object's brace sits in
+    # column 0: the slice of line before it is empty, which correctly yields a
+    # two-space indent.
+    line = text.rfind("\n", 0, end) + 1
+    before_brace = text[line:end]
+    blanks = len(before_brace) - len(before_brace.lstrip())
+    indent = " " * (blanks + 2)
 
-    rendu = f'"{cle}": {json.dumps(valeur, ensure_ascii=False)}'
-    if texte[j] == "{":  # objet vide
-        return texte[:j + 1] + f"\n{indentation}{rendu}\n" + texte[j + 1:]
-    return texte[:j + 1] + f",\n{indentation}{rendu}" + texte[j + 1:]
+    rendered = f'"{key}": {json.dumps(value, ensure_ascii=False)}'
+    if text[j] == "{":  # empty object
+        return text[:j + 1] + f"\n{indent}{rendered}\n" + text[j + 1:]
+    return text[:j + 1] + f",\n{indent}{rendered}" + text[j + 1:]
 
 
-def _render_value(valeur: Any, texte: str, debut: int) -> str:
-    """Serialise une valeur pour l'inserer dans le texte.
+def _render_value(value: Any, text: str, start: int) -> str:
+    """Serialise a value for insertion into the text.
 
-    Une liste est ecrite sur plusieurs lignes, indentee comme la cle qui la
-    porte : ces tableaux comptent parfois une dizaine d'entrees, et une seule
-    ligne interminable serait illisible dans un fichier qu'on relit pour
-    comprendre.
+    A list is written one entry per line, indented like the key that holds
+    it: these arrays sometimes carry a dozen entries, and a single endless
+    line would be unreadable in a file people open to understand it.
     """
-    if not isinstance(valeur, list) or not valeur:
-        return json.dumps(valeur, ensure_ascii=False)
+    if not isinstance(value, list) or not value:
+        return json.dumps(value, ensure_ascii=False)
 
-    ligne = texte.rfind("\n", 0, debut) + 1
-    avant = texte[ligne:debut]
-    marge = " " * (len(avant) - len(avant.lstrip()))
-    elements = ",\n".join(
-        f"{marge}  {json.dumps(e, ensure_ascii=False)}" for e in valeur)
-    return "[\n" + elements + f"\n{marge}]"
+    line = text.rfind("\n", 0, start) + 1
+    before = text[line:start]
+    margin = " " * (len(before) - len(before.lstrip()))
+    entries = ",\n".join(
+        f"{margin}  {json.dumps(e, ensure_ascii=False)}" for e in value)
+    return "[\n" + entries + f"\n{margin}]"
 
 
 def _apply_text_changes(texte: str, changements: dict[str, Any]) -> str:

@@ -304,7 +304,9 @@
     "err_audit_unreadable": "audit log unreadable: {detail}",
     "err_invalid_backup_name": "invalid backup name",
     "err_backup_not_found": "backup not found, or invalid name",
-    "err_backup_type": "unsupported backup type"
+    "err_backup_type": "unsupported backup type",
+    "err_authelia_corrupt": "users_database.yml is corrupt: {detail}. Restore a backup with POST /api/admin/backups/restore.",
+    "err_orthanc_json_corrupt": "orthanc.json is corrupt: {detail}. Restore a backup with POST /api/admin/backups/restore."
   },
   "js": {
     "expired": "Expired",

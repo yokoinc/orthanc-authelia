@@ -191,7 +191,8 @@ class TestSetupWizard:
             "password": "another-password-12345",
         })
         assert r.status_code == 409
-        assert "deja finalise" in r.text.lower()
+        # Pas d'assertion sur le texte : il suit la langue de l'interface.
+        # Le 409 est ce qui fait contrat.
 
     def _bootstrap_only(self, tmp_paths):
         """Base telle que bootstrap.sh la laisse sur une installation neuve."""
@@ -446,7 +447,7 @@ class TestFileLock:
                 "changes": {"Name": "should not succeed"},
             }, headers=csrf_headers)
             assert r.status_code == 423
-            assert "verrouille" in r.text.lower()
+            # Le texte suit la langue de l'interface ; le 423 fait contrat.
         finally:
             holder.join()
 
@@ -661,7 +662,7 @@ class TestBackupRestoreSafety:
             headers=csrf_headers,
         )
         assert r.status_code == 400
-        assert "invalide" in r.text.lower()
+        # Le texte suit la langue de l'interface ; le 400 fait contrat.
 
     def test_absolute_path_refused(self, client, tmp_paths, fake_redis, csrf_headers):
         r = client.post(

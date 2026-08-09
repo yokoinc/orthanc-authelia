@@ -304,7 +304,9 @@
     "err_audit_unreadable": "journal illisible : {detail}",
     "err_invalid_backup_name": "nom de backup invalide",
     "err_backup_not_found": "backup introuvable ou nom invalide",
-    "err_backup_type": "type de backup non gere"
+    "err_backup_type": "type de backup non gere",
+    "err_authelia_corrupt": "authelia yml corrompu : {detail}. Restaurer un backup via POST /api/admin/backups/restore.",
+    "err_orthanc_json_corrupt": "orthanc.json corrompu : {detail}. Restaurer un backup via POST /api/admin/backups/restore."
   },
   "js": {
     "expired": "Expiré",
