@@ -646,7 +646,7 @@ def _write_authelia(data: dict) -> None:
             serialized = yaml.safe_dump(
                 data, default_flow_style=False, sort_keys=False, allow_unicode=True,
             )
-            # Dry-run parse pour attraper les bugs de serialisation avant remplacement
+            # Dry-run parse, to catch serialisation bugs before replacing
             reloaded = yaml.safe_load(serialized) or {}
             _validate_authelia(reloaded)
             _atomic_write(AUTHELIA_YML, serialized)
@@ -654,9 +654,9 @@ def _write_authelia(data: dict) -> None:
         raise HTTPException(423, _msg("err_file_locked",
                                 "fichier verrouille par un autre admin, retry dans 5s")) from e
     except ValueError as e:
-        # Violation d'invariant : refus deliberé, pas une panne. Sans cette
-        # conversion, supprimer ou desactiver le dernier administrateur
-        # renvoyait une erreur 500 au lieu d'expliquer ce qui bloque.
+        # Invariant violation: a deliberate refusal, not a failure. Without
+        # this conversion, deleting or disabling the last administrator
+        # returned a 500 instead of explaining what stands in the way.
         raise HTTPException(400, str(e)) from e
 
 
@@ -978,15 +978,14 @@ def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
 # Writing orthanc.json without losing what surrounds the values
 # ============================================================================
 #
-# Reconstruire le fichier avec json.dumps() efface tout ce que la structure ne
-# porte pas : commentaires, ordre des cles, groupements. Verifie sur une
-# installation reelle -- la premiere modification faite depuis le panel a
-# supprime les 44 commentaires du fichier, soit l'essentiel de sa
-# documentation. Sur un PACS, ce fichier est ce qu'on relit pour comprendre ce
-# qui est active et pourquoi.
+# Rebuilding the file with json.dumps() erases everything the structure does
+# not carry: comments, key order, grouping. Observed on a real installation --
+# the first change made from the panel removed the file's 44 comments, that is
+# to say most of its documentation. On a PACS, this file is what people reread
+# to understand what is enabled and why.
 #
-# On edite donc le texte a la place : seule la valeur modifiee est remplacee,
-# le reste du fichier est recopie a l'octet pres.
+# So we edit the text instead: only the targeted value is replaced, the rest
+# of the file is copied byte for byte.
 
 
 def _fin_de_chaine(texte: str, debut: int) -> int:
@@ -1168,27 +1167,26 @@ def _render_value(value: Any, text: str, start: int) -> str:
 
 
 def _apply_text_changes(texte: str, changements: dict[str, Any]) -> str:
-    """Applique les changements au texte en preservant tout le reste.
+    """Apply changes to the text while preserving everything else.
 
-    Une cle deja presente voit sa valeur remplacee sur place. Une cle absente
-    est ajoutee a la fin de son objet : le panel expose des reglages
-    qu'Orthanc laisse implicites, et les definir est un cas courant, pas une
-    exception.
+    A key already present has its value replaced in place. A missing key is
+    appended at the end of its object: the panel exposes settings Orthanc
+    leaves implicit, and defining them is a common case, not an exception.
 
-    Leve ValueError si l'objet parent lui-meme n'existe pas -- creer une
-    arborescence demanderait de deviner une mise en forme. L'appelant retombe
-    alors sur une reecriture complete, en connaissance de cause.
+    Raises ValueError when the parent object itself does not exist --
+    creating a tree would mean guessing at formatting. The caller then falls
+    back to a full rewrite, knowingly.
     """
     positions, objets = _scan_json(texte)
 
     presentes = {c: v for c, v in changements.items() if c in positions}
     absentes = {c: v for c, v in changements.items() if c not in positions}
 
-    # Une cle que le scanner n'a pas relevee mais qui existe bel et bien dans
-    # la structure signale un type qu'il ne sait pas traiter. L'inserer
-    # produirait un doublon -- deux fois la meme cle dans le meme objet --
-    # que la relecture ne verrait pas, json.loads ne retenant que la
-    # derniere. Mieux vaut refuser et laisser l'appelant regenerer.
+    # A key the scanner did not record, yet which does exist in the
+    # structure, signals a type it cannot handle. Inserting it would produce a
+    # duplicate -- the same key twice in the same object -- that the read-back
+    # would not catch, json.loads keeping only the last one. Better to refuse
+    # and let the caller regenerate.
     structure = json.loads(_strip_json_comments(texte))
     for chemin in absentes:
         noeud = structure
@@ -1207,12 +1205,12 @@ def _apply_text_changes(texte: str, changements: dict[str, Any]) -> str:
         if parent not in objets:
             raise ValueError(f"{chemin} : objet parent absent du fichier")
 
-    # De la fin vers le debut : les index releves restent valides.
+    # Back to front, so the recorded offsets stay valid.
     for chemin in sorted(presentes, key=lambda c: positions[c][0], reverse=True):
         debut, fin = positions[chemin]
         texte = texte[:debut] + _render_value(presentes[chemin], texte, debut) + texte[fin:]
 
-    # Chaque insertion decale ce qui suit : on repart d'une analyse fraiche.
+    # Each insertion shifts what follows: rescan before the next one.
     for chemin, valeur in absentes.items():
         _, objets = _scan_json(texte)
         parent = chemin.rsplit(".", 1)[0] if "." in chemin else ""
@@ -1224,7 +1222,7 @@ def _apply_text_changes(texte: str, changements: dict[str, Any]) -> str:
 
 def _validate_orthanc(config: dict) -> None:
     """Invariants critiques a preserver."""
-    # Flags de persistance sinon les modalites saisies via UI disparaissent
+    # Persistence flags, without which modalities entered from the UI vanish
     if not config.get("DicomModalitiesInDatabase"):
         raise ValueError("DicomModalitiesInDatabase doit rester true (perdrait les modalites au restart)")
     if not config.get("OrthancPeersInDatabase"):
@@ -1241,23 +1239,23 @@ async def _reload_orthanc() -> None:
         r = await client.post(
             f"{ORTHANC_URL}/tools/reset",
             auth=(ORTHANC_USER, ORTHANC_PASS),
-            # Le plugin Authorization d'Orthanc lit Remote-User (declare dans
-            # TokenHttpHeaders) et le transmet a /user/get-profile comme
-            # identite. Sans cet en-tete, l'appel est vu comme anonyme : le
-            # profil correspondant n'a que la permission "upload" et /tools/
-            # est refuse (403). "admin" donne la permission "settings", requise
-            # pour recharger la configuration.
+            # Orthanc's Authorization plugin reads Remote-User (declared in
+            # TokenHttpHeaders) and forwards it to /user/get-profile as the
+            # identity. Without this header the call is seen as anonymous: the
+            # matching profile only holds the "upload" permission and /tools/
+            # is refused (403). "admin" grants "settings", which reloading the
+            # configuration requires.
             headers={"Remote-User": "admin"},
         )
         r.raise_for_status()
 
 
 async def _orthanc(methode: str, chemin: str, **kwargs: Any) -> httpx.Response:
-    """Appelle l'API d'Orthanc avec le compte de service.
+    """Call Orthanc's API with the service account.
 
-    Remote-User: admin est indispensable -- le plugin Authorization le lit
-    pour determiner le profil. Sans lui l'appel passe pour anonyme, profil
-    qui n'a que la permission d'import.
+    Remote-User: admin is essential -- the Authorization plugin reads it to
+    resolve the profile. Without it the call passes for anonymous, a profile
+    that only holds the upload permission.
     """
     _require_orthanc_creds()
     async with httpx.AsyncClient(timeout=15) as client:
@@ -1284,19 +1282,19 @@ router = APIRouter()
 @router.get("/api/admin/whoami")
 async def admin_whoami(admin: AdminUser = Depends(require_admin)):
     """
-    Identite et version, consommees par le hub au chargement.
+    Identity and version, consumed by the hub on load.
 
-    C'est aussi ici qu'est pose le cookie CSRF : le SPA etant servi comme un
-    fichier statique, aucune route ne le rend cote serveur. whoami est le
-    premier appel authentifie du hub, donc le bon endroit pour l'emettre.
+    This is also where the CSRF cookie is set: the SPA being served as a
+    static file, no route renders it server-side. whoami is the hub's first
+    authenticated call, hence the right place to issue it.
     """
     csrf = pysecrets.token_urlsafe(32)
 
     # Nom du serveur, tel qu'Orthanc l'applique reellement. Le panel
-    # l'affichait en dur ("Orthanc") : renommer le serveur restait donc sans
-    # effet sur son propre panel, alors qu'Orthanc Explorer, lui, montrait le
-    # bon nom. On lit la valeur effective plutot que le fichier de
-    # configuration, qui peut avoir ete modifie sans redemarrage.
+    # hard-coded it ("Orthanc"): renaming the server therefore had no effect
+    # on its own panel, while Orthanc Explorer displayed the right name. We
+    # read the effective value rather than the configuration file, which may
+    # have been modified without a restart.
     nom_serveur = ""
     try:
         r = await _orthanc("GET", "/system")
@@ -1320,18 +1318,18 @@ async def admin_whoami(admin: AdminUser = Depends(require_admin)):
 
 
 async def _setup_completed() -> bool:
-    """L'installation a-t-elle deja eu lieu ?
+    """Has the installation already taken place?
 
-    Le drapeau vit dans Redis, qui est un cache : le vider -- volume efface,
-    migration, docker volume prune -- rouvrirait l'assistant d'installation
-    sur un PACS en service, et un tiers pourrait s'y creer un compte
-    administrateur.
+    The flag lives in Redis, which is a cache: wiping it -- deleted volume,
+    migration, docker volume prune -- would reopen the setup wizard on a live
+    PACS, where a third party could create themselves an administrator
+    account.
 
-    On croise donc avec une verite persistante : l'existence d'un
-    administrateur actif autre que le compte d'amorcage. Elle vit dans
-    users_database.yml, qui est sauvegarde a chaque ecriture et ne depend
-    d'aucun cache. Tant que seul bootstrap@localhost existe, l'installation
-    reste ouverte -- c'est bien le premier lancement.
+    So we cross-check against a persistent truth: the existence of an active
+    administrator other than the bootstrap account. It lives in
+    users_database.yml, which is backed up on every write and depends on no
+    cache. As long as only bootstrap@localhost exists, setup stays open --
+    this really is the first run.
     """
     try:
         if (await _r().get(SETUP_KEY)) == "1":
@@ -1354,16 +1352,16 @@ async def _setup_completed() -> bool:
 @router.post("/setup/create-admin")
 async def setup_create_admin(payload: UserCreatePayload):
     """
-    Etape 1 : cree LE premier admin. Un seul appel autorise jusqu'a finalize.
+    Step 1: create THE first administrator. One call allowed until finalize.
 
-    Verrouille apres le 1er succes via SETUP_FIRST_ADMIN_KEY pour empecher un
-    tiers de creer un deuxieme admin en profitant de la fenetre ouverte du wizard.
-    Pour ajouter d'autres admins ensuite : POST /api/admin/users (auth requise).
+    Locked after the first success through SETUP_FIRST_ADMIN_KEY, to stop a
+    third party creating a second administrator through the wizard's open
+    window. To add more later: POST /api/admin/users, which requires auth.
     """
-    # L'ordre de ces trois refus n'est pas indifferent : ils repondent tous
-    # 409, mais chacun indique une suite differente a donner. Tester d'abord
-    # le cas le plus avance evitait de renvoyer vers /api/admin/users
-    # quelqu'un qui n'a pas encore finalise son installation.
+    # The order of these three refusals matters: they all answer 409, but
+    # each points at a different next step. Testing the most advanced case
+    # first avoids sending someone who has not finalised their installation
+    # towards /api/admin/users.
     if (await _r().get(SETUP_KEY)) == "1":
         raise HTTPException(409, _msg("err_setup_done_use_users",
                                 "setup deja finalise, utiliser /api/admin/users"))
@@ -1373,9 +1371,9 @@ async def setup_create_admin(payload: UserCreatePayload):
             "un admin a deja ete cree — finaliser le setup (POST /auth/setup/finalize) "
             "puis utiliser /api/admin/users pour en ajouter d'autres",
         )
-    # Dernier filet, celui qui ne depend pas du cache : un administrateur
-    # reel existe deja. C'est ici qu'un tiers profiterait d'un Redis vide
-    # pour se creer un compte sur une installation en service.
+    # Last net, the one that does not depend on the cache: a real
+    # administrator already exists. This is where a third party would take
+    # advantage of an empty Redis to create an account on a live install.
     if await _setup_completed():
         raise HTTPException(
             409,
@@ -1397,7 +1395,7 @@ async def setup_create_admin(payload: UserCreatePayload):
         "groups": payload.groups,
     }
     _write_authelia(data)
-    # Verrouille la fenetre : plus qu'un finalize acceptable maintenant
+    # Close the window: only a finalize is acceptable from now on
     await _r().set(SETUP_FIRST_ADMIN_KEY, "1")
     await _audit("setup.admin.created", actor="wizard", target=payload.username)
     return {"ok": True, "username": payload.username}
@@ -1418,11 +1416,11 @@ async def setup_finalize():
         raise HTTPException(400, _msg("err_create_admin_first",
                                 "creer d'abord un admin (POST /auth/setup/create-admin)"))
 
-    # Un vrai administrateur existe : le compte d'amorcage n'a plus de raison
-    # d'etre et n'a pas a rester visible dans le panel. Suppression par nom
-    # exact — si l'exploitant l'a renomme ou s'en est servi comme compte
-    # reel, rien n'est touche. L'ecriture precede le flip du drapeau : si
-    # elle echoue, le setup n'est pas marque comme termine.
+    # A real administrator exists: the bootstrap account has no reason to
+    # remain, nor to stay visible in the panel. Deleted by exact name -- if
+    # the operator renamed it or used it as a real account
+    # nothing is touched. The write precedes flipping the flag: should it
+    # fail, setup is not marked as complete.
     bootstrap_removed = None
     if BOOTSTRAP_USERNAME in data.get("users", {}):
         del data["users"][BOOTSTRAP_USERNAME]
@@ -1463,11 +1461,11 @@ async def setup_network(payload: PublicUrlPayload):
 
 
 # ============================================================================
-# Route : /api/admin/sharing (viewer par defaut des liens de partage)
+# Route: /api/admin/preferences (interface preferences)
 # ============================================================================
 
-# Les libelles restent cote frontend, qui les traduit ; ici on ne garde que ce
-# qui doit etre valide au serveur.
+# Labels stay on the frontend, which translates them; only what the server
+# must validate is kept here.
 SHARE_VIEWERS = (
     "ohif-viewer-publication",
     "stone-viewer-publication",
@@ -1475,16 +1473,16 @@ SHARE_VIEWERS = (
 )
 
 
-# Langues pour lesquelles un fichier de traduction est livre.
+# Languages for which a translation file is shipped.
 AVAILABLE_LANGUAGES = ("en", "fr")
 
 
 def _read_share_type() -> str:
-    """Viewer preselectionne au partage, tel qu'il figure dans orthanc.json.
+    """Viewer preselected when sharing, as it stands in orthanc.json.
 
-    Lu dans le fichier et non dans Orthanc : c'est la valeur qui s'appliquera,
-    y compris quand un redemarrage reste a faire. Le panel signale par
-    ailleurs qu'il est necessaire.
+    Read from the file rather than from Orthanc: this is the value that will
+    apply, including while a restart is still pending. The panel separately
+    states that one is needed.
     """
     try:
         config = _load_orthanc_config()
@@ -1502,12 +1500,12 @@ class LanguagePayload(BaseModel):
 
 @router.get("/api/admin/preferences")
 async def admin_preferences_get(admin: AdminUser = Depends(require_admin)):
-    """Preferences d'interface : celles qui ne vivent pas dans orthanc.json.
+    """Interface preferences: the ones that do not live in orthanc.json.
 
-    Le viewer de partage n'est plus ici. C'est un champ de configuration
-    Orthanc comme un autre (OrthancExplorer2.Tokens.ShareType), edite depuis
-    l'onglet Configuration : l'exposer aussi ici donnait deux chemins pour
-    ecrire la meme valeur, dans deux onglets differents.
+    The share viewer is no longer here. It is an Orthanc configuration field
+    like any other (OrthancExplorer2.Tokens.ShareType), edited from the
+    Configuration tab: exposing it here as well gave two paths to write the
+    same value, in two different tabs.
     """
     language = (_read_setting("language", "LANGUAGE")
                 or _read_setting("langue"))
@@ -1567,7 +1565,7 @@ async def admin_network(
 @router.get("/api/admin/users")
 async def list_users(admin: AdminUser = Depends(require_admin)):
     data = _load_authelia()
-    # Ne jamais renvoyer les hashes
+    # Never return password hashes
     return {
         "users": [
             {
@@ -1682,12 +1680,12 @@ async def delete_user(username: str, admin: AdminUser = Depends(require_admin)):
 async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
     config = _load_orthanc_config()
 
-    # Le type est celui DECLARE, pas celui de la valeur lue : plus de la
-    # moitie des parametres sont absents d'orthanc.json (Orthanc applique
-    # alors ses valeurs par defaut) et ressortaient donc a None. L'interface,
-    # qui deduisait le type de la valeur, affichait un champ texte pour un
-    # booleen -- inutilisable, et refuse a l'enregistrement puisque le
-    # serveur attend un vrai booleen et non la chaine "true".
+    # The type is the DECLARED one, not that of the value read back: more
+    # than half the settings are absent from orthanc.json (Orthanc then
+    # applies its defaults) and therefore came out as None. The interface,
+    # which inferred the type from the value, showed a text field for a
+    # boolean -- unusable, and refused on save since the server expects a real
+    # boolean and not the string "true".
     noms = {bool: "bool", int: "int", str: "str", list: "list"}
 
     result, meta = {}, {}
@@ -1703,17 +1701,17 @@ async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
         bornes = ORTHANC_RANGES.get(dotted)
         meta[dotted] = {
             "type": noms.get(attendu, "str"),
-            # Transmises a l'interface pour qu'elle propose une liste plutot
-            # qu'un champ libre, et signale une borne avant l'envoi.
+            # Passed to the interface so it can offer a list rather than a
+            # free field, and flag a bound before sending.
             "min": bornes[0] if bornes else None,
             "max": bornes[1] if bornes else None,
             "choices": list(ORTHANC_ALLOWED_VALUES.get(dotted, ())) or None,
-            # Distingue "absent du fichier" de "present et vide" : dans le
+            # Tells "absent from the file" apart from "present but empty":
             # premier cas Orthanc applique sa valeur par defaut.
             "present": present,
-            # La valeur par defaut, quand elle est connue. Annoncer "valeur
-            # par defaut" sans la montrer n'apprend rien : l'exploitant ne
-            # sait pas ce qui s'applique reellement.
+            # The default value, when known. Announcing "default value"
+            # without showing it teaches nothing: the operator still does not
+            # know what actually applies.
             "default": ORTHANC_DEFAULTS.get(dotted),
         }
 
@@ -1735,11 +1733,11 @@ async def update_orthanc_config(
             _validate_orthanc(config)
             backup = _backup(ORTHANC_JSON)
 
-            # On edite le texte plutot que de le regenerer, pour ne pas
-            # effacer les commentaires qui documentent chaque reglage.
+            # Edit the text rather than regenerate it, so as not to erase
+            # the comments documenting each setting.
             #
-            # Le resultat est relu et compare a la structure attendue : une
-            # edition textuelle qui produirait autre chose que le JSON voulu
+            # The result is read back and compared with the expected
+            # structure: a textual edit producing anything other than the
             # doit etre detectee ici, jamais decouverte par Orthanc au
             # demarrage suivant.
             brut = ORTHANC_JSON.read_text(encoding="utf-8")
@@ -1750,8 +1748,8 @@ async def update_orthanc_config(
                     raise ValueError("relecture divergente")
             except ValueError as raison:
                 # Cle absente du fichier, ou relecture inattendue : on
-                # regenere. Les commentaires sont perdus, ce que l'appelant
-                # apprend dans la reponse plutot que de le decouvrir plus tard.
+                # regenerate. Comments are lost, which the caller learns
+                # from the response rather than discovering later.
                 logger.warning(
                     "orthanc.json regenere (%s) : les commentaires seront perdus",
                     raison,
@@ -1775,11 +1773,10 @@ async def update_orthanc_config(
         status = getattr(getattr(e, "response", None), "status_code", None)
 
         # Un refus explicite du plugin Authorization ne remet pas en cause
-        # l'ecriture : le fichier est valide, seul le rechargement a chaud est
-        # indisponible. /tools/reset n'est couvert par aucun motif de
-        # permission du plugin, qui le rejette sans meme consulter
-        # auth-service. Conserver la modification et indiquer la marche a
-        # suivre vaut mieux que de la perdre.
+        # the write: the file is valid, only the hot reload is unavailable.
+        # /tools/reset is covered by no permission pattern of the plugin,
+        # which rejects it without even consulting auth-service. Keeping the
+        # change and stating what to do next beats losing it.
         if status in (401, 403):
             await _audit(
                 "orthanc.config.updated_pending_restart",
@@ -1799,8 +1796,8 @@ async def update_orthanc_config(
                 ),
             }
 
-        # Tout autre echec (panne reseau, erreur serveur) laisse Orthanc dans
-        # un etat incertain : on restaure le fichier precedent.
+        # Any other failure (network outage, server error) leaves Orthanc in
+        # an uncertain state: restore the previous file.
         reset_error = str(e)
         try:
             shutil.copy2(backup, ORTHANC_JSON)
@@ -1850,29 +1847,26 @@ async def update_orthanc_config(
 # Route : /api/admin/orthanc/restart
 # ============================================================================
 
-# Ce qu'on ecrit dans orthanc.json et ce qu'Orthanc applique reellement sont
-# deux choses differentes. Trois causes possibles d'ecart :
+# What we write into orthanc.json and what Orthanc actually applies are two
+# different things. Three possible causes of divergence:
 #
-#   - une variable ORTHANC__* du compose ecrase la valeur du fichier, en
-#     silence et definitivement ;
-#   - le champ est declare au mauvais endroit de l'arborescence, et Orthanc
-#     applique sa valeur par defaut sans rien signaler. C'est arrive :
-#     StudyListColumns vivait sous OrthancExplorer2 alors qu'Explorer le lit
-#     sous UiOptions -- le reglage n'a jamais eu d'effet, et rien ne le
-#     disait ;
-#   - le redemarrage n'a pas eu lieu depuis la derniere modification.
+#   - an ORTHANC__* variable from the compose file overrides the file's value,
+#     silently and permanently;
+#   - the field is declared at the wrong place in the tree, and Orthanc
+#     applies its default without a word. This happened: StudyListColumns
+#     lived under OrthancExplorer2 while Explorer reads it under UiOptions --
+#     the setting never had any effect, and nothing said so;
+#   - no restart has happened since the last change.
 #
-# D'ou cette table : pour chaque reglage verifiable, ou aller chercher ce
-# qu'Orthanc en dit. Tous ne le sont pas -- Orthanc n'expose pas sa
-# configuration complete -- mais ceux-ci couvrent l'essentiel de ce que le
-# panel modifie.
+# Hence this table: for each verifiable setting, where to look for what
+# Orthanc says about it. Not all are -- Orthanc does not expose its full
+# configuration -- but these cover the bulk of what the panel modifies.
 #
-# EnableShares et EnableViewerQuickButton en sont volontairement absents :
-# verifie, leur valeur depend du profil qui interroge -- vraie pour un
-# administrateur, fausse pour un utilisateur externe. Ce sont des droits
-# calcules, pas des reglages, et les comparer au fichier produirait une
-# alerte permanente. Un verificateur qui crie au loup sur une valeur
-# legitime ne sert plus a rien.
+# EnableShares and EnableViewerQuickButton are deliberately absent: measured,
+# their value depends on the profile asking -- true for an administrator,
+# false for an external user. Those are computed permissions, not settings,
+# and comparing them with the file would raise a permanent alert. A checker
+# that cries wolf over a legitimate value is no longer of any use.
 ORTHANC_VERIFIABLE: dict[str, tuple[str, tuple[str, ...]]] = {
     "Name": ("/system", ("Name",)),
     "DicomAet": ("/system", ("DicomAet",)),
@@ -2038,7 +2032,7 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
         await _audit("orthanc.restarted", admin.username,
                      container=ORTHANC_CONTAINER)
         # Orthanc repond : cela ne dit pas encore qu'il applique ce qu'on a
-        # ecrit. On compare, plutot que d'annoncer un succes sur la foi d'un
+        # wrote. Compare, rather than declaring success on the strength of a
         # simple redemarrage.
         ecarts = await _check_effective_config()
         if ecarts:
@@ -2060,12 +2054,12 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
             "version": version,
         }
 
-    # Orthanc ne revient pas. Le plus probable est que la configuration qu'on
-    # vient d'ecrire l'empeche de demarrer : une valeur peut etre du bon type,
-    # produire un JSON parfaitement valide, et rester inacceptable pour lui --
-    # un numero de port hors bornes, par exemple. Laisser un PACS eteint en
-    # renvoyant l'exploitant vers les journaux n'est pas une reponse : on
-    # restaure la derniere sauvegarde et on relance.
+    # Orthanc is not coming back. The likeliest cause is that the
+    # configuration just written prevents it from starting: a value can be of
+    # the right type, produce perfectly valid JSON, and still be unacceptable
+    # to it -- an out-of-range port number, for instance. Leaving a PACS down
+    # while pointing the operator at the logs is not an answer: restore the
+    # latest backup and start again.
     await _audit("orthanc.restart.no_response", admin.username,
                  container=ORTHANC_CONTAINER)
 
@@ -2158,8 +2152,8 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
 
     try:
         if ORTHANC_JSON.exists():
-            # Meme tolerance aux commentaires que _load_orthanc_config, sinon
-            # le health check signale a tort une config corrompue.
+            # Same tolerance for comments as _load_orthanc_config, otherwise
+            # the health check wrongly reports a corrupt configuration.
             json.loads(_strip_json_comments(ORTHANC_JSON.read_text(encoding="utf-8")))
             checks["orthanc_json"] = {"ok": True, "detail": str(ORTHANC_JSON)}
         else:
@@ -2167,7 +2161,7 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
     except (json.JSONDecodeError, OSError) as e:
         checks["orthanc_json"] = {"ok": False, "detail": f"parse error: {e}"}
 
-    # Orthanc API accessible (endpoint /system, moins invasif que /tools/reset)
+    # Orthanc API reachable (/system, less invasive than /tools/reset)
     try:
         async with httpx.AsyncClient(timeout=3) as c:
             r = await c.get(f"{ORTHANC_URL}/system", auth=(ORTHANC_USER, ORTHANC_PASS))
@@ -2286,9 +2280,9 @@ async def read_audit(
 
     entrees = []
     for identifiant, champs in brut:
-        # event, actor et ts sont systematiques ; le reste depend du type
-        # d'evenement (cible, champs modifies, sauvegarde concernee...) et est
-        # regroupe pour que l'affichage n'ait pas a les connaitre.
+        # event, actor and ts are always present; the rest depends on the
+        # event type (target, changed fields, backup involved...) and is
+        # grouped so the display does not need to know about them.
         details = {
             k: v for k, v in champs.items()
             if k not in ("event", "actor", "ts")
@@ -2327,8 +2321,8 @@ async def list_backups(admin: AdminUser = Depends(require_admin)):
             continue
         cible = next((v for k, v in connus.items() if f.name.startswith(k)), None)
         if cible is None:
-            # Fichier non restaurable par la route de restauration : l'exposer
-            # laisserait croire le contraire.
+            # File the restore route cannot handle: exposing it would
+            # suggest otherwise.
             continue
         st = f.stat()
         items.append({
@@ -2382,10 +2376,10 @@ async def restore_backup(
     admin: AdminUser = Depends(require_admin),
 ):
     """Restaure un backup depuis /host/backups/ vers son fichier d'origine."""
-    # Le nom vient du client : il ne doit designer qu'un fichier du dossier de
+    # The name comes from the client: it must only designate a file in the
     # backups. Un nom comme "orthanc.json.bak.../../../etc/passwd" satisfait
-    # les controles de forme plus bas tout en pointant hors du dossier, d'ou
-    # cette verification sur le chemin resolu.
+    # the shape checks below while still pointing outside the directory,
+    # hence this check on the resolved path.
     if "/" in backup_name or "\\" in backup_name or ".." in backup_name:
         raise HTTPException(400, _msg("err_invalid_backup_name", "nom de backup invalide"))
 
@@ -2404,8 +2398,8 @@ async def restore_backup(
         dest = AUTHELIA_YML
         reload = None  # Authelia relit son fichier tout seul
     elif backup_name.startswith(".env.bak."):
-        # Restauree telle quelle : les variables ne sont relues qu'a la
-        # recreation des conteneurs, ce que l'interface signale.
+        # Restored as-is: variables are only re-read when containers are
+        # recreated, which the interface points out.
         dest = ENV_FILE
         reload = None
     elif backup_name.startswith("configuration.yml.bak."):
