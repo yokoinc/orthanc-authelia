@@ -173,7 +173,7 @@ class TestValidateOrthanc:
 
 
 # ============================================================================
-# argon2 round-trip (bibliotheque tierce mais verifions notre wiring)
+# argon2 round-trip (third-party library, but check our wiring)
 # ============================================================================
 
 class TestArgon2:
@@ -211,7 +211,7 @@ class TestCSRF:
 
     def test_token_length(self):
         import secrets
-        # Simule ce que fait issue_csrf_cookie
+        # Mimics what issue_csrf_cookie does
         token = secrets.token_urlsafe(32)
         assert len(token) >= 40  # 32 bytes urlsafe = ~43 chars
 
@@ -226,7 +226,7 @@ class TestCSRF:
 
 
 # ============================================================================
-# Commentaires JSON : Orthanc les accepte, json.loads non
+# JSON comments: Orthanc accepts them, json.loads does not
 # ============================================================================
 
 class TestStripJsonComments:
@@ -293,7 +293,7 @@ class TestStripJsonComments:
 
 
 # ============================================================================
-# restart_orthanc : redemarrage via le proxy Docker
+# restart_orthanc: restarting through the Docker proxy
 # ============================================================================
 
 class TestRestartOrthanc:
@@ -452,7 +452,7 @@ def _run(coro):
 
 
 # ============================================================================
-# Ecriture d'orthanc.json : preserver ce que la structure ne porte pas
+# Writing orthanc.json: preserving what the structure does not carry
 # ============================================================================
 
 class TestNonDestructiveWrite:
@@ -544,8 +544,8 @@ class TestNonDestructiveWrite:
         out = _apply_text_changes(source, {"DicomAlwaysAllowStore": False})
         assert "// Reglages de base" in out
         assert self._read_back(out) == {"Name": "Orthanc", "DicomAlwaysAllowStore": False}
-        # Meme indentation que ses voisines : une cle decalee se remarque, et
-        # donne l'impression d'un fichier edite a la main a la va-vite.
+        # Same indentation as its neighbours: a misaligned key stands out,
+        # and makes the file look hand-edited in a hurry.
         ligne = [l for l in out.splitlines() if "DicomAlwaysAllowStore" in l][0]
         assert ligne.startswith('  "'), repr(ligne)
 
@@ -625,7 +625,7 @@ class TestNonDestructiveWrite:
 
 
 # ============================================================================
-# Viewer par defaut des liens de partage
+# Default viewer for share links
 # ============================================================================
 
 class TestShareViewer:
@@ -822,7 +822,7 @@ class TestLanguage:
         monkeypatch.setattr(admin_module, "SETTINGS_FILE", fichier)
         monkeypatch.setattr(admin_module, "ENV_FILE", tmp_path / ".env")
         monkeypatch.delenv("LANGUAGE", raising=False)
-        # Le cache de translations survit d'un test a l'autre.
+        # The translations cache survives from one test to the next.
         auth_service._translations_cache["langue"] = None
         return fichier
 
@@ -972,7 +972,7 @@ class TestRollback:
         with pytest.raises(HTTPException) as e:
             _run(admin_module.restart_orthanc(self._admin()))
 
-        # 500 et non 200 : la modification demandee n'a PAS ete appliquee.
+        # 500 and not 200: the requested change was NOT applied.
         assert e.value.status_code == 500
         assert "restauree" in e.value.detail
         assert "connue-bonne" in stack.read_text(encoding="utf-8")
@@ -1064,7 +1064,7 @@ class TestRangesAndValues:
 
 
 # ============================================================================
-# Reglages d'Explorer exposes dans le panel
+# Explorer settings exposed in the panel
 # ============================================================================
 
 class TestExplorerSettings:
@@ -1105,7 +1105,7 @@ class TestExplorerSettings:
         # Se couper l'acces a sa propre interface.
         "OrthancExplorer2.Enable",
         "OrthancExplorer2.IsDefaultOrthancUI",
-        # Chemins servis par nginx : les changer casse les liens.
+        # Paths served by nginx: changing them breaks the links.
         "OrthancExplorer2.UiOptions.OhifViewer3PublicRoot",
         "OrthancExplorer2.UiOptions.StoneWebViewerPublicRoot",
         "OrthancExplorer2.UiOptions.VolViewPublicRoot",
@@ -1271,7 +1271,7 @@ class TestListSettings:
 
 
 # ============================================================================
-# Le wizard ne se rouvre pas sur une installation en service
+# The wizard does not reopen on a live installation
 # ============================================================================
 
 class TestSetupLock:
@@ -1363,7 +1363,7 @@ class TestSetupLock:
 
 
 # ============================================================================
-# Ecart entre ce qui est ecrit et ce qu'Orthanc applique
+# Divergence between what is written and what Orthanc applies
 # ============================================================================
 
 class TestEffectiveConfig:
