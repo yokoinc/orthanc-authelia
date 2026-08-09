@@ -1248,12 +1248,12 @@ class TestListes:
 
     def test_doublons_refuses(self):
         with pytest.raises(ValueError, match="doublons"):
-            self._changer("OrthancExplorer2.StudyListColumns",
+            self._changer("OrthancExplorer2.UiOptions.StudyListColumns",
                           ["PatientID", "PatientID"])
 
     def test_entree_vide_refusee(self):
         with pytest.raises(ValueError, match="entree vide"):
-            self._changer("OrthancExplorer2.StudyListColumns", ["PatientID", "  "])
+            self._changer("OrthancExplorer2.UiOptions.StudyListColumns", ["PatientID", "  "])
 
     def test_booleen_dans_une_liste_d_entiers(self):
         """True vaut 1 en Python : sans garde, il passerait pour une duree."""
@@ -1267,4 +1267,216 @@ class TestListes:
 
     def test_scalaire_refuse_sur_un_champ_liste(self):
         with pytest.raises(ValueError, match="attendu list"):
-            self._changer("OrthancExplorer2.StudyListColumns", "PatientID")
+            self._changer("OrthancExplorer2.UiOptions.StudyListColumns", "PatientID")
+
+
+# ============================================================================
+# Le wizard ne se rouvre pas sur une installation en service
+# ============================================================================
+
+class TestVerrouInstallation:
+    """Redis est un cache : le vider ne doit pas rouvrir l'installation.
+
+    Le drapeau y vivait seul. Un volume efface, une migration, un
+    docker volume prune, et l'assistant se rouvrait sur un PACS en service --
+    ou n'importe qui pouvait alors se creer un compte administrateur.
+
+    On croise donc avec une verite persistante : l'existence d'un
+    administrateur actif autre que le compte d'amorcage.
+    """
+
+    @pytest.fixture
+    def sans_redis(self, tmp_path, monkeypatch):
+        """Redis vide, comme apres la perte de son volume."""
+        import admin_module
+
+        class _RedisVide:
+            @staticmethod
+            async def get(_cle):
+                return None
+
+        monkeypatch.setattr(admin_module, "_r", lambda: _RedisVide())
+
+        fichier = tmp_path / "users_database.yml"
+        monkeypatch.setattr(admin_module, "AUTHELIA_YML", fichier)
+        return fichier
+
+    @staticmethod
+    def _ecrire(fichier, users):
+        import yaml
+        fichier.write_text(yaml.safe_dump({"users": users}), encoding="utf-8")
+
+    def test_premier_lancement_reste_ouvert(self, sans_redis):
+        """Seul le compte d'amorcage existe : c'est bien une installation
+        neuve, l'assistant doit s'ouvrir."""
+        import admin_module
+        self._ecrire(sans_redis, {
+            "bootstrap@localhost": {"disabled": False, "groups": ["admin"]},
+        })
+        assert _executer(admin_module._installation_faite()) is False
+
+    def test_admin_existant_verrouille(self, sans_redis):
+        """Le cas qui compte : Redis vide, mais un administrateur reel
+        existe. L'assistant doit rester ferme."""
+        import admin_module
+        self._ecrire(sans_redis, {
+            "gregory.cuffel": {"disabled": False, "groups": ["admin"]},
+        })
+        assert _executer(admin_module._installation_faite()) is True
+
+    def test_admin_desactive_ne_verrouille_pas(self, sans_redis):
+        """Un compte desactive ne peut pas administrer : l'installation est
+        alors reellement inutilisable, et l'assistant a sa place."""
+        import admin_module
+        self._ecrire(sans_redis, {
+            "ancien.admin": {"disabled": True, "groups": ["admin"]},
+        })
+        assert _executer(admin_module._installation_faite()) is False
+
+    def test_utilisateur_simple_ne_verrouille_pas(self, sans_redis):
+        import admin_module
+        self._ecrire(sans_redis, {
+            "medecin": {"disabled": False, "groups": ["doctors"]},
+        })
+        assert _executer(admin_module._installation_faite()) is False
+
+    def test_fichier_illisible_verrouille(self, sans_redis):
+        """Dans le doute, ne pas ouvrir : une erreur de lecture ne doit pas
+        offrir la creation d'un compte administrateur."""
+        import admin_module
+        sans_redis.write_text("ceci: n'est pas: du YAML: valide:", encoding="utf-8")
+        assert _executer(admin_module._installation_faite()) is True
+
+    def test_le_drapeau_redis_suffit(self, tmp_path, monkeypatch):
+        """L'ancien mecanisme reste valable quand Redis repond."""
+        import admin_module
+
+        class _RedisPlein:
+            @staticmethod
+            async def get(_cle):
+                return "1"
+
+        monkeypatch.setattr(admin_module, "_r", lambda: _RedisPlein())
+        monkeypatch.setattr(admin_module, "AUTHELIA_YML",
+                            tmp_path / "absent.yml")
+        assert _executer(admin_module._installation_faite()) is True
+
+
+# ============================================================================
+# Ecart entre ce qui est ecrit et ce qu'Orthanc applique
+# ============================================================================
+
+class TestConfigurationEffective:
+    """Ecrire une valeur ne prouve pas qu'Orthanc l'applique.
+
+    Trois facons de diverger sans que rien ne le signale : une variable
+    ORTHANC__* du compose qui ecrase le fichier, un champ declare au mauvais
+    endroit de l'arborescence, un redemarrage jamais fait.
+
+    Le deuxieme cas n'est pas theorique : StudyListColumns vivait sous
+    OrthancExplorer2 alors qu'Explorer le lit sous UiOptions. Le reglage
+    n'avait jamais eu d'effet depuis qu'il existe, et c'est cette
+    verification qui l'a trouve.
+    """
+
+    @pytest.fixture
+    def config(self, tmp_path, monkeypatch):
+        import admin_module
+
+        fichier = tmp_path / "orthanc.json"
+        fichier.write_text(json.dumps({
+            "Name": "PACS Cuffel",
+            "DicomAet": "PACSCUFFEL",
+            "OrthancExplorer2": {"UiOptions": {"StudyListColumns": ["PatientID"]}},
+        }), encoding="utf-8")
+        monkeypatch.setattr(admin_module, "ORTHANC_JSON", fichier)
+        return fichier
+
+    @staticmethod
+    def _repondre(monkeypatch, systeme=None, ui=None):
+        import admin_module
+
+        class _Reponse:
+            def __init__(self, corps):
+                self.status_code = 200 if corps is not None else 500
+                self._corps = corps or {}
+
+            def json(self):
+                return self._corps
+
+        async def _faux(_methode, chemin, **_k):
+            return _Reponse(systeme if chemin == "/system" else ui)
+
+        monkeypatch.setattr(admin_module, "_orthanc", _faux)
+
+    def test_aucun_ecart(self, config, monkeypatch):
+        import admin_module
+        self._repondre(
+            monkeypatch,
+            systeme={"Name": "PACS Cuffel", "DicomAet": "PACSCUFFEL"},
+            ui={"UiOptions": {"StudyListColumns": ["PatientID"]}},
+        )
+        assert _executer(admin_module._verifier_application()) == []
+
+    def test_ecart_detecte(self, config, monkeypatch):
+        """Le cas d'une variable d'environnement qui ecrase le fichier."""
+        import admin_module
+        self._repondre(
+            monkeypatch,
+            systeme={"Name": "Autre nom", "DicomAet": "PACSCUFFEL"},
+            ui={"UiOptions": {"StudyListColumns": ["PatientID"]}},
+        )
+        ecarts = _executer(admin_module._verifier_application())
+        assert len(ecarts) == 1
+        assert ecarts[0]["champ"] == "Name"
+        assert ecarts[0]["dans_le_fichier"] == "PACS Cuffel"
+        assert ecarts[0]["applique_par_orthanc"] == "Autre nom"
+
+    def test_champ_mal_place_detecte(self, config, monkeypatch):
+        """Le defaut reel : Orthanc applique ses colonnes par defaut parce
+        que le champ est ailleurs dans l'arborescence."""
+        import admin_module
+        self._repondre(
+            monkeypatch,
+            systeme={"Name": "PACS Cuffel", "DicomAet": "PACSCUFFEL"},
+            ui={"UiOptions": {"StudyListColumns": ["PatientBirthDate", "modalities"]}},
+        )
+        ecarts = _executer(admin_module._verifier_application())
+        champs = [e["champ"] for e in ecarts]
+        assert "OrthancExplorer2.UiOptions.StudyListColumns" in champs
+
+    def test_champ_absent_du_fichier_ignore(self, tmp_path, monkeypatch):
+        """Non declare = valeur par defaut d'Orthanc : ce n'est pas un ecart."""
+        import admin_module
+        fichier = tmp_path / "orthanc.json"
+        fichier.write_text('{"Name": "PACS"}', encoding="utf-8")
+        monkeypatch.setattr(admin_module, "ORTHANC_JSON", fichier)
+        self._repondre(monkeypatch, systeme={"Name": "PACS", "DicomPort": 4242},
+                       ui={})
+        assert _executer(admin_module._verifier_application()) == []
+
+    def test_orthanc_muet(self, config, monkeypatch):
+        """Rien a comparer ne doit pas se traduire par une alerte."""
+        import admin_module
+
+        async def _casse(*a, **k):
+            raise ConnectionError("Orthanc ne repond pas")
+
+        monkeypatch.setattr(admin_module, "_orthanc", _casse)
+        assert _executer(admin_module._verifier_application()) == []
+
+    def test_droits_calcules_hors_verification(self):
+        """EnableShares vaut vrai pour un administrateur et faux pour un
+        utilisateur externe : c'est un droit, pas un reglage. Le comparer au
+        fichier produirait une alerte permanente."""
+        from admin_module import ORTHANC_VERIFIABLES
+        for champ in ("OrthancExplorer2.UiOptions.EnableShares",
+                      "OrthancExplorer2.UiOptions.EnableViewerQuickButton"):
+            assert champ not in ORTHANC_VERIFIABLES
+
+    def test_colonnes_declarees_sous_uioptions(self):
+        """Garde-fou d'emplacement : Explorer lit ce champ sous UiOptions.
+        Le declarer ailleurs redonnerait un reglage sans effet, silencieux."""
+        from admin_module import ORTHANC_EDITABLE_PATHS
+        assert "OrthancExplorer2.UiOptions.StudyListColumns" in ORTHANC_EDITABLE_PATHS
+        assert "OrthancExplorer2.StudyListColumns" not in ORTHANC_EDITABLE_PATHS

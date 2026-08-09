@@ -42,6 +42,26 @@ services:
     image: redis:8.0-alpine
     container_name: orthanc-redis
     restart: unless-stopped
+    # Redis porte le journal d'audit -- qui a fait quoi, et quand. Sur un PACS
+    # cette tracabilite a une valeur au-dela du confort, et les reglages par
+    # defaut ne la garantissent pas :
+    #
+    #   - sans appendonly, Redis n'ecrit que des instantanes periodiques
+    #     (save 3600 1 : au mieux toutes les heures s'il y a eu une seule
+    #     ecriture). Un arret brutal perd donc jusqu'a une heure de journal.
+    #   - l'image declare VOLUME /data, ce qui cree un volume ANONYME : sans
+    #     nom, invisible dans docker volume ls, efface par un
+    #     docker volume prune, et impossible a sauvegarder simplement.
+    #
+    # appendonly ecrit chaque operation, avec un fsync par seconde : la perte
+    # maximale passe d'une heure a une seconde, pour un cout negligeable au
+    # volume d'ecritures de ce service.
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -382,6 +402,8 @@ services:
 volumes:
   nginx-ssl:
     name: orthanc_nginx_ssl
+  redis_data:
+    name: orthanc_redis_data
   postgres_data:
     name: orthanc_postgres_data
 

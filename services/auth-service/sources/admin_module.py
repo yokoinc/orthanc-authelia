@@ -671,7 +671,7 @@ ORTHANC_DEFAULTS = {
     "OrthancExplorer2.UiOptions.EnableOpenInOhifViewer3": True,
     "OrthancExplorer2.UiOptions.EnableOpenInStoneWebViewer": True,
     "OrthancExplorer2.UiOptions.EnableOpenInVolView": True,
-    "OrthancExplorer2.StudyListColumns": [
+    "OrthancExplorer2.UiOptions.StudyListColumns": [
         "PatientID", "PatientName", "StudyDate", "StudyDescription",
         "AccessionNumber", "InstitutionName", "Modality",
     ],
@@ -757,7 +757,7 @@ ORTHANC_EDITABLE_PATHS = {
     # liste inventee bloquerait une configuration valide, ce qui est pire que
     # pas de liste. On valide donc le type des elements, et l'aide de chaque
     # champ cite les valeurs courantes.
-    "OrthancExplorer2.StudyListColumns": list,
+    "OrthancExplorer2.UiOptions.StudyListColumns": list,
     "OrthancExplorer2.UiOptions.ViewersOrdering": list,
     "OrthancExplorer2.UiOptions.ShareDurations": list,
 
@@ -858,7 +858,7 @@ ORTHANC_BORNES: dict[str, tuple[int, int]] = {
 # Type des elements d'une liste. Sans cela, ["PatientID", 42] passerait le
 # controle -- c'est bien une liste -- et Orthanc buterait dessus au demarrage.
 ORTHANC_TYPE_ELEMENTS: dict[str, type] = {
-    "OrthancExplorer2.StudyListColumns": str,
+    "OrthancExplorer2.UiOptions.StudyListColumns": str,
     "OrthancExplorer2.UiOptions.ViewersOrdering": str,
     "OrthancExplorer2.UiOptions.ShareDurations": int,
 }
@@ -1276,6 +1276,38 @@ async def admin_whoami(admin: AdminUser = Depends(require_admin)):
     return resp
 
 
+async def _installation_faite() -> bool:
+    """L'installation a-t-elle deja eu lieu ?
+
+    Le drapeau vit dans Redis, qui est un cache : le vider -- volume efface,
+    migration, docker volume prune -- rouvrirait l'assistant d'installation
+    sur un PACS en service, et un tiers pourrait s'y creer un compte
+    administrateur.
+
+    On croise donc avec une verite persistante : l'existence d'un
+    administrateur actif autre que le compte d'amorcage. Elle vit dans
+    users_database.yml, qui est sauvegarde a chaque ecriture et ne depend
+    d'aucun cache. Tant que seul bootstrap@localhost existe, l'installation
+    reste ouverte -- c'est bien le premier lancement.
+    """
+    try:
+        if (await _r().get(SETUP_KEY)) == "1":
+            return True
+    except Exception:  # noqa: BLE001 - Redis indisponible : on tranche sur le fichier
+        pass
+
+    try:
+        data = _load_authelia()
+    except Exception:  # noqa: BLE001 - fichier illisible : ne pas ouvrir le wizard
+        return True
+
+    return any(
+        not infos.get("disabled") and "admin" in (infos.get("groups") or [])
+        for nom, infos in (data.get("users") or {}).items()
+        if nom != BOOTSTRAP_USERNAME
+    )
+
+
 @router.post("/setup/create-admin")
 async def setup_create_admin(payload: UserCreatePayload):
     """
@@ -1285,6 +1317,10 @@ async def setup_create_admin(payload: UserCreatePayload):
     tiers de creer un deuxieme admin en profitant de la fenetre ouverte du wizard.
     Pour ajouter d'autres admins ensuite : POST /api/admin/users (auth requise).
     """
+    # L'ordre de ces trois refus n'est pas indifferent : ils repondent tous
+    # 409, mais chacun indique une suite differente a donner. Tester d'abord
+    # le cas le plus avance evitait de renvoyer vers /api/admin/users
+    # quelqu'un qui n'a pas encore finalise son installation.
     if (await _r().get(SETUP_KEY)) == "1":
         raise HTTPException(409, "setup deja finalise, utiliser /api/admin/users")
     if (await _r().get(SETUP_FIRST_ADMIN_KEY)) == "1":
@@ -1292,6 +1328,15 @@ async def setup_create_admin(payload: UserCreatePayload):
             409,
             "un admin a deja ete cree — finaliser le setup (POST /auth/setup/finalize) "
             "puis utiliser /api/admin/users pour en ajouter d'autres",
+        )
+    # Dernier filet, celui qui ne depend pas du cache : un administrateur
+    # reel existe deja. C'est ici qu'un tiers profiterait d'un Redis vide
+    # pour se creer un compte sur une installation en service.
+    if await _installation_faite():
+        raise HTTPException(
+            409,
+            "un administrateur existe deja sur cette installation — se "
+            "connecter avec ce compte pour en ajouter d'autres",
         )
     if "admin" not in payload.groups:
         payload.groups.append("admin")
@@ -1363,7 +1408,7 @@ async def setup_network(payload: PublicUrlPayload):
     de la pile, et invalide la session en cours puisque le cookie est lie a
     l'ancien domaine.
     """
-    if (await _r().get(SETUP_KEY)) == "1":
+    if await _installation_faite():
         raise HTTPException(
             409, "setup deja finalise, utiliser /api/admin/network",
         )
@@ -1791,6 +1836,101 @@ async def update_orthanc_config(
 # Route : /api/admin/orthanc/restart
 # ============================================================================
 
+# Ce qu'on ecrit dans orthanc.json et ce qu'Orthanc applique reellement sont
+# deux choses differentes. Trois causes possibles d'ecart :
+#
+#   - une variable ORTHANC__* du compose ecrase la valeur du fichier, en
+#     silence et definitivement ;
+#   - le champ est declare au mauvais endroit de l'arborescence, et Orthanc
+#     applique sa valeur par defaut sans rien signaler. C'est arrive :
+#     StudyListColumns vivait sous OrthancExplorer2 alors qu'Explorer le lit
+#     sous UiOptions -- le reglage n'a jamais eu d'effet, et rien ne le
+#     disait ;
+#   - le redemarrage n'a pas eu lieu depuis la derniere modification.
+#
+# D'ou cette table : pour chaque reglage verifiable, ou aller chercher ce
+# qu'Orthanc en dit. Tous ne le sont pas -- Orthanc n'expose pas sa
+# configuration complete -- mais ceux-ci couvrent l'essentiel de ce que le
+# panel modifie.
+#
+# EnableShares et EnableViewerQuickButton en sont volontairement absents :
+# verifie, leur valeur depend du profil qui interroge -- vraie pour un
+# administrateur, fausse pour un utilisateur externe. Ce sont des droits
+# calcules, pas des reglages, et les comparer au fichier produirait une
+# alerte permanente. Un verificateur qui crie au loup sur une valeur
+# legitime ne sert plus a rien.
+ORTHANC_VERIFIABLES: dict[str, tuple[str, tuple[str, ...]]] = {
+    "Name": ("/system", ("Name",)),
+    "DicomAet": ("/system", ("DicomAet",)),
+    "DicomPort": ("/system", ("DicomPort",)),
+    "HttpPort": ("/system", ("HttpPort",)),
+    "StorageCompression": ("/system", ("StorageCompression",)),
+    "IngestTranscoding": ("/system", ("IngestTranscoding",)),
+    "OrthancExplorer2.Tokens.ShareType": (
+        "/ui/api/configuration", ("Tokens", "ShareType")),
+    "OrthancExplorer2.Tokens.InstantLinksValidity": (
+        "/ui/api/configuration", ("Tokens", "InstantLinksValidity")),
+    "OrthancExplorer2.UiOptions.DefaultShareDuration": (
+        "/ui/api/configuration", ("UiOptions", "DefaultShareDuration")),
+    "OrthancExplorer2.UiOptions.ShareDurations": (
+        "/ui/api/configuration", ("UiOptions", "ShareDurations")),
+    "OrthancExplorer2.UiOptions.StudyListColumns": (
+        "/ui/api/configuration", ("UiOptions", "StudyListColumns")),
+    "OrthancExplorer2.UiOptions.ViewersOrdering": (
+        "/ui/api/configuration", ("UiOptions", "ViewersOrdering")),
+}
+
+
+async def _verifier_application() -> list[dict[str, Any]]:
+    """Compare ce que declare orthanc.json a ce qu'Orthanc applique.
+
+    Ne renvoie que les ecarts. Un champ absent du fichier n'en est pas un :
+    Orthanc applique alors sa valeur par defaut, ce qui est le comportement
+    attendu.
+    """
+    try:
+        config = _load_orthanc_config()
+    except Exception:  # noqa: BLE001 - fichier illisible, deja signale ailleurs
+        return []
+
+    reponses: dict[str, dict] = {}
+    for endpoint in {e for e, _ in ORTHANC_VERIFIABLES.values()}:
+        try:
+            r = await _orthanc("GET", endpoint)
+            reponses[endpoint] = r.json() if r.status_code == 200 else {}
+        except Exception:  # noqa: BLE001 - Orthanc muet : rien a comparer
+            reponses[endpoint] = {}
+
+    ecarts = []
+    for chemin, (endpoint, acces) in ORTHANC_VERIFIABLES.items():
+        voulu = config
+        for morceau in chemin.split("."):
+            if not isinstance(voulu, dict) or morceau not in voulu:
+                voulu = None
+                break
+            voulu = voulu[morceau]
+        if voulu is None:
+            continue  # non declare : la valeur par defaut s'applique
+
+        applique = reponses.get(endpoint) or {}
+        for morceau in acces:
+            if not isinstance(applique, dict) or morceau not in applique:
+                applique = None
+                break
+            applique = applique[morceau]
+        if applique is None:
+            continue  # Orthanc ne l'expose pas dans cette version
+
+        if voulu != applique:
+            ecarts.append({
+                "champ": chemin,
+                "dans_le_fichier": voulu,
+                "applique_par_orthanc": applique,
+            })
+
+    return ecarts
+
+
 async def _attendre_orthanc(tentatives: int = 30, pause: int = 2) -> str:
     """Attend qu'Orthanc reponde. Renvoie sa version, ou "" s'il reste muet.
 
@@ -1882,6 +2022,23 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
     if version:
         await _audit("orthanc.restarted", admin.username,
                      container=ORTHANC_CONTAINER)
+        # Orthanc repond : cela ne dit pas encore qu'il applique ce qu'on a
+        # ecrit. On compare, plutot que d'annoncer un succes sur la foi d'un
+        # simple redemarrage.
+        ecarts = await _verifier_application()
+        if ecarts:
+            await _audit("orthanc.config.divergente", admin.username,
+                         champs=",".join(e["champ"] for e in ecarts))
+            return {
+                "ok": True,
+                "version": version,
+                "ecarts": ecarts,
+                "message": (
+                    f"Orthanc a redemarre, mais {len(ecarts)} reglage(s) ne "
+                    f"sont pas appliques tels qu'ecrits. Une variable "
+                    f"ORTHANC__* du compose les ecrase peut-etre."
+                ),
+            }
         return {
             "ok": True,
             "message": "Orthanc a redemarre, la configuration est appliquee.",
@@ -1944,6 +2101,18 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
 # ============================================================================
 # Route : /api/admin/health (verifie Redis + Orthanc + fichiers config)
 # ============================================================================
+
+@router.get("/api/admin/config-effective")
+async def config_effective(admin: AdminUser = Depends(require_admin)):
+    """Ecarts entre la configuration ecrite et celle qu'Orthanc applique.
+
+    Utile hors redemarrage : un ecart persistant signale une variable
+    d'environnement qui prend le pas sur le fichier, ou un champ place au
+    mauvais endroit de l'arborescence.
+    """
+    ecarts = await _verifier_application()
+    return {"ok": not ecarts, "ecarts": ecarts, "verifies": len(ORTHANC_VERIFIABLES)}
+
 
 @router.get("/api/admin/health")
 async def admin_health(admin: AdminUser = Depends(require_admin)):

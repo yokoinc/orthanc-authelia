@@ -114,18 +114,18 @@
       "EnableOpenInVolView": true,
       "EnableShares": true,
       "DefaultShareDuration": 15,
-      "ShareDurations": [0, 7, 15, 30, 90, 365]
+      "ShareDurations": [0, 7, 15, 30, 90, 365],
+      "StudyListColumns": [
+      "PatientID", "PatientName", "StudyDate",
+      "StudyDescription", "AccessionNumber",
+      "InstitutionName", "Modality"
+      ]
     },
     "EnableReportQuickButton": true,
     "Tokens": {
       "InstantLinksValidity": 200,
       "ShareType": "volview-viewer-publication"
     },
-    "StudyListColumns": [
-      "PatientID", "PatientName", "StudyDate", 
-      "StudyDescription", "AccessionNumber", 
-      "InstitutionName", "Modality"
-    ],
     "CustomButtons": {
       "studies-list": [
         {

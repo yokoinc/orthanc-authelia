@@ -252,7 +252,7 @@ export const GROUPES = [
       'OrthancExplorer2.UiOptions.ShareDurations': [t('cfg_ShareDurations_label', 'Durées proposées (jours)'),
           t('cfg_ShareDurations_help', 'Choix offerts au moment de créer un lien, une valeur par ligne. 0 signifie sans expiration.')],
 
-      'OrthancExplorer2.StudyListColumns': [t('cfg_StudyListColumns_label', 'Colonnes de la liste d\'examens'),
+      'OrthancExplorer2.UiOptions.StudyListColumns': [t('cfg_StudyListColumns_label', 'Colonnes de la liste d\'examens'),
           t('cfg_StudyListColumns_help', 'Une par ligne, dans l\'ordre d\'affichage. Courantes : PatientID, PatientName, StudyDate, StudyDescription, AccessionNumber, InstitutionName, Modality.')],
 
       'OrthancExplorer2.UiOptions.ViewersOrdering': [t('cfg_ViewersOrdering_label', 'Ordre des visionneuses'),
