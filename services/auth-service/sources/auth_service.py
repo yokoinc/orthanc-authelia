@@ -22,38 +22,37 @@ security = HTTPBasic()
 app.mount("/static", StaticFiles(directory="/app/static"), name="static")
 
 # Mount frontend Vue SPA si presente (skippee si l'image n'a pas ete build
-# avec le stage frontend, ex: dev local sans npm build).
+# with the frontend stage, e.g. local dev without an npm build).
 import os as _os
 if _os.path.isdir("/app/frontend"):
     app.mount("/ui/assets", StaticFiles(directory="/app/frontend/assets"), name="frontend-assets")
 
-    # Catch-all SPA : n'importe quel /ui/xxx renvoie index.html pour laisser
-    # vue-router (history mode) prendre le relais cote client. Necessaire
-    # parce que StaticFiles html=True ne fallback pas sur les paths inconnus.
+    # SPA catch-all: any /ui/xxx returns index.html so that vue-router
+    # (history mode) can take over client-side. Needed because StaticFiles
+    # with html=True does not fall back on unknown paths.
     from fastapi.responses import HTMLResponse as _HTMLResponse
 
     _SPA_INDEX = "/app/frontend/index.html"
 
     def _spa_html() -> str:
-        """index.html du SPA, translations injectees.
+        """The SPA's index.html, with translations injected.
 
-        La langue se change depuis le panel : figer les libelles dans le
-        bundle au moment du build est donc exclu. Les injecter dans la page
-        evite d'exposer une route supplementaire -- le wizard n'est pas
-        authentifie, il aurait fallu lui ouvrir un passage dedie dans la
-        configuration nginx.
+        The language is changed from the panel, so freezing labels into the
+        bundle at build time is out of the question. Injecting them into the
+        page avoids exposing an extra route -- the wizard is unauthenticated,
+        and would have needed a dedicated opening in the nginx configuration.
 
-        translations() et _language() sont definis plus bas dans ce fichier ; la
-        resolution se fait a l'appel, pas a l'import, donc l'ordre importe
-        peu.
+        translations() and _language() are defined further down this file;
+        resolution happens at call time, not at import, so the order hardly
+        matters.
         """
         html = Path(_SPA_INDEX).read_text(encoding="utf-8")
         charge = json.dumps(
             {"lang": _language(), "ui": translations().get("ui", {})},
             ensure_ascii=False,
         )
-        # </script> dans une valeur traduite fermerait la balise par
-        # inadvertance et casserait la page.
+        # A </script> inside a translated value would close the tag by
+        # accident and break the page.
         charge = charge.replace("</", "<\\/")
         return html.replace(
             "</head>",
@@ -97,18 +96,18 @@ logger = logging.getLogger("auth-service")
 
 # Language configuration
 def _language() -> str:
-    """Langue de l'interface, modifiable depuis le panel.
+    """Interface language, changeable from the panel.
 
-    Lue dans les reglages plutot que dans l'environnement : une preference
-    d'affichage n'a pas a imposer de recreer le container pour changer. La
-    variable LANGUAGE reste consultee en second, pour les installations qui
-    l'ont encore dans leur .env.
+    Read from the settings rather than from the environment: a display
+    preference should not require recreating the container to change. The
+    LANGUAGE variable is still consulted second, for installations that still
+    carry it in their .env.
     """
     try:
         from admin_module import _read_setting
 
-        # "langue" etait la cle d'origine : les installations qui l'ont
-        # deja ecrite continuent de fonctionner sans intervention.
+        # "langue" was the original key: installations that already wrote
+        # it keep working without intervention.
         choisie = (_read_setting("language", "LANGUAGE")
                    or _read_setting("langue"))
     except Exception:  # noqa: BLE001 - reglages illisibles ne cassent rien
@@ -118,7 +117,7 @@ def _language() -> str:
     return os.getenv("LANGUAGE", "en") if os.getenv("LANGUAGE") in AVAILABLE_LANGUAGES else "en"
 
 
-# Langues pour lesquelles un fichier de traduction est livre.
+# Languages for which a translation file is shipped.
 AVAILABLE_LANGUAGES = ("en", "fr")
 
 # Orthanc API configuration (for patient name resolution)
@@ -262,7 +261,7 @@ def resolve_patient_name(resource):
 # Asset version for cache-busting static files (auto-updates on each container start)
 ASSET_VERSION = os.getenv("ASSET_VERSION", str(int(time.time())))
 # Version semantique de l'image (affichee en pied de page). Independante du
-# cache-buster ASSET_VERSION qui est un timestamp Unix.
+# ASSET_VERSION cache-buster, which is a Unix timestamp.
 IMAGE_VERSION = os.getenv("IMAGE_VERSION", "dev")
 
 # Load translations from JSON files
@@ -292,11 +291,11 @@ def load_translations(language="en"):
             "js": {}
         }
 
-# Traductions chargees a la demande, et non une fois pour toutes au demarrage.
+# Translations loaded on demand, rather than once and for all at startup.
 #
-# Le cache evite de relire le fichier a chaque libelle affiche ; il ne porte
-# que sur la langue courante, si bien qu'un changement depuis le panel prend
-# effet a la requete suivante.
+# The cache avoids re-reading the file for every label displayed; it only
+# covers the current language, so a change made from the panel takes effect on
+# the next request.
 _translations_cache: dict = {"langue": None, "data": None}
 
 
@@ -346,8 +345,8 @@ redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode
 # ============================================================================
 # Admin/setup panel (feat/admin-setup-panel — WIP)
 # ============================================================================
-# admin_module utilise un client Redis async (aioredis) car ses endpoints
-# sont async. On l'initialise separement en partageant la meme DB Redis.
+# admin_module uses an async Redis client (aioredis) because its endpoints
+# are async. We initialise it separately, sharing the same Redis database.
 # Le module expose : router, setup_gate, csrf_gate, set_redis.
 try:
     import redis.asyncio as aioredis
@@ -434,13 +433,13 @@ def get_base_url(request: Request) -> str:
 _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
 def render_template(template_name: str, **kwargs) -> str:
-    """Render HTML template with provided variables.
+    """Render an HTML template with the provided variables.
 
-    Un seul pass regex qui matche `{word}` et le remplace par la valeur du
-    kwarg correspondant. Si aucun kwarg ne matche, le placeholder est laisse
-    tel quel (utile pour les blocs `{js_config}` qui contiennent du JSON).
-    Zero cascade => pas de risque qu'une valeur remplacee contienne un
-    placeholder qui serait re-remplace au tour suivant.
+    A single regex pass matching `{word}` and replacing it with the matching
+    keyword argument. When no argument matches, the placeholder is left as-is
+    (useful for `{js_config}` blocks, which contain JSON). No cascading, so a
+    replaced value containing a placeholder cannot be substituted again on a
+    later pass.
     """
     template_path = f"/app/templates/{template_name}"
     try:
@@ -493,9 +492,9 @@ def render_file_not_found_template(title: str, message: str) -> HTMLResponse:
                              extra_content="")
     return HTMLResponse(content=content, status_code=404)
 
-# Viewers proposables par defaut sur un lien de partage. "viewer-instant-link"
-# n'en fait pas partie : ce n'est pas une publication mais un lien construit
-# directement par Explorer, sans page de partage.
+# Viewers that can be offered by default on a share link.
+# "viewer-instant-link" is not one of them: it is not a publication but a link
+# Explorer builds directly, with no share page.
 SHARE_VIEWERS = (
     "ohif-viewer-publication",
     "stone-viewer-publication",
@@ -505,14 +504,13 @@ DEFAULT_SHARE_VIEWER = "ohif-viewer-publication"
 
 
 def _default_share_viewer() -> str:
-    """Viewer preselectionne quand on partage un examen depuis Explorer.
+    """Viewer preselected when sharing a study from Explorer.
 
-    Attention : Explorer ne consulte PAS cette valeur. Son bundle ne contient
-    aucune occurrence de "default-viewer" ; il lit
-    OrthancExplorer2.Tokens.ShareType dans sa propre configuration. On renvoie
-    donc ici le meme champ, pour qu'un client qui interrogerait cette API
-    n'obtienne pas une reponse en contradiction avec ce qui s'applique
-    reellement a l'ecran.
+    Careful: Explorer does NOT consult this value. Its bundle contains no
+    occurrence of "default-viewer"; it reads
+    OrthancExplorer2.Tokens.ShareType from its own configuration. We
+    therefore return that same field here, so a client querying this API does
+    not get an answer contradicting what actually applies on screen.
     """
     try:
         from admin_module import _read_share_type
@@ -703,29 +701,29 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
         })
 
     # --- Authenticated user : map Authelia group -> permissions ------------
-    # Authelia transmet les groupes en une seule chaine separee par des
-    # virgules ("admin,doctor"). Tester l'appartenance a la liste et non la
-    # presence d'une sous-chaine : "admin" in "readonly-admin" est vrai, et un
-    # groupe cree de bonne foi heriterait des pleins droits sur le PACS sans
-    # que rien ne le signale.
+    # Authelia passes groups as a single comma-separated string
+    # ("admin,doctor"). Test membership of the list, not the presence of a
+    # substring: "admin" in "readonly-admin" is true, and a group created in
+    # good faith would inherit full rights over the PACS with nothing to
+    # signal it.
     group_list = [g.strip() for g in group.replace(";", ",").split(",") if g.strip()]
 
     if "admin" in group_list:
         user_name = translations()["ui"]["administrator"]
-        # Liste complete des permissions reconnues par le plugin Authorization,
-        # relevee dans les motifs qu'il enregistre au demarrage.
+        # Full list of permissions the Authorization plugin recognises,
+        # taken from the patterns it registers at startup.
         #
-        # "all" ne suffit pas : plusieurs routes exigent nommement une
-        # permission qu'elle ne couvre pas. La creation et la suppression de
+        # "all" is not enough: several routes name a permission it does not
+        # cover. Creating and deleting
         # modalites, par exemple, imposent "admin-permissions" --
         #   put    ^/modalities/(.*)$ - admin-permissions
         #   delete ^/modalities/(.*)$ - admin-permissions
-        # et "all" n'y figure pas. Un administrateur qui avait tous les autres
-        # droits ne pouvait donc pas declarer un equipement DICOM, sans autre
-        # explication qu'un 403.
+        # and "all" is not among them. An administrator holding every other
+        # right therefore could not declare a DICOM device, with no
+        # explanation beyond a 403.
         #
         # Manquaient egalement : audit-logs (journaux d'Orthanc), worklists
-        # (listes de travail) et la gestion des taches, elle aussi rangee sous
+        # (worklists) and job management, also filed under
         # admin-permissions.
         permissions = [
             "all", "admin-permissions", "audit-logs", "worklists",
@@ -1047,14 +1045,14 @@ async def token_test_interface(request: Request):
         return render_file_not_found_template(translations()["ui"]["test_page_not_found"], translations()["ui"]["test_page_not_found_message"])
 
 async def _server_name() -> str:
-    """Nom du serveur, tel qu'Orthanc l'applique reellement.
+    """Server name, as Orthanc actually applies it.
 
-    On interroge Orthanc plutot que de lire orthanc.json : le fichier peut
-    avoir ete modifie depuis le panel sans que le conteneur ait redemarre,
-    auquel cas il annonce un nom qui n'est pas encore en vigueur.
+    We query Orthanc rather than read orthanc.json: the file may have been
+    modified from the panel without the container having restarted, in which
+    case it announces a name that is not in force yet.
 
-    Orthanc indisponible ne doit pas empecher la page de s'afficher : on se
-    replie alors sur "Orthanc".
+    Orthanc being unavailable must not stop the page from rendering, so we
+    fall back to "Orthanc".
     """
     try:
         from admin_module import _orthanc
@@ -1089,10 +1087,11 @@ async def token_management_interface(request: Request):
             js_config["MESSAGES"] = js_translations
         
         # Prepare template variables from translations.
-        # Nettoye : les cles TOTAL_TOKENS/SUBTITLE/OHIF_VIEWER/INSTANT_LINKS
-        # n'ont plus de {PLACEHOLDER} correspondant dans le template (KPI cards
+        # Cleaned up: the TOTAL_TOKENS/SUBTITLE/OHIF_VIEWER/INSTANT_LINKS
+        # keys no longer have a matching {PLACEHOLDER} in the template (KPI
+        # cards
         # retirees, subtitle deplacee en HTML statique "Orthanc"). ASSET_VERSION
-        # est aussi injecte automatiquement par render_template().
+        # is also injected automatically by render_template().
         ui_translations = translations()["ui"]
         template_vars = {
             "SERVER_NAME": await _server_name(),
