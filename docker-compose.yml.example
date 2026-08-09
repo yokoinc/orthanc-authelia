@@ -1,5 +1,5 @@
 # ORTHANC-AUTHELIA STANDALONE - Complete medical imaging solution
-# Postgres embarque par defaut = clone + bootstrap.sh + docker compose up
+# Bundled Postgres by default: clone + bootstrap.sh + docker compose up
 # Includes PostgreSQL, Redis, Orthanc, OHIF, Authelia, and Nginx
 #
 # =============================================================================
@@ -8,23 +8,23 @@
 #
 #   git clone https://github.com/yokoinc/orthanc-authelia.git
 #   cd orthanc-authelia
-#   ./bootstrap.sh              # genere .env + copie templates
-#   docker compose up -d        # demarre les 6 services
+#   ./bootstrap.sh              # generates .env, copies the templates
+#   docker compose up -d        # starts the services
 #
 # =============================================================================
 # EXTERNAL DATABASE (advanced)
 # =============================================================================
 #
-# Si tu as deja un postgres separe (autre stack docker, base managee, etc.),
-# cree un docker-compose.override.yml a la racine :
+# If you already run a separate postgres (another docker stack, a managed
+# database, etc.), create a docker-compose.override.yml at the root:
 #
 #   services:
 #     postgres:
-#       profiles: ["disabled"]     # ne demarre jamais
+#       profiles: ["disabled"]     # never starts
 #     orthanc:
 #       networks:
 #         - orthanc-network
-#         - database                # ton reseau externe existant
+#         - database                # your existing external network
 #       environment:
 #         - ORTHANC__POSTGRESQL__HOST=database
 #   networks:
@@ -42,20 +42,20 @@ services:
     image: redis:8.0-alpine
     container_name: orthanc-redis
     restart: unless-stopped
-    # Redis porte le journal d'audit -- qui a fait quoi, et quand. Sur un PACS
-    # cette tracabilite a une valeur au-dela du confort, et les reglages par
-    # defaut ne la garantissent pas :
+    # Redis holds the audit log -- who did what, and when. On a PACS that
+    # traceability matters beyond convenience, and the defaults do not
+    # guarantee it:
     #
-    #   - sans appendonly, Redis n'ecrit que des instantanes periodiques
-    #     (save 3600 1 : au mieux toutes les heures s'il y a eu une seule
-    #     ecriture). Un arret brutal perd donc jusqu'a une heure de journal.
-    #   - l'image declare VOLUME /data, ce qui cree un volume ANONYME : sans
-    #     nom, invisible dans docker volume ls, efface par un
-    #     docker volume prune, et impossible a sauvegarder simplement.
+    #   - without appendonly, Redis only writes periodic snapshots
+    #     (save 3600 1: at best hourly, and only if there was a single
+    #     write). An abrupt stop therefore loses up to an hour of log.
+    #   - the image declares VOLUME /data, which creates an ANONYMOUS volume:
+    #     unnamed, invisible in docker volume ls, wiped by a
+    #     docker volume prune, and impossible to back up simply.
     #
-    # appendonly ecrit chaque operation, avec un fsync par seconde : la perte
-    # maximale passe d'une heure a une seconde, pour un cout negligeable au
-    # volume d'ecritures de ce service.
+    # appendonly writes every operation, with an fsync per second: the worst
+    # case loss drops from an hour to a second, at a negligible cost given
+    # this service's write volume.
     command: >
       redis-server
       --appendonly yes
@@ -72,8 +72,8 @@ services:
       - orthanc-network
 
   # ---------------------------------------------------------------------------
-  # PostgreSQL embarque : marche out-of-the-box pour un clone frais.
-  # Pour utiliser une DB externe, cf. la section "EXTERNAL DATABASE" en haut.
+  # Bundled PostgreSQL: works out of the box on a fresh clone.
+  # To use an external database, see the "EXTERNAL DATABASE" section above.
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
@@ -99,64 +99,63 @@ services:
   # =============================================================================
   
   auth-service:
-    # L'image publiee est utilisee si elle est disponible ; sinon elle est
-    # construite depuis le depot. Un clone frais demarre donc meme sans acces
-    # au registre. `docker compose build auth-service` pour forcer.
+    # The published image is used when available; otherwise it is built from
+    # the repository. A fresh clone therefore starts even without access to
+    # the registry. Use `docker compose build auth-service` to force a build.
     image: registry.yokoinc.ovh/orthanc-auth-service:1.0.16
     build:
       context: ./services/auth-service
     container_name: orthanc-auth-service
     restart: unless-stopped
-    # Meme raison que pour authelia : le panel reecrit users_database.yml
-    # et orthanc.json dans le depot. Les fichiers qu il cree doivent
-    # appartenir a l utilisateur, pas a root.
+    # Same reason as for authelia: the panel rewrites users_database.yml and
+    # orthanc.json inside the repository. The files it creates must belong to
+    # the user, not to root.
     user: "${PUID:-1000}:${PGID:-1000}"
     volumes:
-      # Bind-mounts croises : auth-service edite les MEMES fichiers host que
-      # authelia et orthanc lisent. Sans ces mounts, le panel admin ecrit dans
-      # le filesystem ephemere du container : les users crees ne sont jamais
-      # vus par Authelia et disparaissent au restart.
+      # Cross bind-mounts: auth-service edits the SAME host files that
+      # authelia and orthanc read. Without these mounts the admin panel
+      # writes into the container's ephemeral filesystem: the users it
+      # creates are never seen by Authelia and vanish on restart.
       #
-      # On monte les DOSSIERS, pas les fichiers. Deux raisons :
-      #   1. Les ecritures sont atomiques (write tmp + rename). Un rename sur
-      #      un bind-mount de fichier echoue avec EBUSY — le fichier est un
-      #      point de montage, on ne peut pas le remplacer.
-      #   2. Un rename cree un nouvel inode. Les autres containers qui
-      #      montent le FICHIER resteraient colles a l'ancien inode et ne
-      #      verraient jamais les modifications.
+      # We mount DIRECTORIES, not files. Two reasons:
+      #   1. Writes are atomic (write tmp + rename). A rename onto a file
+      #      bind-mount fails with EBUSY -- the file is a mount point, it
+      #      cannot be replaced.
+      #   2. A rename creates a new inode. Other containers mounting the FILE
+      #      would stay bound to the old inode and never see the changes.
       - ./services/authelia/config:/host/authelia-config:rw
       - ./services/orthanc/config:/host/orthanc-config:rw
-      # Backups rotatifs (10 derniers) crees avant chaque ecriture
+      # Rotating backups (last 10), created before every write
       - ./data/admin-backups:/host/backups:rw
-      # Reglages applicatifs modifiables depuis le panel (viewer par defaut,
-      # langue). Volontairement separes du .env, qui ne doit contenir que ce
-      # que docker compose exige AVANT de demarrer un container : secrets,
-      # identifiants, PUID/PGID, SSL_MODE.
+      # Application settings editable from the panel (interface language).
+      # Deliberately kept apart from .env, which should only hold what docker
+      # compose needs BEFORE starting a container: secrets, credentials,
+      # PUID/PGID, SSL_MODE.
       - ./data/app-settings:/host/app-settings:rw
-      # Le .env est monte en tant que FICHIER, pas via son dossier : monter la
-      # racine du projet donnerait au container un acces en ecriture au
-      # docker-compose.yml et aux scripts. auth-service ecrit donc sur place
-      # (pas de rename, impossible sur un mount de fichier).
-      # Sert au panel a changer l'URL publique ; sans ce montage l'API
-      # repond 503 avec la marche a suivre, le reste fonctionne.
+      # .env is mounted as a FILE rather than through its directory:
+      # mounting the project root would give the container write access to
+      # docker-compose.yml and to the scripts. auth-service therefore writes
+      # in place (no rename, which is impossible on a file mount).
+      # It lets the panel change the public URL; without this mount the API
+      # answers 503 with the steps to follow, and the rest keeps working.
       - ./.env:/host/env/.env:rw
     environment:
       # Essential Configuration (from .env)
-      # Repli pour les installations anterieures : la langue vit
-      # desormais dans data/app-settings/settings.json et se change
-      # depuis le panel. Vide ici ne signifie donc pas "anglais".
+      # Fallback for earlier installations: the language now lives in
+      # data/app-settings/settings.json and is changed from the panel. Empty
+      # here therefore does not mean "English".
       - LANGUAGE=${LANGUAGE:-}
       - AUTH_USERNAME=${AUTH_USERNAME}
       - AUTH_PASSWORD=${AUTH_PASSWORD}
       - REDIS_HOST=redis
-      # Version semantique affichee en pied de page du token manager.
-      # A synchroniser avec le tag de l'image ci-dessus (1.0.16) a chaque bump.
+      # Semantic version shown in the token manager's footer.
+      # Keep in sync with the image tag above (1.0.16) on every bump.
       - IMAGE_VERSION=1.0.16
-      # Compte Orthanc dedie pour POST /tools/reset (reload config a chaud).
-      # Genere par bootstrap.sh dans .env.
+      # Dedicated Orthanc account for POST /tools/reset (hot config reload).
+      # Generated by bootstrap.sh into .env.
       - ORTHANC_URL=http://orthanc:8042
-      # Adresse du proxy Docker, pour le bouton de redemarrage du panel.
-      # Vide = fonction indisponible, le panel l'indique alors.
+      # Docker proxy address, for the panel's restart button.
+      # Empty means the feature is unavailable, which the panel states.
       - DOCKER_PROXY_URL=http://socket-proxy:2375
       - ORTHANC_CONTAINER=orthanc-server
       - ORTHANC_ADMIN_USER=${ORTHANC_ADMIN_USER:-}
@@ -180,12 +179,12 @@ services:
     image: authelia/authelia:4.39.5
     container_name: orthanc-authelia
     restart: unless-stopped
-    # Authelia ecrit dans ./services/authelia/config (base de sessions, liste
-    # des utilisateurs). Sans cette ligne il tourne en root et s'approprie le
-    # dossier : la reinstallation echoue ensuite sur un "Permission denied",
-    # et les fichiers de configuration du depot deviennent illisibles pour
-    # leur proprietaire. PUID/PGID sont renseignes par bootstrap.sh avec
-    # l'identite de l'utilisateur courant.
+    # Authelia writes into ./services/authelia/config (session database,
+    # user list). Without this line it runs as root and takes ownership of
+    # the directory: reinstalling then fails on a "Permission denied", and
+    # the repository's configuration files become unreadable to their owner.
+    # PUID/PGID are filled in by bootstrap.sh with the current user's
+    # identity.
     user: "${PUID:-1000}:${PGID:-1000}"
     depends_on:
       redis:
@@ -205,40 +204,40 @@ services:
       - REDIS_DB=0
 
   # ---------------------------------------------------------------------------
-  # Redemarrage d'Orthanc depuis le panel
+  # Restarting Orthanc from the panel
   # ---------------------------------------------------------------------------
-  # Appliquer un changement de configuration Orthanc impose de redemarrer son
-  # conteneur : l'image regenere /tmp/orthanc.json au demarrage, et c'est ce
-  # fichier -- pas le notre -- que le processus lit. POST /tools/reset ne
-  # relit que le fichier genere, donc ne voit aucune modification.
+  # Applying an Orthanc configuration change requires restarting its
+  # container: the image regenerates /tmp/orthanc.json at startup, and that
+  # file -- not ours -- is what the process reads. POST /tools/reset only
+  # re-reads the generated file, so it sees no change at all.
   #
-  # A distance, un acces SSH n'est pas toujours disponible : sans ce service,
-  # un changement de configuration laisse l'exploitant bloque dans son propre
-  # panel.
+  # Remotely, SSH access is not always available: without this service, a
+  # configuration change leaves the operator stuck inside their own panel.
   #
-  # Le socket Docker n'est PAS monte dans auth-service. Le donner a un service
-  # web reviendrait a lui accorder l'equivalent de root sur l'hote : il
-  # pourrait creer un conteneur privilegie, monter la racine et en sortir. Ce
-  # proxy n'expose que le strict necessaire, et n'est joignable que depuis le
-  # reseau interne -- aucun port n'est publie.
+  # The Docker socket is NOT mounted into auth-service. Handing it to a
+  # web-facing service would grant it the equivalent of root on the host: it
+  # could create a privileged container, mount the root filesystem and break
+  # out. This proxy exposes only the strict minimum, and is reachable only
+  # from the
+  # internal network -- no port is published.
   socket-proxy:
     image: tecnativa/docker-socket-proxy:0.3.0
     container_name: orthanc-socket-proxy
     restart: unless-stopped
     environment:
-      # Tout est refuse par defaut. On ouvre le strict minimum :
+      # Everything is denied by default. We open the strict minimum:
       - POST=1            # sans quoi l'API entiere est en lecture seule
       - ALLOW_RESTARTS=1  # containers/<id>/restart (et stop, kill)
       #
-      # CONTAINERS reste a 0, et c'est essentiel : avec CONTAINERS=1, POST=1
+      # CONTAINERS stays at 0, and that matters: with CONTAINERS=1, POST=1
       # autorise TOUT /containers/*, dont POST /containers/create. Verifie --
-      # un conteneur privilegie montant la racine de l'hote etait accepte
-      # (201), soit exactement l'evasion que ce montage doit empecher. Avec
-      # CONTAINERS=0, create et exec repondent 403 et le redemarrage
+      # a privileged container mounting the host root was accepted (201),
+      # which is exactly the escape this mount must prevent. With
+      # CONTAINERS=0, create and exec answer 403 and the restart
       # fonctionne toujours.
       - CONTAINERS=0
-      # Explicitement refuses, pour que la lecture du fichier suffise a savoir
-      # ce qui est possible :
+      # Explicitly denied, so that reading this file is enough to know what
+      # is possible:
       - EXEC=0            # pas d'execution de commande dans un conteneur
       - IMAGES=0
       - VOLUMES=0
@@ -258,7 +257,7 @@ services:
       - DISTRIBUTION=0
       - SESSION=0
     volumes:
-      # En lecture seule : le proxy n'a pas a modifier le socket lui-meme.
+      # Read-only: the proxy has no business modifying the socket itself.
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - orthanc-network
@@ -281,30 +280,31 @@ services:
         condition: service_healthy
     volumes:
       # Dossier, pas fichier : auth-service reecrit orthanc.json via
-      # write-tmp + rename, ce qui cree un nouvel inode. Un bind-mount de
+      # write-tmp + rename, which creates a new inode. A file bind-mount
       # fichier resterait colle a l'ancien inode et POST /tools/reset
       # rechargerait l'ancienne config. Orthanc scanne /etc/orthanc/*.json.
       - ./services/orthanc/config:/etc/orthanc:ro
     networks:
       - orthanc-network
     environment:
-      # Env vars ORTHANC__* overrident les valeurs du orthanc.json. Ca evite
-      # d'avoir a hardcoder credentials + host dans le JSON, et permet de
-      # basculer d'une DB embarquee a externe juste en changeant .env / override.
+      # ORTHANC__* env vars override the values in orthanc.json. This avoids
+      # hard-coding credentials and host into the JSON, and allows switching
+      # from a bundled to an external database by editing .env or the
+      # override file alone.
       - ORTHANC__POSTGRESQL__HOST=postgres
       - ORTHANC__POSTGRESQL__PORT=5432
       - ORTHANC__POSTGRESQL__DATABASE=${POSTGRES_DB:-orthanc}
       - ORTHANC__POSTGRESQL__USERNAME=${POSTGRES_USER:-orthanc}
       - ORTHANC__POSTGRESQL__PASSWORD=${POSTGRES_PASSWORD}
-      # Identifiants du plugin Authorization. Ces variables OVERRIDENT le
-      # orthanc.json — Orthanc le dit au demarrage : "Authorization.
+      # Authorization plugin credentials. These variables OVERRIDE
+      # orthanc.json -- Orthanc says so at startup: "Authorization.
       # WebServicePassword has already been defined; it will be overwritten by
-      # the value defined in env-var". bootstrap.sh ecrit les memes valeurs
-      # dans le JSON, meme source (.env) : pas de desynchronisation possible.
+      # the value defined in env-var". bootstrap.sh writes the same values
+      # into the JSON, from the same source (.env): no drift is possible.
       #
-      # ATTENTION : apres avoir change AUTH_PASSWORD dans .env, il faut
+      # CAREFUL: after changing AUTH_PASSWORD in .env, you must
       #   docker compose up -d --force-recreate orthanc
-      # Un simple `restart` rejoue l'environnement fige du container : le
+      # A plain `restart` replays the container's frozen environment: the
       # plugin garde l'ancien mot de passe, /user/get-profile repond 401 et
       # toute l'API Orthanc renvoie 403.
       - ORTHANC__AUTHORIZATION__WEB_SERVICE_USERNAME=${AUTH_USERNAME}
@@ -336,7 +336,7 @@ services:
   # =============================================================================
   
   ohif:
-    # Idem : image publiee, ou construction locale a defaut. Ce build est
+    # Same again: published image, or a local build otherwise. This build is
     # long (~15 min), OHIF etant compile depuis ses sources -- l'image
     # officielle ohif/app ne peut pas servir sous /ohif/, son chemin de base
     # etant fige au moment du build.
@@ -380,7 +380,7 @@ services:
       - ./services/nginx/conf.d:/etc/nginx/conf.d.templates:ro
     environment:
       # Seule variable a renseigner : l'URL publique complete. Le nom
-      # d'hote (DOMAIN) en est derive par l'entrypoint.
+      # host name (DOMAIN) is derived from it by the entrypoint.
       - PUBLIC_URL=${PUBLIC_URL}
       - SSL_MODE=${SSL_MODE:-selfsigned}
       # Optional: enables POST /api-upload/instances for scripted DICOM uploads
