@@ -235,7 +235,7 @@ class TestStripJsonComments:
         from admin_module import _strip_json_comments
         import json
         raw = """{
-  // un commentaire
+  // a comment
   "a": 1
 }"""
         assert json.loads(_strip_json_comments(raw)) == {"a": 1}
@@ -261,10 +261,10 @@ class TestStripJsonComments:
     def test_slashes_inside_string_preserved(self):
         from admin_module import _strip_json_comments
         import json
-        raw = '{"path": "a//b", "glob": "/* pas un commentaire */"}'
+        raw = '{"path": "a//b", "glob": "/* not a comment */"}'
         out = json.loads(_strip_json_comments(raw))
         assert out["path"] == "a//b"
-        assert out["glob"] == "/* pas un commentaire */"
+        assert out["glob"] == "/* not a comment */"
 
     def test_escaped_quote_inside_string(self):
         """An escaped quote must not end the string prematurely."""
@@ -476,7 +476,7 @@ class TestNonDestructiveWrite:
     def test_comments_preserved(self):
         from admin_module import _apply_text_changes
         source = """{
-  // Nom affiche dans l'interface
+  // Name shown in the interface
   "Name": "Orthanc",
 
   // Titre applicatif DICOM, 16 caracteres au plus
@@ -484,7 +484,7 @@ class TestNonDestructiveWrite:
 }"""
         out = _apply_text_changes(source, {"Name": "PACS"})
         assert out.count("//") == 2
-        assert "Nom affiche dans l'interface" in out
+        assert "Name shown in the interface" in out
         assert self._read_back(out) == {"Name": "PACS", "DicomAet": "ORTHANC"}
 
     def test_only_targeted_line_changes(self):
@@ -500,11 +500,11 @@ class TestNonDestructiveWrite:
         """Le piege classique : le nom de la cle apparait aussi en commentaire."""
         from admin_module import _apply_text_changes
         source = """{
-  // Ne pas confondre avec "Name" du bloc DicomWeb ci-dessous
+  // Not to be confused with the "Name" of the DicomWeb block below
   "Name": "Orthanc"
 }"""
         out = _apply_text_changes(source, {"Name": "PACS"})
-        assert 'avec "Name" du bloc' in out       # le commentaire est intact
+        assert 'the "Name" of the DicomWeb' in out       # the comment is intact
         assert self._read_back(out) == {"Name": "PACS"}
 
     def test_brace_inside_a_string(self):
@@ -527,13 +527,13 @@ class TestNonDestructiveWrite:
         source = """{
   "Name": "Orthanc",
   "DicomWeb": {
-    // Taille maximale d'un envoi STOW-RS
+    // Maximum size of a STOW-RS upload
     "StowMaxSize": 500,
     "Enable": true
   }
 }"""
         out = _apply_text_changes(source, {"DicomWeb.StowMaxSize": 1000})
-        assert "Taille maximale" in out
+        assert "Maximum size" in out
         assert self._read_back(out)["DicomWeb"] == {"StowMaxSize": 1000, "Enable": True}
 
     def test_missing_key_appended(self):
@@ -1184,7 +1184,7 @@ class TestListSettings:
         return config
 
     SOURCE = """{
-  // Colonnes de la liste d'examens
+  // Columns of the study list
   "StudyListColumns": ["PatientID", "PatientName"],
   "Theme": "dark"
 }"""
@@ -1204,7 +1204,7 @@ class TestListSettings:
     def test_comment_preserved(self):
         from admin_module import _apply_text_changes
         out = _apply_text_changes(self.SOURCE, {"StudyListColumns": ["Modality"]})
-        assert "// Colonnes de la liste d'examens" in out
+        assert "// Columns of the study list" in out
 
     def test_neighbours_untouched(self):
         from admin_module import _apply_text_changes
