@@ -52,17 +52,17 @@ def tmp_paths(tmp_path, monkeypatch):
 
 @pytest.fixture
 def fake_redis():
-    """Injecte un Redis fake dans le module, plus un acces synchrone.
+    """Inject a fake Redis into the module, plus a synchronous handle.
 
-    Les deux clients partagent le meme FakeServer : ce que l'un ecrit,
-    l'autre le voit. Le code applicatif utilise le client asynchrone ; les
-    tests passent par `.sync` pour preparer ou relire l'etat.
+    Both clients share the same FakeServer: what one writes, the other sees.
+    Application code uses the async client; tests go through `.sync` to set
+    up or read back state.
 
-    Ne pas revenir a asyncio.run() sur le client async : asyncio.run ouvre
-    une boucle d'evenements puis la ferme, le client fakeredis reste lie a
-    cette boucle morte, et la requete HTTP suivante -- servie par le portail
-    du TestClient, donc une autre boucle -- casse sur "Queue is bound to a
-    different event loop". L'echec ne dit rien du code teste.
+    Do not go back to asyncio.run() on the async client: asyncio.run opens
+    an event loop then closes it, the fakeredis client stays bound to that
+    dead loop, and the next HTTP request -- served by the TestClient's
+    portal, so another loop -- breaks with "Queue is bound to a different
+    event loop". The failure says nothing about the code under test.
     """
     server = fakeredis.FakeServer()
     r = fakeredis.aioredis.FakeRedis(decode_responses=True, server=server)
@@ -90,12 +90,12 @@ def app(admin_user):
 
 @pytest.fixture
 def client(app, tmp_paths, fake_redis):
-    """TestClient maintenu ouvert pour toute la duree du test.
+    """TestClient kept open for the whole duration of the test.
 
-    Sans gestionnaire de contexte, Starlette ouvre puis ferme un portail
-    anyio -- donc une boucle d'evenements -- a CHAQUE requete. Le `with`
-    garde un portail unique, condition pour que le client fakeredis reste
-    utilisable d'une requete a l'autre.
+    Without a context manager, Starlette opens then closes an anyio portal
+    -- hence an event loop -- on EVERY request. The `with` keeps a single
+    portal, which is what allows the fakeredis client to stay usable from
+    one request to the next.
     """
     with TestClient(app) as c:
         yield c
@@ -153,9 +153,9 @@ class TestSetupWizard:
     def test_full_flow(self, client, tmp_paths, fake_redis):
         """Redis vide → create admin → finalize → 2eme create bloque par middleware."""
         # Etat initial : setup_completed absent
-        # (fake_redis est frais, aucune clef)
+        # (fake_redis is fresh, no keys)
 
-        # Etape 1 : creer le premier admin
+        # Step 1: create the first administrator
         r = client.post("/setup/create-admin", json={
             "username": "cuffel.gregory",
             "displayname": "Gregory Cuffel",
@@ -166,7 +166,7 @@ class TestSetupWizard:
         assert r.status_code == 200, r.text
         assert r.json()["ok"] is True
 
-        # Le YAML doit exister, contenir l'user avec un hash argon2id
+        # The YAML must exist and hold the user with an argon2id hash
         assert tmp_paths["authelia"].exists()
         yml = yaml.safe_load(tmp_paths["authelia"].read_text())
         assert "cuffel.gregory" in yml["users"]
@@ -178,12 +178,12 @@ class TestSetupWizard:
         assert r.status_code == 200
         assert r.json()["admins"] == ["cuffel.gregory"]
 
-        # Redis a bien le flag maintenant
+        # Redis now carries the flag
         val = fake_redis.sync.get("orthanc_authelia:setup_completed")
         assert val == "1"
 
-        # Etape 3 : un 2eme appel est refuse. Le middleware ne redirige que les
-        # pages du SPA ; une API doit repondre une erreur JSON, pas un 302.
+        # Step 3: a second call is refused. The middleware only redirects
+        # SPA pages; an API must answer a JSON error, not a 302.
         r = client.post("/setup/create-admin", json={
             "username": "someone.else",
             "displayname": "Someone Else",
@@ -191,11 +191,11 @@ class TestSetupWizard:
             "password": "another-password-12345",
         })
         assert r.status_code == 409
-        # Pas d'assertion sur le texte : il suit la langue de l'interface.
-        # Le 409 est ce qui fait contrat.
+        # No assertion on the text: it follows the interface language.
+        # The 409 is what forms the contract.
 
     def _bootstrap_only(self, tmp_paths):
-        """Base telle que bootstrap.sh la laisse sur une installation neuve."""
+        """Database as bootstrap.sh leaves it on a fresh installation."""
         tmp_paths["authelia"].write_text(yaml.safe_dump({
             "users": {
                 admin_module.BOOTSTRAP_USERNAME: {
@@ -218,17 +218,17 @@ class TestSetupWizard:
         })
 
     def test_finalize_removes_bootstrap_account(self, client, tmp_paths, fake_redis):
-        """Le compte d'amorcage disparait une fois le vrai admin cree.
+        """The bootstrap account disappears once the real administrator exists.
 
-        Authelia refuse de demarrer sur une base vide, d'ou ce compte dans le
-        template. Il ne doit pas survivre a l'installation : une fois le
-        wizard termine, seul le compte de l'exploitant subsiste.
+        Authelia refuses to start on an empty database, hence this account in
+        the template. It must not survive installation: once the wizard is
+        finished, only the operator's account remains.
         """
         self._bootstrap_only(tmp_paths)
 
         assert self._create_first_admin(client).status_code == 200
 
-        # Encore present juste avant la finalisation
+        # Still present just before finalisation
         yml = yaml.safe_load(tmp_paths["authelia"].read_text())
         assert admin_module.BOOTSTRAP_USERNAME in yml["users"]
 
@@ -302,7 +302,7 @@ class TestOrthancConfig:
         backups = list(tmp_paths["backups"].glob("orthanc.json.bak.*"))
         assert len(backups) == 1
 
-        # Audit stream a une entree
+        # The audit stream holds one entry
         entries = fake_redis.sync.xrange("admin:audit")
         assert len(entries) >= 1
         _, fields = entries[-1]
@@ -348,7 +348,7 @@ class TestBackupRestore:
             }, headers=csrf_headers)
             assert json.loads(tmp_paths["orthanc"].read_text())["Name"] == "Modified"
 
-            # Recuperer le nom du backup cree
+            # Fetch the name of the backup created
             backups = sorted(tmp_paths["backups"].glob("orthanc.json.bak.*"))
             assert backups
             backup_name = backups[0].name
@@ -418,10 +418,11 @@ class TestFileLock:
         valid_orthanc_json, monkeypatch,
     ):
         """
-        Un thread externe tient le lock, la requete API attend puis timeout → 423.
-        Reduit le timeout admin_module a 1s pour ne pas ralentir le test.
+        An external thread holds the lock, the API request waits then times
+        out with a 423. The admin_module timeout is lowered to 1s to keep the
+        test fast.
         """
-        # Patch le timeout FileLock pour aller vite
+        # Patch the FileLock timeout to keep the test fast
         orig_flock = admin_module.FileLock
 
         def fast_flock(path, timeout=None):
@@ -447,11 +448,11 @@ class TestFileLock:
                 "changes": {"Name": "should not succeed"},
             }, headers=csrf_headers)
             assert r.status_code == 423
-            # Le texte suit la langue de l'interface ; le 423 fait contrat.
+            # The text follows the interface language; the 423 is the contract.
         finally:
             holder.join()
 
-        # Le fichier n'a PAS ete modifie (le lock a empeche l'ecriture)
+        # The file was NOT modified (the lock prevented the write)
         content = json.loads(tmp_paths["orthanc"].read_text())
         assert content["Name"] == valid_orthanc_json["Name"]
 
@@ -466,7 +467,7 @@ class TestAutoRollback:
         self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
     ):
         """PATCH → /tools/reset renvoie 500 → rollback auto → 502 mais fichier restore."""
-        # 1er reset (celui qui echoue) puis 2eme (celui du rollback qui reussit)
+        # First reset (the failing one) then second (the rollback, succeeding)
         with respx.mock(base_url="http://orthanc:8042") as mock:
             reset_route = mock.post("/tools/reset").mock(
                 side_effect=[
@@ -484,11 +485,11 @@ class TestAutoRollback:
             # Le mock a bien ete appele 2 fois (initial + rollback)
             assert reset_route.call_count == 2
 
-        # Le fichier est bien revenu au Name initial (rollback effectue)
+        # The file is back to its original Name (rollback done)
         current = json.loads(tmp_paths["orthanc"].read_text())
         assert current["Name"] == valid_orthanc_json["Name"]
 
-        # Audit trail montre le rollback
+        # The audit trail shows the rollback
         entries = fake_redis.sync.xrange("admin:audit")
         events = [f["event"] for _, f in entries]
         assert "orthanc.config.rolled_back" in events
@@ -522,7 +523,7 @@ class TestSetupLockout:
     def test_finalize_clears_lock_next_setup_impossible_anyway(
         self, client, tmp_paths, fake_redis,
     ):
-        """Apres finalize, le verrou first_admin est supprime (mais setup_gate ferme tout)."""
+        """After finalize the first_admin lock is removed (setup_gate closes all)."""
         client.post("/setup/create-admin", json={
             "username": "admin.one",
             "displayname": "Admin",
@@ -539,7 +540,7 @@ class TestSetupLockout:
 
 # ============================================================================
 # ============================================================================
-# Test 10 : YAML/JSON corrompu → 500 lisible avec hint restore
+# Test 10: corrupt YAML/JSON -> readable 500 with a restore hint
 # ============================================================================
 
 class TestCorruptConfig:
@@ -547,13 +548,13 @@ class TestCorruptConfig:
     def test_corrupt_authelia_yml_returns_readable_500(
         self, client, tmp_paths, fake_redis, csrf_headers,
     ):
-        """YAML syntaxiquement casse → 500 avec message qui hint le restore."""
+        """Syntactically broken YAML -> 500 with a message hinting at the restore."""
         tmp_paths["authelia"].write_text("users:\n  cuffel: {this is: not: valid: yaml")
 
         r = client.get("/api/admin/users")
         assert r.status_code == 500
-        # Le texte suit la langue de l'interface ; le 500 et la mention de
-        # la restauration font contrat.
+        # The text follows the interface language; the 500 and the mention
+        # of restoring are the contract.
         assert "backups" in r.text.lower()
 
     def test_corrupt_orthanc_json_returns_readable_500(
@@ -564,8 +565,8 @@ class TestCorruptConfig:
 
         r = client.get("/api/admin/orthanc/config")
         assert r.status_code == 500
-        # Le texte suit la langue de l'interface ; le 500 et la mention de
-        # la restauration font contrat.
+        # The text follows the interface language; the 500 and the mention
+        # of restoring are the contract.
         assert "backups" in r.text.lower()
 
 
@@ -594,7 +595,7 @@ class TestHealth:
     def test_ui_redirects_to_setup_when_not_done(
         self, client, tmp_paths, fake_redis,
     ):
-        """Le hub renvoie vers le wizard tant que l'installation n'est pas faite."""
+        """The hub redirects to the wizard until the installation is done."""
         r = client.get("/ui/", follow_redirects=False)
         assert r.status_code == 302
         assert r.headers["location"] == "/console/setup"
@@ -612,7 +613,7 @@ class TestHealth:
     def test_ui_assets_never_redirected(
         self, client, tmp_paths, fake_redis,
     ):
-        """Les assets echappent au middleware, sinon le SPA ne charge pas."""
+        """Assets escape the middleware, otherwise the SPA does not load."""
         r = client.get("/ui/assets/index-abc123.js", follow_redirects=False)
         assert r.status_code != 302
 
@@ -646,17 +647,17 @@ class TestHealth:
 
 
 # ============================================================================
-# Restauration de backup : le nom vient du client
+# Backup restore: the name comes from the client
 # ============================================================================
 
 class TestBackupRestoreSafety:
 
     def test_path_traversal_refused(self, client, tmp_paths, fake_redis, csrf_headers):
-        """Un nom qui remonte hors du dossier de backups doit etre refuse.
+        """A name climbing out of the backups directory must be refused.
 
-        "orthanc.json.bak.../../../x" satisfait les controles de forme
-        (contient .bak., commence par orthanc.json.bak.) tout en designant
-        un fichier hors du dossier.
+        "orthanc.json.bak.../../../x" satisfies the shape checks (contains
+        .bak., starts with orthanc.json.bak.) while designating a file outside
+        the directory.
         """
         r = client.post(
             "/api/admin/backups/restore",
@@ -664,7 +665,7 @@ class TestBackupRestoreSafety:
             headers=csrf_headers,
         )
         assert r.status_code == 400
-        # Le texte suit la langue de l'interface ; le 400 fait contrat.
+        # The text follows the interface language; the 400 is the contract.
 
     def test_absolute_path_refused(self, client, tmp_paths, fake_redis, csrf_headers):
         r = client.post(
@@ -694,7 +695,7 @@ class TestBackupRestoreSafety:
 
 
 # ============================================================================
-# Rechargement Orthanc indisponible : la modification doit survivre
+# Orthanc reload unavailable: the change must survive
 # ============================================================================
 
 class TestOrthancReloadRefused:
@@ -702,10 +703,10 @@ class TestOrthancReloadRefused:
     def test_403_keeps_change_and_asks_restart(
         self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
     ):
-        """Un 403 du plugin ne doit pas annuler l'ecriture.
+        """A 403 from the plugin must not undo the write.
 
-        Le fichier est valide, seul le rechargement a chaud est refuse :
-        annuler ferait perdre la saisie de l'utilisateur sans raison.
+        The file is valid, only the hot reload is refused: undoing would lose
+        the user's input for no reason.
         """
         import respx, httpx, json as _json
         with respx.mock(base_url="http://orthanc:8042") as mock:
@@ -719,14 +720,14 @@ class TestOrthancReloadRefused:
         assert body["restart_required"] is True
         assert "restart orthanc" in body["message"].lower()
 
-        # La modification est bien sur disque
+        # The change did reach the disk
         assert _json.loads(tmp_paths["orthanc"].read_text())["Name"] == "Nouveau Nom"
 
     def test_network_error_still_rolls_back(
         self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
     ):
-        """Une panne reseau reste traitee par un rollback : Orthanc peut etre
-        dans un etat incertain, contrairement au cas d'un refus explicite."""
+        """A network failure is still handled by a rollback: Orthanc may be in an
+        uncertain state, unlike the case of an explicit refusal."""
         import respx, httpx, json as _json
         with respx.mock(base_url="http://orthanc:8042") as mock:
             mock.post("/tools/reset").mock(
@@ -794,9 +795,9 @@ class TestPublicUrl:
         assert "pacs.localhost" not in cfg
         assert cfg.count("domain: pacs.exemple.fr") == 3
         assert "authelia_url: https://pacs.exemple.fr/auth" in cfg
-        # Le port disparait avec l'ancienne origine
+        # The port disappears along with the previous origin
         assert ":30443" not in cfg
-        # Les commentaires sont preserves : un aller-retour YAML les perdrait
+        # Comments are preserved: a YAML round-trip would lose them
         assert "commentaire a preserver" in cfg
         assert "sans port" in cfg
 
@@ -819,7 +820,7 @@ class TestPublicUrl:
     def test_env_absent_repond_503_avec_la_marche_a_suivre(
         self, client, tmp_paths, fake_redis, csrf_headers,
     ):
-        """Sans le montage du .env, l'erreur explique quoi faire."""
+        """Without the .env mount, the error explains what to do."""
         tmp_paths["authelia_cfg"].write_text(CONFIG_TYPE)
         # .env volontairement absent
 
@@ -834,7 +835,7 @@ class TestPublicUrl:
     def test_config_authelia_modifiee_a_la_main_annule(
         self, client, tmp_paths, fake_redis, csrf_headers,
     ):
-        """Si l'ancien domaine est introuvable, on ne devine pas : on annule."""
+        """When the previous domain cannot be found, we do not guess: we abort."""
         tmp_paths["env"].write_text("PUBLIC_URL=https://pacs.localhost:30443\n")
         tmp_paths["authelia_cfg"].write_text("session:\n  cookies: []\n")
 
@@ -845,7 +846,7 @@ class TestPublicUrl:
         )
         assert r.status_code == 500
         assert "modifie a la main" in r.text
-        # Le .env n'a pas bouge : rien n'est applique a moitie
+        # .env has not moved: nothing is half-applied
         assert "PUBLIC_URL=https://pacs.localhost:30443" in tmp_paths["env"].read_text()
 
     def test_rejets(self, client, tmp_paths, fake_redis, csrf_headers):
@@ -865,18 +866,17 @@ class TestPublicUrl:
 
 
 class TestModalites:
-    """Equipements DICOM : declaration, suppression, test de connectivite.
+    """DICOM devices: declaration, removal, connectivity test.
 
-    Ces routes passent par l'API d'Orthanc, simulee ici. Elles n'etaient
-    couvertes que par le test de bout en bout, lance a la main : la CI
-    n'execute que les tests unitaires, un changement les cassant serait donc
-    passe au vert.
+    These routes go through Orthanc's API, simulated here. They were only
+    covered by the end-to-end test, run by hand: CI only executes the unit
+    tests, so a change breaking them would have gone through green.
     """
 
     def test_liste_rassemble_les_configurations(
         self, client, tmp_paths, fake_redis, valid_authelia_yml,
     ):
-        """Orthanc ne renvoie que des noms : la route doit joindre les details."""
+        """Orthanc only returns names: the route must join in the details."""
         with respx.mock(base_url="http://orthanc:8042") as mock:
             mock.get("/modalities").respond(json=["SCANNER-1"])
             mock.get("/modalities/SCANNER-1/configuration").respond(
@@ -901,8 +901,8 @@ class TestModalites:
 
         assert r.status_code == 200, r.text
         assert route.called
-        # L'operation doit laisser une trace : declarer un equipement autorise
-        # une machine tierce a deposer des examens.
+        # The operation must leave a trace: declaring a device authorises a
+        # third-party machine to drop studies here.
         entrees = fake_redis.sync.xrange("admin:audit")
         assert any(e[1].get("event") == "orthanc.modality.saved" for e in entrees)
 
@@ -981,7 +981,7 @@ class TestModificationUtilisateur:
     def test_changement_de_groupes(
         self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
     ):
-        # Un second administrateur, sans quoi l'invariant bloquerait.
+        # A second administrator, without which the invariant would block.
         data = yaml.safe_load(tmp_paths["authelia"].read_text())
         data["users"]["autre.admin"] = dict(
             data["users"]["cuffel.gregory"], displayname="Autre", email="a@b.fr",
