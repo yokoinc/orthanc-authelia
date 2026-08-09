@@ -1,13 +1,13 @@
 """
-Tests unitaires pour admin_module.py.
+Unit tests for admin_module.py.
 
-Focus sur les invariants qui protegent contre le lockout / la corruption :
-  - _validate_authelia refuse un YAML sans admin actif
-  - _apply_scalar_change refuse d'ecraser un dict/array
-  - _validate_orthanc refuse la desactivation des flags *InDatabase
-  - argon2 round-trip hash + verify
+Focused on the invariants that guard against lockout and corruption:
+  - _validate_authelia refuses a YAML without an active administrator
+  - _apply_scalar_change refuses to overwrite a dict or array
+  - _validate_orthanc refuses disabling the *InDatabase flags
+  - argon2 round-trip: hash then verify
 
-Executer avec :
+Run with:
     cd services/auth-service/sources
     python -m pytest tests/test_admin_module.py -v
 """
@@ -325,7 +325,7 @@ class TestRestartOrthanc:
         monkeypatch.setattr(admin_module.asyncio, "sleep", _sans_attente)
 
     def test_unconfigured_proxy_answers_503(self, monkeypatch):
-        """Sans DOCKER_PROXY_URL la fonction est indisponible, pas cassee."""
+        """Without DOCKER_PROXY_URL the feature is unavailable, not broken."""
         import admin_module
         from fastapi import HTTPException
 
@@ -361,7 +361,7 @@ class TestRestartOrthanc:
         assert "ALLOW_RESTARTS" in e.value.detail
 
     def test_succeeds_when_orthanc_answers(self, monkeypatch):
-        """Le cas nominal : 204 du proxy puis /system qui repond 200."""
+        """The nominal case: 204 from the proxy, then /system answering 200."""
         import admin_module
 
         self._wire_proxy(monkeypatch, 204)
@@ -488,7 +488,7 @@ class TestNonDestructiveWrite:
         assert self._read_back(out) == {"Name": "PACS", "DicomAet": "ORTHANC"}
 
     def test_only_targeted_line_changes(self):
-        """Une modification ne doit pas reformater le reste du fichier."""
+        """A change must not reformat the rest of the file."""
         from admin_module import _apply_text_changes
         source = '{\n  "A": 1,\n  "B": 2,\n  "C": 3\n}'
         out = _apply_text_changes(source, {"B": 20})
@@ -508,14 +508,14 @@ class TestNonDestructiveWrite:
         assert self._read_back(out) == {"Name": "PACS"}
 
     def test_brace_inside_a_string(self):
-        """Une accolade entre guillemets ne doit pas etre lue comme un bloc."""
+        """A brace between quotes must not be read as a block."""
         from admin_module import _apply_text_changes
         source = '{\n  "Motif": "prefixe{suffixe}",\n  "Name": "Orthanc"\n}'
         out = _apply_text_changes(source, {"Name": "PACS"})
         assert self._read_back(out) == {"Motif": "prefixe{suffixe}", "Name": "PACS"}
 
     def test_end_of_line_comment(self):
-        """La valeur s'arrete avant le //, qui doit survivre tel quel."""
+        """The value stops before the //, which must survive untouched."""
         from admin_module import _apply_text_changes
         source = '{\n  "Taille": 500, // en megaoctets\n  "Name": "Orthanc"\n}'
         out = _apply_text_changes(source, {"Taille": 800})
@@ -537,8 +537,8 @@ class TestNonDestructiveWrite:
         assert self._read_back(out)["DicomWeb"] == {"StowMaxSize": 1000, "Enable": True}
 
     def test_missing_key_appended(self):
-        """Orthanc laisse beaucoup de settings_file implicites : les definir est un
-        cas courant, pas une exception."""
+        """Orthanc leaves many settings implicit: defining them is a common case,
+        not an exception."""
         from admin_module import _apply_text_changes
         source = '{\n  // Reglages de base\n  "Name": "Orthanc"\n}'
         out = _apply_text_changes(source, {"DicomAlwaysAllowStore": False})
@@ -598,12 +598,12 @@ class TestNonDestructiveWrite:
         assert self._read_back(out) == {"A": 42, "B": "y", "C": False, "D": "z"}
 
     def test_real_repository_file(self):
-        """Le fichier livre : aucun commentaire ne doit disparaitre.
+        """The shipped file: no comment may disappear.
 
-        Le fichier est cherche en remontant l'arborescence, et non a une
-        profondeur fixe : selon qu'on monte le depot entier ou le seul
-        dossier sources/, le nombre de niveaux differe. Un index fige a fait
-        echouer la CI alors que la suite passait en local.
+        The file is found by walking up the tree rather than at a fixed depth:
+        depending on whether the whole repository or only sources/ is mounted,
+        the number of levels differs. A frozen index made CI fail while the
+        suite passed locally.
         """
         from admin_module import _apply_text_changes
         from pathlib import Path as _P
@@ -662,11 +662,11 @@ class TestShareViewer:
         return fichier
 
     def test_targets_the_field_explorer_reads(self):
-        """Garde-fou : Explorer fait `tokenType: this.tokens.ShareType`.
+        """Guard: Explorer does `tokenType: this.tokens.ShareType`.
 
-        Si ce chemin disparait des champs modifiables, le reglage redevient
-        sans effet -- en silence, car il continuerait de s'ecrire et de se
-        relire correctement.
+        Should this path leave the editable fields, the setting becomes
+        ineffective again -- silently, since it would keep writing and reading
+        back correctly.
         """
         from admin_module import ORTHANC_EDITABLE_PATHS
         assert "OrthancExplorer2.Tokens.ShareType" in ORTHANC_EDITABLE_PATHS
@@ -676,7 +676,7 @@ class TestShareViewer:
         assert _read_share_type() == "volview-viewer-publication"
 
     def test_unknown_value_ignored(self, orthanc_config):
-        """Une valeur hors liste ne doit pas casser le menu de partage."""
+        """A value outside the list must not break the share menu."""
         from admin_module import _read_share_type
         orthanc_config.write_text(
             '{"OrthancExplorer2": {"Tokens": {"ShareType": "nimporte-quoi"}}}',
@@ -696,7 +696,7 @@ class TestShareViewer:
         assert _read_share_type() == "ohif-viewer-publication"
 
     def test_write_preserves_comments(self, orthanc_config):
-        """L'ecriture passe par la meme mecanique que le reste de la config."""
+        """The write goes through the same machinery as the rest of the config."""
         from admin_module import _apply_text_changes, _strip_json_comments
         import json as _json
 
@@ -710,7 +710,7 @@ class TestShareViewer:
         assert relu["OrthancExplorer2"]["Tokens"]["ShareType"] == "ohif-viewer-publication"
 
     def test_auth_service_returns_same_value(self, orthanc_config):
-        """/settings/roles ne doit pas contredire ce qui s'applique."""
+        """/settings/roles must not contradict what actually applies."""
         import auth_service
         assert auth_service._default_share_viewer() == "volview-viewer-publication"
 
@@ -742,7 +742,7 @@ class TestSettingsStore:
         assert _read_setting("share_default_viewer") == "stone-viewer-publication"
 
     def test_directory_created_when_needed(self, settings_file):
-        """Une installation neuve n'a pas encore le fichier."""
+        """A fresh installation does not have the file yet."""
         from admin_module import _write_setting
         assert not settings_file.parent.exists()
         _write_setting("langue", "fr")
@@ -755,8 +755,8 @@ class TestSettingsStore:
         assert (_read_setting("a"), _read_setting("b")) == (1, "deux")
 
     def test_falls_back_to_former_env_var(self, settings_file, tmp_path):
-        """Une installation existante a le reglage dans son .env : il doit
-        continuer a s'appliquer tant qu'on ne l'a pas redefini."""
+        """An existing installation has the setting in its .env: it must keep
+        applying until it gets redefined."""
         from admin_module import _read_setting
         (tmp_path / ".env").write_text(
             "SHARE_DEFAULT_VIEWER=stone-viewer-publication\n", encoding="utf-8")
@@ -773,8 +773,8 @@ class TestSettingsStore:
                              "SHARE_DEFAULT_VIEWER") == "volview-viewer-publication"
 
     def test_unreadable_file_degrades(self, settings_file):
-        """Un JSON corrompu doit degrader vers les valeurs par defaut, pas
-        empecher le service de repondre."""
+        """Corrupt JSON must degrade to the defaults, not stop the service from
+        answering."""
         from admin_module import _read_setting
         settings_file.parent.mkdir(parents=True)
         settings_file.write_text("{ceci n'est pas du JSON", encoding="utf-8")
@@ -789,9 +789,9 @@ class TestSettingsStore:
         assert restes == [], restes
 
     def test_no_secret_in_the_file(self, settings_file):
-        """Garde-fou de conception : ce fichier n'est pas un coffre. Il vit
-        dans data/, echappe au .gitignore des secrets, et pourrait etre
-        recopie sans precaution."""
+        """Design guard: this file is not a vault. It lives under data/, escapes
+        the .gitignore meant for secrets, and could be copied around without
+        care."""
         from admin_module import _write_setting
         _write_setting("share_default_viewer", "ohif-viewer-publication")
         contenu = settings_file.read_text(encoding="utf-8").lower()
@@ -847,7 +847,7 @@ class TestLanguage:
         assert auth_service._language() == "en"
 
     def test_translations_follow_language(self, settings_file):
-        """Le point qui compte : plus de table figee au demarrage."""
+        """The point that matters: no more table frozen at startup."""
         import admin_module
         import auth_service
 
@@ -873,7 +873,7 @@ class TestLanguage:
 
 
 # ============================================================================
-# Retour arriere quand Orthanc ne redemarre pas
+# Rollback when Orthanc does not restart
 # ============================================================================
 
 class TestRollback:
@@ -943,7 +943,7 @@ class TestRollback:
 
     @staticmethod
     def _orthanc_back_after_restore(monkeypatch, config: Path):
-        """Orthanc ne repond que lorsque la configuration a ete restauree."""
+        """Orthanc only answers once the configuration has been restored."""
         import admin_module
 
         class _Reponse:
@@ -961,7 +961,7 @@ class TestRollback:
         monkeypatch.setattr(admin_module, "_orthanc", _selon_config)
 
     def test_configuration_restored_and_orthanc_restarts(self, stack, monkeypatch):
-        """Le cas qui compte : le PACS doit revenir, pas rester eteint."""
+        """The case that matters: the PACS must come back, not stay down."""
         import admin_module
         from fastapi import HTTPException
 
@@ -976,8 +976,8 @@ class TestRollback:
         assert "connue-bonne" in stack.read_text(encoding="utf-8")
 
     def test_restore_is_not_enough(self, stack, monkeypatch):
-        """Si Orthanc reste muet meme apres restauration, la cause est
-        ailleurs : le dire plutot que de laisser croire a un rollback rate."""
+        """If Orthanc stays mute even after restoring, the cause lies elsewhere:
+        say so rather than suggest a failed rollback."""
         import admin_module
         from fastapi import HTTPException
 
@@ -1117,8 +1117,8 @@ class TestExplorerSettings:
         assert champ not in ORTHANC_EDITABLE_PATHS
 
     def test_theme_limited_to_bootstrap_modes(self):
-        """Explorer applique la valeur a data-bs-theme, qui ne connait que
-        clair et sombre."""
+        """Explorer applies the value to data-bs-theme, which only knows light
+        and dark."""
         with pytest.raises(ValueError, match="light, dark"):
             self._change("OrthancExplorer2.Theme", "fluo")
 
@@ -1131,13 +1131,13 @@ class TestExplorerSettings:
             self._change("OrthancExplorer2.UiOptions.DefaultShareDuration", 9999)
 
     def test_share_without_expiry_allowed(self):
-        """Zero est une valeur legitime : un lien sans date de fin."""
+        """Zero is a legitimate value: a link with no end date."""
         config = self._change("OrthancExplorer2.UiOptions.DefaultShareDuration", 0)
         assert config["OrthancExplorer2"]["UiOptions"]["DefaultShareDuration"] == 0
 
     def test_every_exposed_field_has_a_label(self):
-        """Un champ sans libelle s'affiche sous son nom technique, ce qui
-        n'apprend rien a qui n'ecrit pas de JSON."""
+        """A field without a label shows up under its technical name, which
+        teaches nothing to someone who does not write JSON."""
         from admin_module import ORTHANC_EDITABLE_PATHS
         from pathlib import Path as _P
         import re
@@ -1195,7 +1195,7 @@ class TestListSettings:
         assert "StudyListColumns" in valeurs
 
     def test_replacement_without_duplicate(self):
-        """Le point central : une seule occurrence de la cle apres ecriture."""
+        """The central point: a single occurrence of the key after writing."""
         from admin_module import _apply_text_changes
         out = _apply_text_changes(self.SOURCE, {"StudyListColumns": ["Modality"]})
         assert out.count('"StudyListColumns"') == 1
@@ -1212,8 +1212,8 @@ class TestListSettings:
         assert self._read_back(out)["Theme"] == "dark"
 
     def test_readable_formatting(self):
-        """Une dizaine d'entrees sur une seule ligne serait illisible dans un
-        fichier qu'on relit pour comprendre."""
+        """A dozen entries on a single line would be unreadable in a file people
+        reread to understand it."""
         from admin_module import _apply_text_changes
         out = _apply_text_changes(
             self.SOURCE, {"StudyListColumns": ["PatientID", "Modality"]})
@@ -1226,8 +1226,8 @@ class TestListSettings:
         assert self._read_back(out)["StudyListColumns"] == []
 
     def test_key_present_but_not_locatable(self):
-        """Garde-fou general : tout type que l'analyse ne sait pas traiter
-        doit etre refuse, jamais insere en double."""
+        """General guard: any type the analysis cannot handle must be refused,
+        never inserted twice."""
         from admin_module import _apply_text_changes
         source = '{"Bloc": {"a": 1}}'
         with pytest.raises(ValueError, match="deja present"):
@@ -1253,7 +1253,7 @@ class TestListSettings:
             self._change("OrthancExplorer2.UiOptions.StudyListColumns", ["PatientID", "  "])
 
     def test_boolean_in_an_integer_list(self):
-        """True vaut 1 en Python : sans garde, il passerait pour une duree."""
+        """True equals 1 in Python: without a guard it would pass for a duration."""
         with pytest.raises(ValueError, match="type int"):
             self._change("OrthancExplorer2.UiOptions.ShareDurations", [True])
 
@@ -1313,8 +1313,8 @@ class TestSetupLock:
         assert _run(admin_module._setup_completed()) is False
 
     def test_existing_admin_locks(self, without_redis):
-        """Le cas qui compte : Redis vide, mais un administrateur reel
-        existe. L'assistant doit rester ferme."""
+        """The case that matters: Redis empty, yet a real administrator exists.
+        The wizard must stay closed."""
         import admin_module
         self._write(without_redis, {
             "gregory.cuffel": {"disabled": False, "groups": ["admin"]},
@@ -1322,8 +1322,8 @@ class TestSetupLock:
         assert _run(admin_module._setup_completed()) is True
 
     def test_disabled_admin_does_not_lock(self, without_redis):
-        """Un compte desactive ne peut pas administrer : l'installation est
-        alors reellement inutilisable, et l'assistant a sa place."""
+        """A disabled account cannot administer: the installation is then truly
+        unusable, and the wizard has its place."""
         import admin_module
         self._write(without_redis, {
             "ancien.admin": {"disabled": True, "groups": ["admin"]},
@@ -1338,8 +1338,8 @@ class TestSetupLock:
         assert _run(admin_module._setup_completed()) is False
 
     def test_unreadable_file_locks(self, without_redis):
-        """Dans le doute, ne pas ouvrir : une erreur de lecture ne doit pas
-        offrir la creation d'un compte administrateur."""
+        """When in doubt, do not open: a read error must not offer the creation
+        of an administrator account."""
         import admin_module
         without_redis.write_text("ceci: n'est pas: du YAML: valide:", encoding="utf-8")
         assert _run(admin_module._setup_completed()) is True
@@ -1430,8 +1430,8 @@ class TestEffectiveConfig:
         assert ecarts[0]["applique_par_orthanc"] == "Autre nom"
 
     def test_misplaced_field_detected(self, config, monkeypatch):
-        """Le defaut reel : Orthanc applique ses colonnes par defaut parce
-        que le champ est ailleurs dans l'arborescence."""
+        """The real defect: Orthanc applies its default columns because the field
+        sits elsewhere in the tree."""
         import admin_module
         self._respond(
             monkeypatch,
@@ -1453,7 +1453,7 @@ class TestEffectiveConfig:
         assert _run(admin_module._check_effective_config()) == []
 
     def test_orthanc_silent(self, config, monkeypatch):
-        """Rien a comparer ne doit pas se traduire par une alerte."""
+        """Nothing to compare must not translate into an alert."""
         import admin_module
 
         async def _casse(*a, **k):
@@ -1463,17 +1463,17 @@ class TestEffectiveConfig:
         assert _run(admin_module._check_effective_config()) == []
 
     def test_computed_permissions_excluded(self):
-        """EnableShares vaut vrai pour un administrateur et faux pour un
-        utilisateur externe : c'est un droit, pas un reglage. Le comparer au
-        fichier produirait une alerte permanente."""
+        """EnableShares is true for an administrator and false for an external
+        user: it is a permission, not a setting. Comparing it with the file
+        would raise a permanent alert."""
         from admin_module import ORTHANC_VERIFIABLE
         for champ in ("OrthancExplorer2.UiOptions.EnableShares",
                       "OrthancExplorer2.UiOptions.EnableViewerQuickButton"):
             assert champ not in ORTHANC_VERIFIABLE
 
     def test_columns_declared_under_uioptions(self):
-        """Garde-fou d'emplacement : Explorer lit ce champ sous UiOptions.
-        Le declarer ailleurs redonnerait un reglage sans effet, silencieux."""
+        """Placement guard: Explorer reads this field under UiOptions. Declaring
+        it elsewhere would give back a silently ineffective setting."""
         from admin_module import ORTHANC_EDITABLE_PATHS
         assert "OrthancExplorer2.UiOptions.StudyListColumns" in ORTHANC_EDITABLE_PATHS
         assert "OrthancExplorer2.StudyListColumns" not in ORTHANC_EDITABLE_PATHS

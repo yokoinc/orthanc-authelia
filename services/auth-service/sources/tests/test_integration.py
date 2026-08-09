@@ -83,7 +83,7 @@ def app(admin_user):
     app.include_router(admin_module.router)
     app.middleware("http")(admin_module.setup_gate)
     app.middleware("http")(admin_module.csrf_gate)
-    # Override du dependency : pas de vraie auth Authelia en test
+    # Dependency override: no real Authelia auth in tests
     app.dependency_overrides[admin_module.require_admin] = lambda: admin_user
     return app
 
@@ -360,7 +360,7 @@ class TestBackupRestore:
             )
             assert r.status_code == 200, r.text
 
-        # Le fichier est bien revenu au Name initial
+        # The file is back to its original Name
         restored = json.loads(tmp_paths["orthanc"].read_text())
         assert restored["Name"] == valid_orthanc_json["Name"]
 
@@ -817,7 +817,7 @@ class TestPublicUrl:
         assert r.json()["unchanged"] is True
         assert tmp_paths["authelia_cfg"].read_text() == avant
 
-    def test_env_absent_repond_503_avec_la_marche_a_suivre(
+    def test_missing_env_answers_503_with_next_steps(
         self, client, tmp_paths, fake_redis, csrf_headers,
     ):
         """Without the .env mount, the error explains what to do."""
@@ -832,7 +832,7 @@ class TestPublicUrl:
         assert r.status_code == 500
         assert "PUBLIC_URL" in r.text
 
-    def test_config_authelia_modifiee_a_la_main_annule(
+    def test_hand_edited_authelia_config_aborts(
         self, client, tmp_paths, fake_redis, csrf_headers,
     ):
         """When the previous domain cannot be found, we do not guess: we abort."""
@@ -873,7 +873,7 @@ class TestModalites:
     tests, so a change breaking them would have gone through green.
     """
 
-    def test_liste_rassemble_les_configurations(
+    def test_list_gathers_configurations(
         self, client, tmp_paths, fake_redis, valid_authelia_yml,
     ):
         """Orthanc only returns names: the route must join in the details."""
@@ -906,11 +906,11 @@ class TestModalites:
         entrees = fake_redis.sync.xrange("admin:audit")
         assert any(e[1].get("event") == "orthanc.modality.saved" for e in entrees)
 
-    def test_titre_ae_trop_long_refuse(
+    def test_ae_title_too_long_refused(
         self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
     ):
-        """16 caracteres au maximum : au-dela l'equipement refuse l'association
-        sans indiquer pourquoi, autant le dire tout de suite."""
+        """Sixteen characters at most: beyond that the device refuses the
+        association without saying why, so better to say it up front."""
         r = client.put("/api/admin/modalities/TROP-LONG", json={
             "aet": "A" * 17, "host": "192.0.2.30", "port": 104,
         }, headers=csrf_headers)
@@ -940,11 +940,11 @@ class TestModalites:
         assert r.status_code == 200, r.text
         assert r.json()["reachable"] is True
 
-    def test_echo_injoignable_ne_leve_pas_derreur(
+    def test_unreachable_echo_is_not_an_error(
         self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
     ):
-        """Un equipement muet est un resultat, pas une panne : la route repond
-        200 en signalant l'echec, pour que l'interface l'affiche."""
+        """A silent device is a result, not a failure: the route answers 200
+        while reporting the failure, so the interface can show it."""
         with respx.mock(base_url="http://orthanc:8042") as mock:
             mock.post("/modalities/IRM-1/echo").respond(
                 status_code=500, text="TCP Initialization Error",
@@ -963,10 +963,10 @@ class TestModificationUtilisateur:
     compte et de le recreer -- en lui faisant perdre son mot de passe.
     """
 
-    def test_modification_partielle(
+    def test_partial_update(
         self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
     ):
-        """Les champs absents ne doivent pas etre ecrases."""
+        """Fields left out must not be overwritten."""
         r = client.patch("/api/admin/users/cuffel.gregory", json={
             "displayname": "Docteur Cuffel",
         }, headers=csrf_headers)
@@ -996,12 +996,13 @@ class TestModificationUtilisateur:
         yml = yaml.safe_load(tmp_paths["authelia"].read_text())
         assert yml["users"]["cuffel.gregory"]["groups"] == ["doctor"]
 
-    def test_refus_de_degrader_le_dernier_admin(
+    def test_refuses_to_demote_the_last_admin(
         self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
     ):
-        """Se retirer du groupe admin quand on est le seul laisserait la stack
-        sans personne pour l'administrer. Refus attendu en 400 -- et non en
-        500, qui ne distingue pas un refus deliberé d'une panne."""
+        """Removing yourself from the admin group while being the only one
+        would leave the stack with nobody to administer it. A 400 is expected
+        -- not a 500, which does not tell a deliberate refusal from a
+        failure."""
         r = client.patch("/api/admin/users/cuffel.gregory", json={
             "groups": ["doctor"],
         }, headers=csrf_headers)
