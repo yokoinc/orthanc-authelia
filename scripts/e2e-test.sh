@@ -2,18 +2,18 @@
 # =============================================================================
 # ORTHANC-AUTHELIA — Test de bout en bout
 # =============================================================================
-# Rejoue une installation complete depuis zero et verifie que la pile repond :
+# Replays a full installation from scratch and checks the stack answers:
 # bootstrap, demarrage, wizard, creation de l'administrateur, connexion, puis
 # acces a Orthanc, a DICOMweb et au panel.
 #
-# La pile de test est ISOLEE : projet Docker distinct, ports distincts,
-# volumes et reseau distincts, et une copie du depot dans un dossier
-# temporaire. L'installation de developpement n'est jamais touchee, le test
-# peut donc etre relance autant de fois que voulu.
+# The test stack is ISOLATED: separate Docker project, separate ports,
+# separate volumes and network, and a copy of the repository in a temporary
+# directory. The development installation is never touched, so the test can
+# be rerun as often as wanted.
 #
 # Usage :
 #   ./scripts/e2e-test.sh              # test complet puis nettoyage
-#   ./scripts/e2e-test.sh --keep       # laisse la pile debout pour inspection
+#   ./scripts/e2e-test.sh --keep       # leaves the stack up for inspection
 #
 # Code de sortie 0 si tout passe, 1 sinon.
 # =============================================================================
@@ -51,9 +51,9 @@ nettoyer() {
     fi
     etape "Nettoyage"
     (cd "$TRAVAIL" && compose down -v >/dev/null 2>&1) && ok "pile supprimee"
-    # Les conteneurs ecrivent en root dans le dossier monte (base Authelia,
-    # configuration generee, verrous) : un rm lance par l'utilisateur bute
-    # dessus. On repasse par un conteneur, qui a les droits.
+    # Containers write as root into the mounted directory (Authelia
+    # database, generated configuration, locks): an rm run by the user trips
+    # over them. We go through a container, which has the rights.
     if ! rm -rf "$TRAVAIL" 2>/dev/null; then
         docker run --rm -v /tmp:/tmp-hote alpine \
             rm -rf "/tmp-hote/$(basename "$TRAVAIL")" >/dev/null 2>&1
@@ -68,9 +68,9 @@ nettoyer() {
 trap nettoyer EXIT
 
 # --- Copie du depot --------------------------------------------------------
-# git archive plutot que cp : seuls les fichiers VERSIONNES sont copies, donc
-# le test part exactement de ce qu'obtient quelqu'un qui clone. Un fichier
-# oublie dans .gitignore mais indispensable se verra ici, et pas autrement.
+# git archive rather than cp: only VERSIONED files are copied, so the test
+# starts from exactly what someone cloning gets. A file left out by
+# .gitignore yet required will show up here, and nowhere else.
 etape "Copie du depot (fichiers versionnes uniquement)"
 if ! git -C "$DEPOT" archive HEAD | tar -x -C "$TRAVAIL"; then
     echec "impossible d'extraire le depot"
@@ -91,8 +91,8 @@ else
 fi
 
 # --- Isolation -------------------------------------------------------------
-# bootstrap fixe l'URL publique sur le port 30443, occupe par l'installation
-# de developpement. On la deplace, ainsi que tout ce qui porte un nom fixe :
+# bootstrap pins the public URL to port 30443, taken by the development
+# installation. We move it, along with everything bearing a fixed name:
 # conteneurs, volumes et reseau entreraient sinon en collision.
 etape "Isolation de la pile de test"
 sed -i "s|pacs.localhost:30443|pacs.localhost:${PORT_HTTPS}|g" \
@@ -156,8 +156,8 @@ code=$(curl -ks -o /tmp/e2e-final.json -m 20 -w '%{http_code}' \
     -H "X-CSRF-Token: ${CSRF}" -b "orthanc_admin_csrf=${CSRF}")
 if [[ "$code" == "200" ]]; then
     ok "installation finalisee"
-    # Le compte d'amorcage doit avoir disparu : c'est tout l'objet du
-    # nettoyage ajoute a la finalisation.
+    # The bootstrap account must be gone: that is the whole point of the
+    # cleanup added at finalisation.
     if grep -q 'bootstrap@localhost' services/authelia/config/users_database.yml 2>/dev/null; then
         echec "le compte d'amorcage survit a la finalisation"
     else
@@ -184,12 +184,12 @@ fi
 # --- Acces authentifie -----------------------------------------------------
 etape "Acces authentifie"
 
-# Attendre qu'Orthanc reponde avant de verifier quoi que ce soit. La page de
-# connexion, seule condition d'attente jusqu'ici, ne prouve que la
-# disponibilite de nginx et d'Authelia : sur une installation neuve Orthanc
-# doit encore creer son schema PostgreSQL et charger ses plugins, ce qui
-# prend nettement plus longtemps. Sans cette attente le test rendait des 502
-# et signalait une regression inexistante.
+# Wait for Orthanc to answer before checking anything. The login page, the
+# only wait condition until now, proves nothing beyond nginx and Authelia
+# being up: on a fresh installation Orthanc still has to create its
+# PostgreSQL schema and load its plugins, which takes noticeably longer.
+# Without this wait the test returned 502s and reported a regression that did
+# not exist.
 info "attente d'Orthanc (90 s max)"
 orthanc_pret=0
 for _ in $(seq 1 45); do
@@ -221,13 +221,13 @@ verifier /dicom-web/studies  200
 verifier /console/           200
 verifier /ohif/app-config.js 200
 
-# Le profil renvoye a Orthanc decide des droits : un groupe non reconnu fait
-# silencieusement retomber sur un profil en lecture seule.
-# On verifie la presence des droits qui comptent, et non leur nombre : un
-# compte fige casse des qu'une permission est ajoutee, sans rien dire d'utile.
-# admin-permissions est le plus revelateur -- c'est lui qui gouverne la
-# gestion des equipements DICOM, et son absence est passee inapercue
-# longtemps parce que 'all' ne le couvre pas.
+# The profile returned to Orthanc decides the rights: an unrecognised group
+# silently falls back to a read-only profile.
+# We check for the presence of the rights that matter, not their count: a
+# frozen count breaks as soon as a permission is added, while saying nothing
+# useful. admin-permissions is the most telling -- it governs DICOM device
+# management, and its absence went unnoticed for a long time because 'all'
+# does not cover it.
 profil=$(curl -ks -m 20 -b "$BISCUITS" "${URL}/ui/api/configuration" \
     | python3 -c '
 import json, sys
@@ -243,12 +243,12 @@ else
 fi
 
 # --- Fonctions du panel ----------------------------------------------------
-# Ces routes ont longtemps existe cote serveur sans aucune interface : rien ne
-# les exercait, donc rien n'aurait signale qu'elles cassaient.
+# These routes existed server-side without any interface for a long time:
+# nothing exercised them, so nothing would have reported them breaking.
 etape "Fonctions du panel d'administration"
 
-# whoami pose le cookie CSRF, comme le fait le SPA a son chargement. Les
-# ecritures sont refusees sans lui.
+# whoami sets the CSRF cookie, as the SPA does on load. Writes are refused
+# without it.
 curl -ks -o /dev/null -m 20 -b "$BISCUITS" -c "$BISCUITS" "${URL}/console/api/admin/whoami"
 JETON=$(awk '/orthanc_admin_csrf/ {print $NF}' "$BISCUITS" | tail -1)
 if [[ -n "$JETON" ]]; then
@@ -283,29 +283,31 @@ verifier_panel GET /console/api/admin/modalities '' 'equipements DICOM'
 verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
     '{"displayname":"Admin E2E renomme"}' 'modification de compte'
 
-# Garde-fou : l'administrateur du wizard est le seul compte. Se retirer du
-# groupe admin, ou se desactiver, laisserait la pile sans personne pour
-# l'administrer. Le serveur doit refuser avec un 400 explicite -- et non une
-# erreur 500, ce qui etait le cas avant que les violations d'invariant soient
+# Safety net: the wizard's administrator is the only account. Removing
+# oneself from the admin group, or disabling oneself, would leave the stack
+# with nobody to
+# administer it. The server must refuse with an explicit 400 -- not a 500,
+# which is what happened before invariant violations were
 # converties.
 verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
     '{"groups":["doctor"]}' 'refus de perdre le dernier admin' 400
 verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
     '{"disabled":true}' 'refus de desactiver le dernier admin' 400
 
-# L'administrateur cree par le wizard est le seul compte : changer son mot de
-# passe n'affecte rien d'autre que la session de ce test, supprimee ensuite.
+# The administrator created by the wizard is the only account: changing its
+# password affects nothing beyond this test's session, deleted afterwards.
 verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}/password" \
     '{"new_password":"nouveau-mot-de-passe-e2e-123"}' 'changement de mot de passe'
 
 # --- Chaine DICOM ----------------------------------------------------------
-# Le reste du test verifie que les URLs repondent. Ici on verifie que le
-# produit fait son travail : qu'un examen entre, s'indexe en conservant ses
-# metadonnees, et ressort par DICOMweb -- ce dont dependent les visionneuses.
+# The rest of the test checks that URLs answer. Here we check the product
+# does its job: that a study goes in, gets indexed while keeping its
+# metadata, and comes back out through DICOMweb -- which the viewers rely
+# on.
 etape "Chaine DICOM"
 
-# Un DICOM valide, fabrique a la volee : pas de fichier binaire a versionner,
-# et les identifiants sont uniques a chaque execution.
+# A valid DICOM, built on the fly: no binary file to version, and the
+# identifiers are unique on every run.
 cat > /tmp/e2e-gen-dicom.py <<'PYDICOM'
 import numpy as np
 from pydicom.dataset import Dataset, FileMetaDataset
@@ -364,15 +366,15 @@ else
 fi
 
 if [[ -f /tmp/e2e.dcm ]]; then
-    # L'endpoint d'import ne demande pas de session Authelia -- c'est la voie
-    # des scripts -- mais une authentification HTTP Basic propre, dont les
-    # identifiants sont generes par bootstrap.sh.
+    # The import endpoint asks for no Authelia session -- it is the path for
+    # scripts -- but for proper HTTP Basic authentication, whose credentials
+    # are generated by bootstrap.sh.
     UP_USER=$(grep '^UPLOAD_USER=' .env | cut -d= -f2-)
     UP_PASS=$(grep '^UPLOAD_PASSWORD=' .env | cut -d= -f2-)
 
-    # Un envoi sans identifiants doit etre refuse : cet endpoint accepte des
-    # donnees medicales sans session, le laisser ouvert permettrait a
-    # quiconque sur le reseau d'alimenter la base.
+    # An upload without credentials must be refused: this endpoint accepts
+    # medical data without a session, and leaving it open would let anyone on
+    # the network feed the database.
     refus=$(curl -ks -o /dev/null -m 20 -w '%{http_code}' \
         -X POST "${URL}/api-upload/instances" \
         -H 'Content-Type: application/dicom' --data-binary @/tmp/e2e.dcm)
@@ -392,7 +394,7 @@ if [[ -f /tmp/e2e.dcm ]]; then
         echec "envoi refuse : HTTP $code $(head -c 90 /tmp/e2e-upload.json)"
     fi
 
-    # Indexation : l'examen doit apparaitre dans le compte d'Orthanc.
+    # Indexing: the study must show up in Orthanc's count.
     etudes=$(curl -ks -m 20 -b "$BISCUITS" "${URL}/statistics" \
         | python3 -c 'import json,sys; print(json.load(sys.stdin)["CountStudies"])' 2>/dev/null)
     if [[ "$etudes" == "1" ]]; then
@@ -401,8 +403,8 @@ if [[ -f /tmp/e2e.dcm ]]; then
         echec "indexation : ${etudes:-illisible} etude(s) au lieu de 1"
     fi
 
-    # Metadonnees : un examen indexe mais dont les tags sont perdus ne sert a
-    # rien -- la recherche par patient ou par date ne le retrouverait pas.
+    # Metadata: a study that is indexed but has lost its tags is useless --
+    # searching by patient or by date would not find it.
     lu=$(curl -ks -m 20 -b "$BISCUITS" "${URL}/studies?expand" \
         | python3 -c 'import json,sys; e=json.load(sys.stdin)[0]; print(e["PatientMainDicomTags"]["PatientID"], e["MainDicomTags"]["AccessionNumber"])' 2>/dev/null)
     if [[ "$lu" == "E2E-0001 ACC-E2E-1" ]]; then
@@ -411,7 +413,7 @@ if [[ -f /tmp/e2e.dcm ]]; then
         echec "metadonnees alterees : '${lu:-illisible}'"
     fi
 
-    # DICOMweb : c'est par la que les visionneuses recuperent les images.
+    # DICOMweb: this is how the viewers fetch the images.
     nb=$(curl -ks -m 20 -b "$BISCUITS" "${URL}/dicom-web/studies" \
         | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null)
     if [[ "$nb" == "1" ]]; then
@@ -420,18 +422,18 @@ if [[ -f /tmp/e2e.dcm ]]; then
         echec "DICOMweb renvoie ${nb:-illisible} examen(s) au lieu de 1"
     fi
 
-    # Le DICOM est ecrit par le conteneur, donc en root : le supprimer
-    # demande de repasser par un conteneur, comme pour le dossier de travail.
+    # The DICOM is written by the container, therefore as root: deleting it
+    # requires going through a container, as for the working directory.
     rm -f /tmp/e2e-gen-dicom.py
     docker run --rm -v /tmp:/tmp-hote alpine rm -f /tmp-hote/e2e.dcm >/dev/null 2>&1
 fi
 
 # --- Proprietaire des fichiers ---------------------------------------------
-# Authelia et auth-service ecrivent dans le depot. S'ils tournent en root, ils
-# s'approprient les dossiers et toute reinstallation ulterieure echoue sur un
-# "Permission denied" -- la procedure de remise a zero du README devient
+# Authelia and auth-service write into the repository. If they run as root
+# they take ownership of the directories and any later reinstall fails on a
+# "Permission denied" -- the README's reset procedure becomes
 # inapplicable. Le compose leur impose l'identite de l'utilisateur ; on verifie
-# qu'elle est bien appliquee, sinon rien ne le signalerait avant la prochaine
+# that it is applied, since nothing else would report it before the next
 # reinstallation.
 etape "Proprietaire des fichiers ecrits"
 etrangers=$(find services/authelia/config services/orthanc/config data \
@@ -444,14 +446,15 @@ else
 fi
 
 # --- Perimetre du proxy Docker ---------------------------------------------
-# Le socket Docker vaut root sur l'hote. Le proxy n'en expose qu'une operation,
-# le redemarrage d'un conteneur ; le reste doit etre refuse.
+# The Docker socket amounts to root on the host. The proxy exposes only one
+# operation, restarting a container; everything else must be refused.
 #
-# Ce test n'est pas theorique : avec CONTAINERS=1, la variable POST=1 ouvrait
+# This test is not theoretical: with CONTAINERS=1, the POST=1 variable
+# opened
 # TOUT /containers/*, dont POST /containers/create. Un conteneur privilegie
-# montant la racine de l'hote etait alors accepte -- soit exactement l'evasion
-# que ce montage doit empecher. La regression tiendrait dans une seule ligne du
-# compose, sans rien casser de visible : d'ou cette verification.
+# mounting the host root was then accepted -- exactly the escape this mount
+# must prevent. The regression would fit in a single line of the compose
+# file, breaking nothing visible: hence this check.
 etape "Perimetre du proxy Docker"
 if compose ps --services 2>/dev/null | grep -qx socket-proxy; then
     interroge_proxy() {
