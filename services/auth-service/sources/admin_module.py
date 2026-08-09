@@ -1290,7 +1290,7 @@ async def admin_whoami(admin: AdminUser = Depends(require_admin)):
     """
     csrf = pysecrets.token_urlsafe(32)
 
-    # Nom du serveur, tel qu'Orthanc l'applique reellement. Le panel
+    # Server name, as Orthanc actually applies it. The panel
     # hard-coded it ("Orthanc"): renaming the server therefore had no effect
     # on its own panel, while Orthanc Explorer displayed the right name. We
     # read the effective value rather than the configuration file, which may
@@ -1438,7 +1438,7 @@ async def setup_finalize():
 
 @router.get("/setup/network")
 async def setup_network_get():
-    """URL publique actuelle, pour preremplir le champ du wizard."""
+    """Current public URL, to prefill the wizard's field."""
     return {
         "public_url": _read_env_var("PUBLIC_URL"),
         "editable": ENV_FILE.exists(),
@@ -1447,11 +1447,11 @@ async def setup_network_get():
 
 @router.post("/setup/network")
 async def setup_network(payload: PublicUrlPayload):
-    """Etape optionnelle du wizard : declarer l'URL publique definitive.
+    """Optional wizard step: declare the final public URL.
 
-    A appeler AVANT finalize. Le changement ne prend effet qu'au redemarrage
-    de la pile, et invalide la session en cours puisque le cookie est lie a
-    l'ancien domaine.
+    To be called BEFORE finalize. The change only takes effect when the stack
+    restarts, and invalidates the current session since the cookie is bound
+    to the previous domain.
     """
     if await _setup_completed():
         raise HTTPException(
@@ -1520,10 +1520,10 @@ async def admin_preferences_get(admin: AdminUser = Depends(require_admin)):
 async def admin_language_put(
     payload: LanguagePayload, admin: AdminUser = Depends(require_admin),
 ):
-    """Change la langue de l'interface.
+    """Change the interface language.
 
-    Prend effet a la requete suivante : les translations sont resolues a
-    l'affichage, et non chargees une fois pour toutes au demarrage.
+    Takes effect on the next request: translations are resolved at display
+    time, not loaded once and for all at startup.
     """
     if payload.language not in AVAILABLE_LANGUAGES:
         raise HTTPException(
@@ -1550,10 +1550,10 @@ async def admin_network_get(admin: AdminUser = Depends(require_admin)):
 async def admin_network(
     payload: PublicUrlPayload, admin: AdminUser = Depends(require_admin),
 ):
-    """Change l'URL publique apres l'installation.
+    """Change the public URL after installation.
 
-    Meme consequence que pendant le wizard : redemarrage necessaire, et
-    reconnexion sur la nouvelle adresse.
+    Same consequence as during the wizard: a restart is needed, and one must
+    log back in at the new address.
     """
     return await _apply_public_url(payload.public_url, actor=admin.username)
 
@@ -1603,15 +1603,15 @@ async def update_user(
     payload: UserUpdatePayload,
     admin: AdminUser = Depends(require_admin),
 ):
-    """Modifie un compte existant sans toucher a son mot de passe.
+    """Modify an existing account without touching its password.
 
-    Jusqu'ici le panel ne savait que creer et supprimer : changer le groupe de
-    quelqu'un imposait de detruire son compte et de le recreer, ce qui lui
-    faisait perdre son mot de passe au passage.
+    Until now the panel could only create and delete: changing someone's
+    group meant destroying their account and recreating it, losing their
+    password on the way.
 
-    L'invariant "au moins un administrateur actif" est verifie a l'ecriture :
-    se retirer du groupe admin ou se desactiver soi-meme alors qu'on est le
-    dernier est donc refuse avec un message explicite.
+    The "at least one active administrator" invariant is checked on write:
+    removing yourself from the admin group, or disabling yourself while being
+    the last one, is therefore refused with an explicit message.
     """
     data = _load_authelia()
     if username not in data.get("users", {}):
@@ -1772,8 +1772,9 @@ async def update_orthanc_config(
     except httpx.HTTPError as e:
         status = getattr(getattr(e, "response", None), "status_code", None)
 
-        # Un refus explicite du plugin Authorization ne remet pas en cause
-        # the write: the file is valid, only the hot reload is unavailable.
+        # An explicit refusal from the Authorization plugin does not call
+        # the write into question: the file is valid, only the hot reload is
+        # unavailable.
         # /tools/reset is covered by no permission pattern of the plugin,
         # which rejects it without even consulting auth-service. Keeping the
         # change and stating what to do next beats losing it.
@@ -1890,11 +1891,10 @@ ORTHANC_VERIFIABLE: dict[str, tuple[str, tuple[str, ...]]] = {
 
 
 async def _check_effective_config() -> list[dict[str, Any]]:
-    """Compare ce que declare orthanc.json a ce qu'Orthanc applique.
+    """Compare what orthanc.json declares with what Orthanc applies.
 
-    Ne renvoie que les ecarts. Un champ absent du fichier n'en est pas un :
-    Orthanc applique alors sa valeur par defaut, ce qui est le comportement
-    attendu.
+    Only returns divergences. A field absent from the file is not one:
+    Orthanc then applies its default, which is the expected behaviour.
     """
     try:
         config = _load_orthanc_config()
@@ -1940,10 +1940,10 @@ async def _check_effective_config() -> list[dict[str, Any]]:
 
 
 async def _wait_for_orthanc(tentatives: int = 30, pause: int = 2) -> str:
-    """Attend qu'Orthanc reponde. Renvoie sa version, ou "" s'il reste muet.
+    """Wait for Orthanc to answer. Returns its version, or "" if it stays mute.
 
-    Orthanc ouvre son port avant d'avoir fini de charger ses plugins : on
-    interroge /system, qui ne repond qu'une fois le serveur reellement pret.
+    Orthanc opens its port before it has finished loading its plugins, so we
+    query /system, which only answers once the server is genuinely ready.
     """
     for _ in range(tentatives):
         await asyncio.sleep(pause)
@@ -1957,10 +1957,10 @@ async def _wait_for_orthanc(tentatives: int = 30, pause: int = 2) -> str:
 
 
 def _latest_orthanc_backup() -> Path | None:
-    """Sauvegarde d'orthanc.json la plus recente, si elle existe.
+    """The most recent orthanc.json backup, if any.
 
-    Les noms portent un horodatage (orthanc.json.bak.AAAAMMJJ-HHMMSS), donc
-    l'ordre alphabetique est l'ordre chronologique.
+    Names carry a timestamp (orthanc.json.bak.YYYYMMDD-HHMMSS), so
+    alphabetical order is chronological order.
     """
     prefixe = ORTHANC_JSON.name + ".bak."
     sauvegardes = sorted(BACKUPS_DIR.glob(prefixe + "*"), reverse=True)
@@ -1968,7 +1968,7 @@ def _latest_orthanc_backup() -> Path | None:
 
 
 async def _request_restart() -> None:
-    """Demande le redemarrage du container au proxy Docker."""
+    """Ask the Docker proxy to restart the container."""
     async with httpx.AsyncClient(timeout=90) as client:
         r = await client.post(
             f"{DOCKER_PROXY_URL}/containers/{ORTHANC_CONTAINER}/restart",
@@ -1989,21 +1989,21 @@ async def _request_restart() -> None:
 
 @router.post("/api/admin/orthanc/restart")
 async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
-    """Redemarre le conteneur Orthanc et attend qu'il reponde a nouveau.
+    """Restart the Orthanc container and wait for it to answer again.
 
-    Un changement de configuration n'a d'effet qu'apres redemarrage : l'image
-    orthancteam GENERE /tmp/orthanc.json au demarrage (defauts de l'image +
-    /etc/orthanc/*.json + variables ORTHANC__*), et c'est ce fichier que le
-    processus lit. /tools/reset ne relit que le fichier genere, donc ne voit
-    aucune de nos modifications.
+    A configuration change only takes effect after a restart: the orthancteam
+    image GENERATES /tmp/orthanc.json at startup (image defaults +
+    /etc/orthanc/*.json + ORTHANC__* variables), and that generated file is
+    what the process reads. /tools/reset only re-reads the generated file, so
+    it sees none of our changes.
 
-    A distance, un acces SSH n'est pas toujours disponible : sans cette route,
-    modifier la configuration depuis le panel laisse l'exploitant bloque.
+    Remotely, SSH access is not always available: without this route,
+    changing the configuration from the panel leaves the operator stuck.
 
-    On attend le retour effectif d'Orthanc plutot que de repondre des que
-    Docker a rendu la main. Une configuration acceptee a l'ecriture peut tres
-    bien empecher Orthanc de redemarrer ; l'exploitant doit l'apprendre ici, et
-    non en decouvrant plus tard un PACS eteint.
+    We wait for Orthanc to actually come back rather than answering as soon
+    as Docker returns. A configuration accepted on write may well stop
+    Orthanc from starting; the operator must learn it here, not by finding a
+    dead PACS later on.
     """
     if not DOCKER_PROXY_URL:
         raise HTTPException(
@@ -2031,7 +2031,7 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
     if version:
         await _audit("orthanc.restarted", admin.username,
                      container=ORTHANC_CONTAINER)
-        # Orthanc repond : cela ne dit pas encore qu'il applique ce qu'on a
+        # Orthanc answers: that does not yet mean it applies what we
         # wrote. Compare, rather than declaring success on the strength of a
         # simple redemarrage.
         ecarts = await _check_effective_config()
@@ -2113,11 +2113,11 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
 
 @router.get("/api/admin/config-effective")
 async def config_effective(admin: AdminUser = Depends(require_admin)):
-    """Ecarts entre la configuration ecrite et celle qu'Orthanc applique.
+    """Divergences between the written configuration and the applied one.
 
-    Utile hors redemarrage : un ecart persistant signale une variable
-    d'environnement qui prend le pas sur le fichier, ou un champ place au
-    mauvais endroit de l'arborescence.
+    Useful outside restarts: a persistent divergence points at an environment
+    variable taking precedence over the file, or at a field sitting at the
+    wrong place in the tree.
     """
     ecarts = await _check_effective_config()
     return {"ok": not ecarts, "ecarts": ecarts, "verifies": len(ORTHANC_VERIFIABLE)}
@@ -2126,11 +2126,11 @@ async def config_effective(admin: AdminUser = Depends(require_admin)):
 @router.get("/api/admin/health")
 async def admin_health(admin: AdminUser = Depends(require_admin)):
     """
-    Diagnostic pour l'onglet Health : etat des dependances de auth-service.
+    Diagnostics for the Health tab: state of auth-service's dependencies.
 
-    Retourne 200 avec un dict par composant ({ok: bool, detail: str}), meme
-    si certains composants sont KO — c'est le job de l'UI de decider quoi
-    montrer. On evite 503 global qui masquerait quel composant est en cause.
+    Returns 200 with one dict per component ({ok: bool, detail: str}), even
+    when some are down -- deciding what to show is the UI's job. A blanket
+    503 would hide which component is at fault.
     """
     checks = {}
 
@@ -2178,11 +2178,11 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
 
 @router.get("/api/admin/modalities")
 async def list_modalities(admin: AdminUser = Depends(require_admin)):
-    """Equipements DICOM declares, avec leur configuration.
+    """Declared DICOM devices, with their configuration.
 
-    Orthanc ne renvoie que les noms ; la configuration de chacun demande un
-    appel supplementaire. On les rassemble ici pour que l'affichage n'ait pas
-    a enchainer les requetes.
+    Orthanc only returns the names; each device's configuration takes an
+    extra call. We gather them here so the display does not have to chain
+    requests.
     """
     r = await _orthanc("GET", "/modalities")
     if r.status_code != 200:
@@ -2242,11 +2242,11 @@ async def delete_modality(name: str, admin: AdminUser = Depends(require_admin)):
 
 @router.post("/api/admin/modalities/{name}/echo")
 async def echo_modality(name: str, admin: AdminUser = Depends(require_admin)):
-    """Test de connectivite (C-ECHO).
+    """Connectivity test (C-ECHO).
 
-    Declarer un equipement ne dit pas s'il repond. Cet appel evite d'avoir a
-    diagnostiquer plus tard un transfert qui echoue faute d'adresse ou de port
-    corrects.
+    Declaring a device says nothing about whether it answers. This call
+    spares having to diagnose, later on, a transfer failing for want of a
+    correct address or port.
     """
     r = await _orthanc("POST", f"/modalities/{name}/echo", json={})
     joignable = r.status_code == 200
@@ -2265,11 +2265,11 @@ async def read_audit(
     limit: int = 100,
     admin: AdminUser = Depends(require_admin),
 ):
-    """Journal d'audit, l'evenement le plus recent en premier.
+    """Audit log, most recent event first.
 
-    Le flux etait alimente depuis le debut mais rien ne le lisait : les
-    creations de comptes, les changements de configuration et les tentatives
-    CSRF rejetees s'accumulaient sans que personne puisse les consulter.
+    The stream had been fed since day one but nothing read it: account
+    creations, configuration changes and rejected CSRF attempts piled up with
+    no way for anyone to consult them.
     """
     limit = max(1, min(limit, 500))
     try:
@@ -2300,10 +2300,10 @@ async def read_audit(
 
 @router.get("/api/admin/backups")
 async def list_backups(admin: AdminUser = Depends(require_admin)):
-    """Sauvegardes disponibles, la plus recente en premier.
+    """Available backups, most recent first.
 
-    Sans cette route, la restauration existait sans moyen de savoir quoi
-    restaurer : le nom exact du fichier devait etre devine.
+    Without this route, restoring existed with no way to know what to
+    restore: the exact file name had to be guessed.
     """
     if not BACKUPS_DIR.exists():
         return {"backups": []}
@@ -2338,12 +2338,12 @@ async def list_backups(admin: AdminUser = Depends(require_admin)):
 
 @router.post("/api/admin/backups")
 async def create_backup(admin: AdminUser = Depends(require_admin)):
-    """Sauvegarde volontaire des fichiers de configuration.
+    """Deliberate backup of the configuration files.
 
-    Jusqu'ici les copies n'etaient creees qu'en reaction a une ecriture du
-    panel : impossible de prendre un point de reprise avant une manipulation
-    risquee -- une montee de version, une edition manuelle d'un fichier --
-    alors que c'est precisement le moment ou on en veut un.
+    Until now copies were only created in reaction to a panel write: taking a
+    restore point before a risky operation -- a version upgrade, a manual
+    edit of a file -- was impossible, although that is precisely when one
+    wants it.
     """
     fichiers = [
         (AUTHELIA_YML, "comptes"),
