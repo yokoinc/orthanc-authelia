@@ -49,7 +49,7 @@
   // Persist DICOM modalities and Orthanc peers in the database.
   //
   // Without these two flags, any device added from the panel
-  // d'administration (ou via l'API REST) disparait au redemarrage
+  // (or through the REST API) disappears when Orthanc restarts:
   // of Orthanc: the list is re-read from this file on every start.
   //
   // The panel refuses to set them back to false, for the same reason.
@@ -69,7 +69,7 @@
     "Password": "change-this-postgres-password"
   },
   // Note: the values above are overridden at runtime by the env vars
-  // ORTHANC__POSTGRESQL__* injectees par docker-compose.yml a partir du .env.
+  // ORTHANC__POSTGRESQL__* that docker-compose.yml injects from .env.
   // Editing here only has an effect if the env vars are removed from the
   // compose file.
 
