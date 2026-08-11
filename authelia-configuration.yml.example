@@ -88,9 +88,9 @@ access_control:
     - domain: ${AUTHELIA_DOMAIN}
       policy: bypass
       resources:
-        - "^/console/setup.*$"        # page du wizard
+        - "^/console/setup.*$"        # wizard page
         - "^/console/assets/.*$"       # JS/CSS necessaires a son affichage
-        - "^/console/api/setup/.*$"    # creation du compte + finalisation
+        - "^/console/api/setup/.*$"    # account creation and finalisation
 
     # Admin hub: authentication required. Membership of the "admin" group is
     # then checked on the FastAPI side.

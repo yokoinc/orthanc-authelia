@@ -226,7 +226,7 @@ services:
     restart: unless-stopped
     environment:
       # Everything is denied by default. We open the strict minimum:
-      - POST=1            # sans quoi l'API entiere est en lecture seule
+      - POST=1            # without it the whole API is read-only
       - ALLOW_RESTARTS=1  # containers/<id>/restart (et stop, kill)
       #
       # CONTAINERS stays at 0, and that matters: with CONTAINERS=1, POST=1
@@ -238,7 +238,7 @@ services:
       - CONTAINERS=0
       # Explicitly denied, so that reading this file is enough to know what
       # is possible:
-      - EXEC=0            # pas d'execution de commande dans un conteneur
+      - EXEC=0            # no command execution inside a container
       - IMAGES=0
       - VOLUMES=0
       - NETWORKS=0

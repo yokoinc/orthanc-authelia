@@ -207,7 +207,7 @@ else
     # .env.example, being specific to the admin panel.
     {
         echo ""
-        echo "# Compte Orthanc utilise par auth-service pour recharger la config"
+        echo "# Orthanc account used by auth-service to reload the configuration"
         echo "ORTHANC_ADMIN_USER=svc-auth"
         echo "ORTHANC_ADMIN_PASS=$ORTHANC_PASS"
     } >> .env

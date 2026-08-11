@@ -426,7 +426,7 @@ class TestFileLock:
         orig_flock = admin_module.FileLock
 
         def fast_flock(path, timeout=None):
-            return orig_flock(path, timeout=1)  # 1s au lieu de 5s
+            return orig_flock(path, timeout=1)  # 1s instead of 5s
 
         monkeypatch.setattr(admin_module, "FileLock", fast_flock)
 
@@ -435,13 +435,13 @@ class TestFileLock:
 
         def hold_lock():
             with orig_flock(lock_path, timeout=5):
-                barrier.wait()  # signale au test qu'on tient le lock
-                time.sleep(3)   # hold plus longtemps que le timeout endpoint
+                barrier.wait()  # tells the test we hold the lock
+                time.sleep(3)   # hold longer than the endpoint timeout
 
         holder = threading.Thread(target=hold_lock)
         holder.start()
         try:
-            barrier.wait()  # attend que hold_lock ait le lock
+            barrier.wait()  # wait for hold_lock to take the lock
 
             # Maintenant tente d'ecrire via l'API
             r = client.patch("/api/admin/orthanc/config", json={
@@ -746,7 +746,7 @@ class TestOrthancReloadRefused:
 # ============================================================================
 
 CONFIG_TYPE = """\
-# Regles d'acces -- commentaire a preserver
+# Access rules -- comment that must survive
 access_control:
   rules:
     - domain: pacs.localhost
@@ -755,7 +755,7 @@ access_control:
       policy: one_factor
 session:
   cookies:
-    - domain: pacs.localhost   # domaine du cookie, sans port
+    - domain: pacs.localhost   # cookie domain, without a port
       authelia_url: https://pacs.localhost:30443/auth
       default_redirection_url: https://pacs.localhost:30443/ui/app/
 """
@@ -798,8 +798,8 @@ class TestPublicUrl:
         # The port disappears along with the previous origin
         assert ":30443" not in cfg
         # Comments are preserved: a YAML round-trip would lose them
-        assert "commentaire a preserver" in cfg
-        assert "sans port" in cfg
+        assert "comment that must survive" in cfg
+        assert "without a port" in cfg
 
     def test_meme_url_ne_touche_a_rien(
         self, client, tmp_paths, fake_redis, csrf_headers,

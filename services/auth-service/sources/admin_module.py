@@ -1300,7 +1300,7 @@ async def admin_whoami(admin: AdminUser = Depends(require_admin)):
         r = await _orthanc("GET", "/system")
         if r.status_code == 200:
             nom_serveur = r.json().get("Name", "")
-    except Exception:  # noqa: BLE001 - Orthanc indisponible ne doit pas casser le panel
+    except Exception:  # noqa: BLE001 - Orthanc being down must not break the panel
         pass
 
     resp = JSONResponse(
@@ -1334,12 +1334,12 @@ async def _setup_completed() -> bool:
     try:
         if (await _r().get(SETUP_KEY)) == "1":
             return True
-    except Exception:  # noqa: BLE001 - Redis indisponible : on tranche sur le fichier
+    except Exception:  # noqa: BLE001 - Redis unavailable: decide from the file
         pass
 
     try:
         data = _load_authelia()
-    except Exception:  # noqa: BLE001 - fichier illisible : ne pas ouvrir le wizard
+    except Exception:  # noqa: BLE001 - unreadable file: do not open the wizard
         return True
 
     return any(
@@ -1428,7 +1428,7 @@ async def setup_finalize():
         bootstrap_removed = BOOTSTRAP_USERNAME
 
     await _r().set(SETUP_KEY, "1")
-    await _r().delete(SETUP_FIRST_ADMIN_KEY)  # verrou setup levee, ne sert plus
+    await _r().delete(SETUP_FIRST_ADMIN_KEY)  # setup lock lifted, no longer needed
     await _audit(
         "setup.finalized", actor="wizard", admin_count=len(admins),
         bootstrap_removed=bootstrap_removed,
@@ -1667,7 +1667,7 @@ async def delete_user(username: str, admin: AdminUser = Depends(require_admin)):
     if username not in data.get("users", {}):
         raise HTTPException(404, _msg("err_user_unknown", "user inconnu"))
     del data["users"][username]
-    _write_authelia(data)  # valide invariant "au moins 1 admin actif"
+    _write_authelia(data)  # enforces the "at least one active admin" invariant
     await _audit("authelia.user.deleted", admin.username, target=username)
     return {"ok": True}
 
@@ -1898,7 +1898,7 @@ async def _check_effective_config() -> list[dict[str, Any]]:
     """
     try:
         config = _load_orthanc_config()
-    except Exception:  # noqa: BLE001 - fichier illisible, deja signale ailleurs
+    except Exception:  # noqa: BLE001 - unreadable file, already reported elsewhere
         return []
 
     reponses: dict[str, dict] = {}
@@ -1918,7 +1918,7 @@ async def _check_effective_config() -> list[dict[str, Any]]:
                 break
             voulu = voulu[morceau]
         if voulu is None:
-            continue  # non declare : la valeur par defaut s'applique
+            continue  # not declared: the default applies
 
         applique = reponses.get(endpoint) or {}
         for morceau in acces:
@@ -1927,7 +1927,7 @@ async def _check_effective_config() -> list[dict[str, Any]]:
                 break
             applique = applique[morceau]
         if applique is None:
-            continue  # Orthanc ne l'expose pas dans cette version
+            continue  # Orthanc does not expose it in this version
 
         if voulu != applique:
             ecarts.append({
@@ -1951,7 +1951,7 @@ async def _wait_for_orthanc(tentatives: int = 30, pause: int = 2) -> str:
             sonde = await _orthanc("GET", "/system")
             if sonde.status_code == 200:
                 return sonde.json().get("Version", "inconnue")
-        except Exception:  # noqa: BLE001 - normal pendant le redemarrage
+        except Exception:  # noqa: BLE001 - expected while restarting
             pass
     return ""
 
@@ -2075,7 +2075,7 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
     try:
         shutil.copy2(sauvegarde, ORTHANC_JSON)
         await _request_restart()
-    except Exception as e:  # noqa: BLE001 - on est deja dans le pire des cas
+    except Exception as e:  # noqa: BLE001 - we are already in the worst case
         await _audit("orthanc.rollback.failed", admin.username,
                      backup=sauvegarde.name, error=str(e))
         raise HTTPException(
@@ -2274,7 +2274,7 @@ async def read_audit(
     limit = max(1, min(limit, 500))
     try:
         brut = await _r().xrevrange(AUDIT_STREAM, count=limit)
-    except Exception as e:  # noqa: BLE001 - Redis indisponible ne doit pas casser le panel
+    except Exception as e:  # noqa: BLE001 - Redis being down must not break the panel
         raise HTTPException(503, _msg("err_audit_unreadable",
                                 "journal illisible : {detail}", detail=e)) from e
 

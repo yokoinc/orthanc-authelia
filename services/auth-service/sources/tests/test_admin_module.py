@@ -552,10 +552,10 @@ class TestNonDestructiveWrite:
     def test_key_added_after_trailing_comment(self):
         """Le commentaire de fin de bloc doit rester en dernier."""
         from admin_module import _apply_text_changes
-        source = '{\n  "Name": "Orthanc"\n  // fin du bloc\n}'
+        source = '{\n  "Name": "Orthanc"\n  // end of block\n}'
         out = _apply_text_changes(source, {"DicomAet": "PACS"})
         assert self._read_back(out) == {"Name": "Orthanc", "DicomAet": "PACS"}
-        assert out.index('"DicomAet"') < out.index("// fin du bloc")
+        assert out.index('"DicomAet"') < out.index("// end of block")
 
     def test_append_into_nested_object(self):
         from admin_module import _apply_text_changes

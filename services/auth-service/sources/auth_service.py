@@ -110,7 +110,7 @@ def _language() -> str:
         # it keep working without intervention.
         choisie = (_read_setting("language", "LANGUAGE")
                    or _read_setting("langue"))
-    except Exception:  # noqa: BLE001 - reglages illisibles ne cassent rien
+    except Exception:  # noqa: BLE001 - unreadable settings break nothing
         choisie = ""
     if choisie in AVAILABLE_LANGUAGES:
         return choisie
@@ -516,7 +516,7 @@ def _default_share_viewer() -> str:
         from admin_module import _read_share_type
 
         return _read_share_type()
-    except Exception:  # noqa: BLE001 - orthanc.json illisible ne casse rien
+    except Exception:  # noqa: BLE001 - an unreadable orthanc.json breaks nothing
         return DEFAULT_SHARE_VIEWER
 
 
@@ -1060,7 +1060,7 @@ async def _server_name() -> str:
         reponse = await _orthanc("GET", "/system")
         if reponse.status_code == 200:
             return reponse.json().get("Name") or "Orthanc"
-    except Exception:  # noqa: BLE001 - une page d'UI ne casse pas pour si peu
+    except Exception:  # noqa: BLE001 - a UI page does not break over this
         logger.debug("Nom du serveur indisponible, repli sur 'Orthanc'")
     return "Orthanc"
 
