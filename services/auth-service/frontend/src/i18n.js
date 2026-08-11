@@ -1,26 +1,26 @@
-// Libellés de l'interface.
+// Interface labels.
 //
-// LANGUAGE est une variable d'environnement lue au démarrage du service :
-// les libellés ne peuvent pas être figés dans le bundle au moment du build.
-// auth_service.py les injecte donc dans index.html, sous window.__I18N__.
+// The language is a setting changed from the panel, so labels cannot be
+// frozen into the bundle at build time. auth_service.py therefore injects
+// them into index.html, under window.__I18N__.
 //
-// Pas de dépendance i18n externe : le besoin se limite à une table de
-// correspondance et une interpolation, et le fichier de traductions existait
-// déjà côté serveur (translations/{en,fr}.json).
+// No external i18n dependency: the need amounts to a lookup table and some
+// interpolation, and the translation files already existed on the server
+// side (translations/{en,fr}.json).
 
 const source = window.__I18N__ || { lang: 'en', ui: {} }
 
 export const lang = source.lang || 'en'
 
 /**
- * Traduit une clé.
+ * Translate a key.
  *
- * @param cle    clé dans la section "ui" des fichiers de traduction
- * @param repli  texte affiché si la clé manque — toujours le fournir en
- *               français lisible : une clé absente doit dégrader vers une
- *               phrase compréhensible, jamais vers un identifiant technique
- *               ni vers du vide au milieu de l'écran.
- * @param vars   valeurs interpolées, référencées par {nom} dans le libellé
+ * @param cle    key in the "ui" section of the translation files
+ * @param repli  text shown when the key is missing -- always provide it as
+ *               readable French: a missing key must degrade to an
+ *               understandable sentence, never to a technical identifier nor
+ *               to a blank in the middle of the screen.
+ * @param vars   interpolated values, referenced as {name} in the label
  */
 export function t(cle, repli, vars) {
   let texte = source.ui[cle]

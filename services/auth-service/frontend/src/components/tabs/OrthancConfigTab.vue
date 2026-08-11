@@ -11,18 +11,18 @@ const originalFields = ref({})
 const loading = ref(true)
 const saving = ref(false)
 const restarting = ref(false)
-// Passe a true des qu'une modification est enregistree : elle reste sans
-// effet tant qu'Orthanc n'a pas redemarre, et rien ne le laisse voir
-// autrement -- le panel continuerait d'afficher la nouvelle valeur.
+// Becomes true as soon as a change is saved: it stays ineffective until
+// Orthanc restarts, and nothing else would show it -- the panel would keep
+// displaying the new value.
 const restartRequired = ref(false)
 const replies = ref({})
 
 const meta = ref({})
 
-// Le type vient du serveur, qui le tient de sa liste de parametres
-// autorises. Le deduire de la valeur ne marchait que pour les parametres
-// presents dans orthanc.json : les autres valent null et retombaient sur un
-// champ texte, alors qu'il s'agit souvent de booleens.
+// The type comes from the server, which takes it from its list of allowed
+// settings. Deriving it from the value only worked for settings present in
+// orthanc.json: the others are null and fell back to a text field, although
+// they are often booleans.
 function detectType(cle) {
   const t = meta.value[cle]?.type
   if (t === 'bool') return 'bool'
@@ -31,15 +31,15 @@ function detectType(cle) {
   return 'text'
 }
 
-// Parametre absent du fichier : Orthanc applique sa valeur par defaut. Le
-// signaler evite de laisser croire a un reglage vide.
+// Setting absent from the file: Orthanc applies its default. Saying so
+// avoids suggesting an empty setting.
 function parDefaut(cle) {
   return meta.value[cle]?.present === false
 }
 
-// La valeur par defaut, mise en forme pour l'affichage. Deux parametres ne
-// figurent pas dans le fichier de reference d'Orthanc : on n'affiche alors
-// rien plutot que d'avancer une valeur inventee.
+// The default value, formatted for display. Two settings are absent from
+// Orthanc's reference file: we then show nothing rather than put forward an
+// invented value.
 function valeurDefaut(cle) {
   const d = meta.value[cle]?.default
   if (d === undefined || d === null) return ''
@@ -53,7 +53,7 @@ function isModified(key) {
   return JSON.stringify(fields.value[key]) !== JSON.stringify(originalFields.value[key])
 }
 
-// Libelle et aide d'un parametre, ou son nom technique a defaut.
+// A setting's label and help text, or its technical name otherwise.
 function libelle(cle) {
   for (const g of GROUPES) {
     if (g.champs[cle]) return g.champs[cle][0]
@@ -67,9 +67,9 @@ function aide(cle) {
   return ''
 }
 
-// Les parametres que la description ne couvre pas restent affichés dans un
-// groupe « Autres » : mieux vaut un champ mal range qu'un champ invisible si
-// la liste cote serveur s'enrichit.
+// Settings the description does not cover stay visible in an "Other"
+// group: a misfiled field beats an invisible one when the server-side list
+// grows.
 const groupesAffiches = computed(() => {
   const connus = new Set()
   const resultat = []
@@ -92,10 +92,10 @@ const groupesAffiches = computed(() => {
   return resultat
 })
 
-// Valeurs admises et bornes, telles que le serveur les declare. Les
-// reprendre ici plutot que de les redecrire evite qu'interface et validation
-// divergent : c'est le serveur qui refuse, l'interface ne fait que l'annoncer
-// plus tot.
+// Allowed values and bounds, as the server declares them. Reusing them
+// rather than restating them keeps interface and validation from drifting
+// apart: the server is what refuses, the interface only announces it
+// earlier.
 function choix(cle) {
   return meta.value[cle]?.choices || null
 }
@@ -110,7 +110,7 @@ const nbModifies = computed(
   () => Object.keys(fields.value).filter(isModified).length,
 )
 
-// Les listes sont editees en texte, une valeur par ligne.
+// Lists are edited as text, one value per line.
 function listeVersTexte(v) {
   return Array.isArray(v) ? v.join('\n') : ''
 }

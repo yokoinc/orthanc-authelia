@@ -15,11 +15,11 @@ const form = reactive({
   publicUrl: '',
 })
 const submitting = ref(false)
-// Renseigne quand le domaine a change : on affiche la marche a suivre
-// au lieu de rediriger vers une adresse qui ne repondra plus.
+// Set when the domain has changed: we show the steps to follow instead of
+// redirecting to an address that will no longer answer.
 const termine = ref('')
 
-// URL de depart, pour ne declencher un changement que si l'utilisateur y touche.
+// Starting URL, so a change only fires if the user actually edits it.
 const urlInitiale = ref('')
 const urlModifiable = ref(false)
 
@@ -30,8 +30,8 @@ onMounted(async () => {
     form.publicUrl = r.public_url || ''
     urlModifiable.value = r.editable
   } catch {
-    // Champ purement optionnel : s'il est indisponible, le wizard doit
-    // rester utilisable pour creer l'administrateur.
+    // Purely optional field: if it is unavailable, the wizard must stay
+    // usable to create the administrator.
     urlModifiable.value = false
   }
 })
@@ -44,8 +44,8 @@ const passwordsMatch = computed(
   () => form.password === form.password2 && form.password.length >= 12,
 )
 
-// Liste ce qui empeche encore la soumission, pour l'afficher a l'utilisateur.
-// Un bouton grise sans explication laisse deviner ce qui manque.
+// Lists what still blocks submission, to show it to the user. A greyed-out
+// button with no explanation leaves them guessing what is missing.
 const blockers = computed(() => {
   const missing = []
   if (form.username.length < 3) {
@@ -81,8 +81,8 @@ async function submit() {
         groups: ['admin'],
       },
     })
-    // L'URL publique se change avant la finalisation, tant que la fenetre de
-    // setup est ouverte. Elle ne prend effet qu'au redemarrage de la pile.
+    // The public URL is changed before finalisation, while the setup window
+    // is open. It only takes effect when the stack restarts.
     let nouvelleUrl = null
     if (urlChangee.value) {
       const r = await api('/console/api/setup/network', {
@@ -95,8 +95,8 @@ async function submit() {
     await api('/console/api/setup/finalize', { method: 'POST' })
 
     if (nouvelleUrl) {
-      // Pas de redirection : l'adresse courante ne repondra plus apres le
-      // redemarrage, et le cookie de session est lie a l'ancien domaine.
+      // No redirect: the current address will not answer after the restart,
+      // and the session cookie is bound to the previous domain.
       termine.value = nouvelleUrl
       submitting.value = false
       return

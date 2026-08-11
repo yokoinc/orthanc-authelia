@@ -7,14 +7,14 @@ import { useUiStore } from '../../stores/ui.js'
 const ui = useUiStore()
 const users = ref([])
 
-// Le dernier administrateur actif ne doit etre ni supprime, ni retire de son
-// groupe, ni desactive : la pile se retrouverait sans personne pour
-// l'administrer, et la seule issue serait d'editer users_database.yml a la
-// main. Le serveur refuse deja ces operations, mais l'interface les proposait
-// quand meme -- on ne decouvrait le refus qu'apres coup.
+// The last active administrator must not be deleted, removed from their
+// group, or disabled: the stack would be left with nobody to administer it,
+// and the only way out would be editing users_database.yml by hand. The
+// server already refuses these operations, but the interface offered them
+// anyway -- the refusal only surfaced afterwards.
 //
-// Le changement de mot de passe reste ouvert : sans lui, ce compte ne
-// pourrait plus jamais changer le sien.
+// Changing the password stays available: without it, that account could
+// never change its own again.
 const adminsActifs = computed(
   () => users.value.filter((u) => !u.disabled && (u.groups || []).includes('admin')),
 )
@@ -56,8 +56,8 @@ async function addUser() {
   }
 }
 
-// Modification d'un compte : meme principe de ligne depliante que le mot de
-// passe, pour ne pas quitter le tableau.
+// Editing an account: same expanding-row approach as the password, so as
+// not to leave the table.
 const editionPour = ref('')
 const edition = reactive({ displayname: '', email: '', groups: [], disabled: false })
 const envoiEdition = ref(false)
@@ -99,16 +99,16 @@ async function enregistrerEdition() {
     editionPour.value = ''
     load()
   } catch (e) {
-    // Le serveur refuse de laisser la pile sans administrateur actif : le
-    // message explique ce qui bloque, il ne faut pas le masquer.
+    // The server refuses to leave the stack without an active
+    // administrator: the message explains what blocks, do not hide it.
     ui.notify(e.message, 'err')
   } finally {
     envoiEdition.value = false
   }
 }
 
-// Changement de mot de passe : saisie en ligne plutot qu'un prompt(), qui
-// afficherait le mot de passe en clair et ne permet aucune validation.
+// Password change: inline input rather than a prompt(), which would show
+// the password in clear and allows no validation.
 const motDePassePour = ref('')
 const nouveauMotDePasse = ref('')
 const envoiMotDePasse = ref(false)
@@ -350,7 +350,7 @@ h2 { font-size: var(--oe2-fs-body); margin: 0 0 12px; font-weight: 400; }
 .table { width: 100%; border-collapse: collapse; font-size: var(--oe2-fs-small); }
 .table th, .table td {
   padding: 6px 10px; text-align: left;
-  /* Bleu clair comme les tableaux d'Orthanc, cf. --oe2-table-border. */
+  /* Light blue like Orthanc's tables, see --oe2-table-border. */
   border-bottom: 1px solid var(--oe2-table-border);
 }
 .table th {

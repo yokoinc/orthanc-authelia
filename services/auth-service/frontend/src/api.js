@@ -1,6 +1,6 @@
-// Wrapper fetch pour tous les appels /api/admin/*. Injecte automatiquement
-// le header X-CSRF-Token depuis le cookie orthanc_admin_csrf pose par le
-// backend au rendu initial de la page admin.
+// fetch wrapper for every /api/admin/* call. Automatically injects the
+// X-CSRF-Token header from the orthanc_admin_csrf cookie set by the backend
+// when the admin page is first rendered.
 
 import { t } from './i18n.js'
 
@@ -31,9 +31,9 @@ export async function api(path, opts = {}) {
       credentials: 'same-origin',
     })
   } catch (e) {
-    // fetch ne rejette que sur echec reseau : serveur injoignable, certificat
-    // refuse, redirection vers une autre origine bloquee par CORS. Le message
-    // natif ("Failed to fetch") n'aide personne.
+    // fetch only rejects on network failure: unreachable server, refused
+    // certificate, cross-origin redirect blocked by CORS. The native message
+    // ("Failed to fetch") helps nobody.
     throw new Error(
       t(
         'api_unreachable',
@@ -48,8 +48,8 @@ export async function api(path, opts = {}) {
   try {
     data = text ? JSON.parse(text) : {}
   } catch {
-    // Reponse non-JSON : page HTML d'Authelia ou d'erreur nginx. Signaler la
-    // cause probable plutot que de recracher le HTML brut.
+    // Non-JSON response: an Authelia page or an nginx error page. Report the
+    // likely cause rather than spitting out raw HTML.
     if (r.status === 401 || r.status === 403) {
       throw new Error(
         t(

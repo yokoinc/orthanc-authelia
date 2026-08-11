@@ -4,8 +4,8 @@ import { api } from '../api.js'
 import { t } from '../i18n.js'
 import { useUiStore } from '../stores/ui.js'
 
-// Lazy-load des tabs : le bundle initial reste minimal, chaque onglet
-// tire son code au premier clic.
+// Lazy-loaded tabs: the initial bundle stays minimal, each tab pulls its
+// code on first click.
 const UsersTab       = defineAsyncComponent(() => import('../components/tabs/UsersTab.vue'))
 const OrthancTab     = defineAsyncComponent(() => import('../components/tabs/OrthancConfigTab.vue'))
 const HealthTab      = defineAsyncComponent(() => import('../components/tabs/HealthTab.vue'))
@@ -24,24 +24,24 @@ const tabs = [
 const active = ref('users')
 const currentTab = () => tabs.find((onglet) => onglet.id === active.value).comp
 
-// URLs runtime (servies par nginx, pas bundled par Vite)
+// Runtime URLs (served by nginx, not bundled by Vite)
 const logoUrl = '/auth/static/orthanc-logo-official.png'
 
 const imageVersion = ref('dev')
 const adminUsername = ref('admin')
-// Nom du serveur, repris d'Orthanc. Le replier sur 'Orthanc' evite un
-// bandeau vide le temps de la reponse, ou si Orthanc est indisponible.
+// Server name, taken from Orthanc. Falling back to 'Orthanc' avoids an
+// empty banner while the answer is pending, or if Orthanc is unavailable.
 const serverName = ref('Orthanc')
 
 onMounted(async () => {
-  // Ces infos sont exposees par une nouvelle route /api/admin/whoami
+  // This information is exposed by the /api/admin/whoami route
   try {
     const meta = await api('/console/api/admin/whoami')
     imageVersion.value = meta.image_version || 'dev'
     adminUsername.value = meta.username || 'admin'
     if (meta.server_name) serverName.value = meta.server_name
   } catch {
-    // best effort — ne bloque pas le rendu
+    // best effort -- does not block rendering
   }
 })
 </script>
@@ -103,7 +103,7 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* La mise en page (barre laterale, en-tete, pied) vient d'oe2-shared.css,
+/* The layout (sidebar, header, footer) comes from oe2-shared.css,
    comme pour le gestionnaire de partages : c'est ce qui garantit une police,
    des couleurs et des espacements identiques a Orthanc Explorer. Ne subsiste
    ici que la barre d'onglets, absente du systeme partage. */
@@ -111,7 +111,7 @@ onMounted(async () => {
 .tabs {
   display: flex;
   gap: 4px;
-  /* Bleu comme les separateurs d'Orthanc, cf. --oe2-separator. */
+  /* Blue like Orthanc's separators, see --oe2-separator. */
   border-bottom: 1px solid var(--oe2-separator);
   margin-bottom: 16px;
 }
