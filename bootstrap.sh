@@ -67,7 +67,7 @@ ok "docker + docker compose + openssl OK"
 # imposee ils tournent en root et s'approprient ces dossiers, rendant toute
 # reinstalling is impossible without fixing permissions by hand. We give
 # them the current user's: the files created belong to them, and
-# probleme ne se pose plus du tout.
+# problem disappears entirely.
 PUID=$(id -u)
 PGID=$(id -g)
 
@@ -157,7 +157,7 @@ else
     # volume. If the volume already exists, generating a new one would make
     # the database
     # inaccessible ("password authentication failed for user orthanc") : on
-    # conserve alors celui du .env precedent.
+    # therefore keeps the one from the previous .env.
     PG_PASS=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
     if docker volume inspect orthanc_postgres_data >/dev/null 2>&1; then
         # Same trap: the PostgreSQL volume can exist without a .env.
@@ -171,7 +171,7 @@ else
     AUTH_PASS=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
     ORTHANC_PASS=$(openssl rand -hex 32)
     # Identifiants de l'endpoint d'import programmatique (/api-upload/).
-    # Sans eux, l'entrypoint nginx ne genere pas de fichier htpasswd et
+    # Without them, the nginx entrypoint generates no htpasswd file and
     # the endpoint refuses everything: better to ship it usable, protected
     # by a generated password, than disabled or -- worse -- open to all.
     # Interface language. Derived from the system's when a matching
@@ -187,7 +187,7 @@ else
     UPLOAD_USER_VALUE="import-dicom"
     UPLOAD_PASS_VALUE=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
 
-    # PUBLIC_URL par defaut : URL locale complete, port du compose inclus.
+    # Default PUBLIC_URL: full local URL, compose port included.
     # The host name (pacs.localhost) must contain a dot, otherwise Authelia
     # refuses the cookie domain (RFC 6265).
     sed \
@@ -204,7 +204,7 @@ else
         .env.example > .env
 
     # Orthanc account dedicated to auth-service (POST /tools/reset). Not in
-    # .env.example car specifique au panel admin.
+    # .env.example, being specific to the admin panel.
     {
         echo ""
         echo "# Compte Orthanc utilise par auth-service pour recharger la config"
@@ -291,7 +291,7 @@ fi
 # AUTH_PASSWORD in .env, failing which /user/get-profile answers 401 and
 # Orthanc refuses every request (403) with no explicit message.
 #
-# Les variables ORTHANC__AUTHORIZATION__WEB_SERVICE_* ne conviennent pas :
+# The ORTHANC__AUTHORIZATION__WEB_SERVICE_* variables will not do:
 # Orthanc does not apply them to this section, so the file's value is what
 # is used. Hence the substitution at copy time.
 ORTHANC_CFG="services/orthanc/config/orthanc.json"

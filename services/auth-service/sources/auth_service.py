@@ -21,7 +21,7 @@ security = HTTPBasic()
 # Mount static files
 app.mount("/static", StaticFiles(directory="/app/static"), name="static")
 
-# Mount frontend Vue SPA si presente (skippee si l'image n'a pas ete build
+# Mount the Vue SPA when present (skipped if the image was not built
 # with the frontend stage, e.g. local dev without an npm build).
 import os as _os
 if _os.path.isdir("/app/frontend"):
@@ -260,7 +260,7 @@ def resolve_patient_name(resource):
 
 # Asset version for cache-busting static files (auto-updates on each container start)
 ASSET_VERSION = os.getenv("ASSET_VERSION", str(int(time.time())))
-# Version semantique de l'image (affichee en pied de page). Independante du
+# Semantic version of the image (shown in the footer). Independent of the
 # ASSET_VERSION cache-buster, which is a Unix timestamp.
 IMAGE_VERSION = os.getenv("IMAGE_VERSION", "dev")
 
@@ -715,7 +715,7 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
         #
         # "all" is not enough: several routes name a permission it does not
         # cover. Creating and deleting
-        # modalites, par exemple, imposent "admin-permissions" --
+        # modalities, for instance, require "admin-permissions" --
         #   put    ^/modalities/(.*)$ - admin-permissions
         #   delete ^/modalities/(.*)$ - admin-permissions
         # and "all" is not among them. An administrator holding every other

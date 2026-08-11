@@ -1707,7 +1707,7 @@ async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
             "max": bornes[1] if bornes else None,
             "choices": list(ORTHANC_ALLOWED_VALUES.get(dotted, ())) or None,
             # Tells "absent from the file" apart from "present but empty":
-            # premier cas Orthanc applique sa valeur par defaut.
+            # first case Orthanc applies its default value.
             "present": present,
             # The default value, when known. Announcing "default value"
             # without showing it teaches nothing: the operator still does not
@@ -1738,7 +1738,7 @@ async def update_orthanc_config(
             #
             # The result is read back and compared with the expected
             # structure: a textual edit producing anything other than the
-            # doit etre detectee ici, jamais decouverte par Orthanc au
+            # must be caught here, never discovered by Orthanc at the
             # demarrage suivant.
             brut = ORTHANC_JSON.read_text(encoding="utf-8")
             try:
@@ -1747,7 +1747,7 @@ async def update_orthanc_config(
                 if relu != config:
                     raise ValueError("relecture divergente")
             except ValueError as raison:
-                # Cle absente du fichier, ou relecture inattendue : on
+                # Key absent from the file, or unexpected read-back:
                 # regenerate. Comments are lost, which the caller learns
                 # from the response rather than discovering later.
                 logger.warning(

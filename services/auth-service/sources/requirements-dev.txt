@@ -1,8 +1,8 @@
-# Dependances necessaires pour lancer la suite de tests, absentes de l'image
-# de production. Versions figees : sans elles, pip installe les dernieres
-# publiees et la suite devient irreproductible d'une machine a l'autre.
+# Dependencies needed to run the test suite, absent from the production
+# image. Versions are pinned: without that, pip installs the latest published
+# ones and the suite stops being reproducible from one machine to the next.
 #
-# Lancer les tests sans installer Python sur la machine hote :
+# Run the tests without installing Python on the host:
 #
 #   docker run --rm --entrypoint sh \
 #     -e AUTH_USERNAME=x -e AUTH_PASSWORD=xxxxxxxxxxxx \
@@ -11,13 +11,12 @@
 #     registry.yokoinc.ovh/orthanc-auth-service:1.0.16 \
 #     -c 'pip install -q -r requirements-dev.txt && python -m pytest tests/ -q'
 #
-# A lancer depuis la RACINE du depot, et en montant celle-ci : quelques tests
-# relisent des fichiers livres a la racine. Monter le seul dossier sources/
-# les fait s'esquiver -- c'est ainsi qu'une suite verte en local a casse la
-# CI.
+# Run it from the REPOSITORY ROOT, mounting that root: a few tests reread
+# files shipped there. Mounting only sources/ makes them skip themselves --
+# that is how a suite green locally broke CI.
 #
-# Les quatre variables d'environnement sont exigees au chargement du module
-# auth_service ; leurs valeurs n'ont aucune importance pour les tests.
+# The four environment variables are required when the auth_service module
+# loads; their values do not matter for the tests.
 
 pytest==9.1.1
 pytest-asyncio==1.4.0

@@ -14,7 +14,7 @@
 
   // --- Who may speak DICOM to this server -----------------------------------
   // Ces quatre reglages etaient laisses implicites : Orthanc appliquait ses
-  // valeurs par defaut, dont DicomAlwaysAllowStore a true -- n'importe quel
+  // defaults, among them DicomAlwaysAllowStore set to true -- meaning any
   // device, even an undeclared one, could then drop studies here. On a PACS
   // that must not hinge on a default value nobody knows about.
   //

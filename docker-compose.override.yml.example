@@ -4,7 +4,7 @@
 #
 # Paths matching the repository layout:
 #   services/orthanc/config/orthanc.json         (already bind-mounted for orthanc)
-#   services/authelia/config/                    (bind-mount du dossier entier cote authelia)
+#   services/authelia/config/                    (whole directory bind-mounted for authelia)
 #
 # ============================================================================
 # One-off prerequisites on the NAS before the first up

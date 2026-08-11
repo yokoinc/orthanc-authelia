@@ -10,7 +10,7 @@ set -e
 # standard. DOMAIN (the bare host name) is derived from it.
 #
 # The two serve different purposes in the templates:
-#   DOMAIN     -> en-tetes Host, X-Forwarded-Host, CN du certificat
+#   DOMAIN     -> Host and X-Forwarded-Host headers, certificate CN
 #                 (a host name never carries a port)
 #   PUBLIC_URL -> URLs absolues : redirections, origine CORS, X-Original-URL
 #                 (they must include the port, otherwise the browser
@@ -19,17 +19,17 @@ PUBLIC_URL=${PUBLIC_URL:-https://localhost}
 DOMAIN=$(echo "$PUBLIC_URL" | sed -E 's#^https?://##; s#:[0-9]+$##; s#/.*$##')
 SSL_MODE=${SSL_MODE:-selfsigned}
 
-# HSTS et certificat auto-signe ne vont pas ensemble.
+# HSTS and a self-signed certificate do not go together.
 #
 # Once the directive is recorded, browsers refuse to offer the certificate
 # exception: no more "Proceed anyway" button, the site becomes unreachable
 # and a forced reload changes nothing. includeSubDomains extends the block to
 # every *.localhost. The user sees a blank page with no
-# comprendre pourquoi, et purger l'enregistrement demande de passer par
+# understand why, and clearing the record means going through
 # chrome://net-internals/#hsts.
 #
 # max-age=0 tells the browser to forget the directive: machines already
-# pieges se debloquent d'eux-memes au premier chargement.
+# trapped unblock themselves on the first load.
 if [ "$SSL_MODE" = "selfsigned" ]; then
     HSTS="max-age=0"
 else
@@ -90,8 +90,9 @@ fi
 # nginx will return 500 on /api-upload/* (fail-closed).
 if [ -n "$UPLOAD_USER" ] && [ -n "$UPLOAD_PASSWORD" ]; then
     echo "Generating /etc/nginx/htpasswd for UPLOAD_USER='$UPLOAD_USER'..."
-    # SHA-256 ($5$) au lieu de MD5-apr1 ($apr1$) : meilleure resistance au brute-force offline.
-    # nginx auth_basic supporte $5$/$6$/$2y$ via crypt(3) sur Linux moderne.
+    # SHA-256 ($5$) would resist offline brute force better than MD5-apr1
+    # ($apr1$), and nginx auth_basic supports $5$/$6$/$2y$ through crypt(3)
+    # on modern Linux -- but not on Alpine, see below.
     # Use apr1 (Apache MD5-based) format, NOT SHA-256 ($5$): nginx on Alpine
     # (musl crypt) cannot verify $5$ hashes -> all Basic auth requests would 401.
     # apr1 is implemented natively by nginx and works on every libc.

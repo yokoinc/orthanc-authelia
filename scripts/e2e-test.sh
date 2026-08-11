@@ -4,7 +4,7 @@
 # =============================================================================
 # Replays a full installation from scratch and checks the stack answers:
 # bootstrap, demarrage, wizard, creation de l'administrateur, connexion, puis
-# acces a Orthanc, a DICOMweb et au panel.
+# access to Orthanc, to DICOMweb and to the panel.
 #
 # The test stack is ISOLATED: separate Docker project, separate ports,
 # separate volumes and network, and a copy of the repository in a temporary
@@ -67,7 +67,7 @@ nettoyer() {
 }
 trap nettoyer EXIT
 
-# --- Copie du depot --------------------------------------------------------
+# --- Repository copy -------------------------------------------------------
 # git archive rather than cp: only VERSIONED files are copied, so the test
 # starts from exactly what someone cloning gets. A file left out by
 # .gitignore yet required will show up here, and nowhere else.
@@ -242,7 +242,7 @@ else
     echec "profil Orthanc : ${profil:-illisible}"
 fi
 
-# --- Fonctions du panel ----------------------------------------------------
+# --- Panel features --------------------------------------------------------
 # These routes existed server-side without any interface for a long time:
 # nothing exercised them, so nothing would have reported them breaking.
 etape "Fonctions du panel d'administration"
@@ -445,7 +445,7 @@ else
     printf '      %s\n' $etrangers
 fi
 
-# --- Perimetre du proxy Docker ---------------------------------------------
+# --- Docker proxy scope ----------------------------------------------------
 # The Docker socket amounts to root on the host. The proxy exposes only one
 # operation, restarting a container; everything else must be refused.
 #

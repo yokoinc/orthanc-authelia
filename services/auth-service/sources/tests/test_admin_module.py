@@ -479,7 +479,7 @@ class TestNonDestructiveWrite:
   // Name shown in the interface
   "Name": "Orthanc",
 
-  // Titre applicatif DICOM, 16 caracteres au plus
+  // DICOM application entity title, 16 characters at most
   "DicomAet": "ORTHANC"
 }"""
         out = _apply_text_changes(source, {"Name": "PACS"})
@@ -1233,7 +1233,7 @@ class TestListSettings:
         with pytest.raises(ValueError, match="deja present"):
             _apply_text_changes(source, {"Bloc": {"a": 2}})
 
-    # --- validation du contenu ---------------------------------------------
+    # --- content validation ------------------------------------------------
 
     def test_element_of_wrong_type(self):
         with pytest.raises(ValueError, match="type int"):

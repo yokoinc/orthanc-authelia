@@ -279,7 +279,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      # Dossier, pas fichier : auth-service reecrit orthanc.json via
+      # Directory, not file: auth-service rewrites orthanc.json through
       # write-tmp + rename, which creates a new inode. A file bind-mount
       # fichier resterait colle a l'ancien inode et POST /tools/reset
       # rechargerait l'ancienne config. Orthanc scanne /etc/orthanc/*.json.
@@ -338,8 +338,8 @@ services:
   ohif:
     # Same again: published image, or a local build otherwise. This build is
     # long (~15 min), OHIF etant compile depuis ses sources -- l'image
-    # officielle ohif/app ne peut pas servir sous /ohif/, son chemin de base
-    # etant fige au moment du build.
+    # official ohif/app image cannot serve under /ohif/, its base path being
+    # frozen at build time.
     image: registry.yokoinc.ovh/orthanc-ohif:3.11.0
     build:
       context: ./services/ohif

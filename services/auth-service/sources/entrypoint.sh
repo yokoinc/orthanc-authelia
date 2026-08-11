@@ -152,11 +152,11 @@ show_config() {
     echo
     echo "Authentication:"
     echo "  Username: ${AUTH_USERNAME:-share-user}"
-    # Deux expansions successives trahissaient la valeur : ${VAR:+[SET]}
-    # affiche bien [SET], mais ${VAR:-[NOT SET]} ne substitue QUE si la
-    # variable est vide -- renseignee, elle etait imprimee telle quelle. Le
-    # mot de passe du compte de service partait donc en clair dans les
-    # journaux Docker, et dans tout export de diagnostic.
+    # Two successive expansions leaked the value: ${VAR:+[SET]} does print
+    # [SET], but ${VAR:-[NOT SET]} only substitutes when the variable is
+    # EMPTY -- when set, it was printed as-is. The service account's
+    # password therefore went out in clear into the Docker logs, and into
+    # any diagnostic export.
     if [ -n "${AUTH_PASSWORD:-}" ]; then
         echo "  Password: [SET]"
     else
