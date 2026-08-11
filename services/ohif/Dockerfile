@@ -1,20 +1,20 @@
-# Visionneuse OHIF, servie sous /ohif/ derriere le reverse proxy.
+# OHIF viewer, served under /ohif/ behind the reverse proxy.
 #
-# Cette image etait publiee sur un registre prive, ce qui empechait quiconque
-# de demarrer le projet apres un clone.
+# This image used to be published on a private registry, which stopped anyone
+# from starting the project after a clone.
 #
-# Pourquoi reconstruire depuis les sources plutot que partir de l'image
-# officielle ohif/app : OHIF fige son chemin de base dans le bundle au moment
-# du build. L'image officielle est construite pour la racine et son HTML
-# reference /assets/..., /manifest.json. Servie sous /ohif/, elle demanderait
-# ces fichiers a la racine du domaine et ne chargerait pas. Deplacer les
-# fichiers ne change rien : les chemins sont ecrits en dur dans le HTML et les
-# bundles. Il faut donc un build avec PUBLIC_URL=/ohif/.
+# Why rebuild from source rather than start from the official ohif/app image:
+# OHIF freezes its base path into the bundle at build time. The official
+# image is built for the root and its HTML references /assets/...,
+# /manifest.json. Served under /ohif/, it would request those files at the
+# domain root and fail to load. Moving the files changes nothing: the paths
+# are hard-coded into the HTML and the bundles. Hence a build with
+# PUBLIC_URL=/ohif/.
 
 FROM node:20-slim AS builder
 
-# git pour recuperer les sources, python3 et build-essential pour les
-# dependances natives compilees pendant yarn install.
+# git to fetch the sources, python3 and build-essential for the native
+# dependencies compiled during yarn install.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git python3 build-essential ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -23,27 +23,27 @@ WORKDIR /src
 ARG OHIF_VERSION=v3.11.0
 RUN git clone --depth 1 --branch ${OHIF_VERSION} https://github.com/OHIF/Viewers.git .
 
-# Chemin de base fige dans le bundle. Le slash final compte : sans lui les
-# URLs generees collent le nom de fichier au prefixe (/ohifassets/...).
+# Base path frozen into the bundle. The trailing slash matters: without it
+# the generated URLs glue the file name to the prefix (/ohifassets/...).
 ENV PUBLIC_URL=/ohif/
 ENV APP_CONFIG=config/default.js
-# Le build depasse la limite memoire par defaut de Node sur ce projet.
+# The build exceeds Node's default memory limit on this project.
 ENV NODE_OPTIONS=--max-old-space-size=8192
 
 RUN yarn config set network-timeout 600000 \
     && yarn install --frozen-lockfile
 RUN yarn run build
 
-# nginx sert les fichiers pre-compresses via gzip_static ; on les genere ici
-# plutot qu'a chaque demarrage.
+# nginx serves pre-compressed files through gzip_static; we generate them
+# here rather than on every start.
 COPY docker/compressDist.sh /src/compressDist.sh
 RUN sh /src/compressDist.sh
 
 
 FROM nginx:1.26-alpine
 
-# envsubst, utilise par l'entrypoint pour injecter PORT et PUBLIC_URL dans le
-# template de configuration.
+# envsubst, used by the entrypoint to inject PORT and PUBLIC_URL into the
+# configuration template.
 RUN apk add --no-cache gettext
 
 COPY --from=builder /src/platform/app/dist /usr/share/nginx/html/ohif
@@ -51,8 +51,8 @@ COPY docker/default.conf.template /usr/src/default.conf.template
 COPY docker/entrypoint.sh /usr/src/entrypoint.sh
 RUN chmod +x /usr/src/entrypoint.sh
 
-# PUBLIC_URL sert ici de CHEMIN (et non d'URL) : l'entrypoint et le template
-# s'en servent pour situer app-config.js et la cible du try_files.
+# PUBLIC_URL acts as a PATH here, not a URL: the entrypoint and the template
+# use it to locate app-config.js and the try_files target.
 ENV PORT=8080
 ENV PUBLIC_URL=/ohif/
 
