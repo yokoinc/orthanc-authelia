@@ -1,7 +1,7 @@
-// Store UI global : message flash affiche en haut de la page (succes/erreur),
-// auto-hide apres 4s. Utilisable depuis n'importe quel composant :
+// Global UI store: flash message shown at the top of the page (success or
+// error), auto-hidden after 4s. Usable from any component:
 //   const ui = useUiStore()
-//   ui.notify('User cree', 'ok')
+//   ui.notify('User created', 'ok')
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 

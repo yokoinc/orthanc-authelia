@@ -1,15 +1,15 @@
 import { t } from './i18n.js'
 
-// Regroupement et libelles des parametres Orthanc editables.
+// Grouping and labels for the editable Orthanc settings.
 //
-// L'API renvoie un dictionnaire plat d'une soixantaine de cles techniques. Affichees telles
-// quelles a la suite, elles n'apprennent rien : "StableAge" ou
-// "IngestTranscoding" ne se devinent pas. Ce fichier ne fait que decrire --
-// aucune logique -- pour que l'onglet reste lisible et que l'ajout d'un
-// parametre se limite a une ligne ici.
+// The API returns a flat dictionary of some sixty technical keys. Listed
+// as-is one after the other they teach nothing: "StableAge" and
+// "IngestTranscoding" cannot be guessed. This file only describes -- no
+// logic -- so the tab stays readable and adding a setting amounts to one
+// line here.
 //
-// Les cles absentes de cette description restent affichees, dans un groupe
-// « Autres » : mieux vaut un champ mal range qu'un champ invisible.
+// Keys absent from this description stay visible, in an "Other" group: a
+// misfiled field beats an invisible one.
 
 export const GROUPES = [
   {

@@ -2,10 +2,10 @@ import { createRouter, createWebHistory } from 'vue-router'
 import SetupWizard from './views/SetupWizard.vue'
 import AdminHub from './views/AdminHub.vue'
 
-// Namespace /console/ dedie, distinct de /auth/ qui appartient a Authelia.
-// URLs cote navigateur :
-//   /console/        → hub admin  (authentification requise)
-//   /console/setup   → wizard     (accessible sans compte)
+// Dedicated /console/ namespace, distinct from /auth/ which belongs to
+// Authelia. Browser-side URLs:
+//   /console/        -> admin hub  (authentication required)
+//   /console/setup   -> wizard     (reachable without an account)
 const router = createRouter({
   history: createWebHistory('/console/'),
   routes: [

@@ -63,9 +63,9 @@ async function supprimer(nom) {
   }
 }
 
-// Un équipement déclaré n'est pas forcément joignable : adresse erronée, port
-// fermé, titre AE refusé. Le test évite de découvrir le problème le jour d'un
-// transfert.
+// A declared device is not necessarily reachable: wrong address, closed
+// port, refused AE title. The test avoids discovering the problem on the day
+// of a transfer.
 async function tester(nom) {
   testEnCours.value = nom
   try {

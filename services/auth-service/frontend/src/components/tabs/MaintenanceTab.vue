@@ -6,7 +6,7 @@ import { useUiStore } from '../../stores/ui.js'
 
 const ui = useUiStore()
 
-// --- Adresse publique ------------------------------------------------------
+// --- Public address --------------------------------------------------------
 const url = ref('')
 const urlInitiale = ref('')
 const urlModifiable = ref(false)
@@ -14,7 +14,7 @@ const enregistrementUrl = ref(false)
 
 const urlModifiee = computed(() => url.value !== urlInitiale.value && url.value.length > 7)
 
-// --- Langue de l'interface -------------------------------------------------
+// --- Interface language ----------------------------------------------------
 const LANGUES = [
   { id: 'fr', libelle: 'Français' },
   { id: 'en', libelle: 'English' },
@@ -30,8 +30,8 @@ async function enregistrerLangue() {
       method: 'PUT', body: { language: langue.value },
     })
     langueInitiale.value = langue.value
-    // Les libellés sont injectés dans la page au chargement : sans
-    // rechargement, l'interface resterait dans l'ancienne langue.
+    // Labels are injected into the page on load: without a reload the
+    // interface would stay in the previous language.
     window.location.reload()
   } catch (e) {
     ui.notify(e.message, 'err')
@@ -64,13 +64,13 @@ async function enregistrerViewer() {
   }
 }
 
-// --- Sauvegardes -----------------------------------------------------------
+// --- Backups ---------------------------------------------------------------
 const sauvegardes = ref([])
 const chargement = ref(true)
 const sauvegardeEnCours = ref(false)
 
-// Les copies n'etaient creees qu'en reaction a une ecriture du panel : rien
-// ne permettait d'en prendre une avant une manipulation risquee.
+// Copies were only created in reaction to a panel write: there was no way
+// to take one before a risky operation.
 async function sauvegarder() {
   sauvegardeEnCours.value = true
   try {
@@ -239,7 +239,7 @@ h2 { font-size: var(--oe2-fs-body); margin: 0 0 6px; font-weight: 400; }
 .note { color: var(--oe2-muted); font-size: var(--oe2-fs-small); margin: 0 0 12px; max-width: 70ch; }
 .ligne { display: flex; gap: 8px; align-items: center; }
 .ligne select {
-    /* Meme gabarit que les champs texte voisins, sans s'etirer sur
+    /* Same footprint as the neighbouring text fields, without stretching
        toute la ligne : la liste est courte. */
     min-width: 220px;
 }

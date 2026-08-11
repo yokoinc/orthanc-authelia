@@ -1,23 +1,23 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
-// Build produit dans dist/ ; le Dockerfile auth-service copie ce dist
-// dans /app/frontend/ et FastAPI le sert via StaticFiles + une route
-// catch-all qui renvoie index.html pour toute route SPA.
+// The build lands in dist/; the auth-service Dockerfile copies it into
+// /app/frontend/ and FastAPI serves it through StaticFiles plus a catch-all
+// route returning index.html for any SPA route.
 export default defineConfig({
   plugins: [vue()],
   base: '/console/',   // les assets sont servis sous /console/assets/*
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    // Chunks compactes pour un projet modeste (pas de vendor split premature)
+    // Compact chunks for a modest project (no premature vendor split)
     rollupOptions: {
       output: { manualChunks: undefined },
     },
   },
   server: {
-    // En dev (npm run dev), proxy les /api/* vers l'auth-service local
-    // pour developper le frontend contre le vrai backend Python.
+    // In dev (npm run dev), proxy /api/* to the local auth-service so the
+    // frontend can be developed against the real Python backend.
     proxy: {
       '/console/api': 'http://localhost:8000',
     },

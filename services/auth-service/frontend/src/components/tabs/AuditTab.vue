@@ -9,9 +9,9 @@ const entrees = ref([])
 const chargement = ref(true)
 const filtre = ref('')
 
-// Chaque evenement porte une icone et une couleur : sur un journal, la nature
-// de l'action doit se voir avant d'etre lue. Les refus de securite ressortent
-// en rouge, les suppressions aussi.
+// Every event carries an icon and a colour: in a log, the nature of an
+// action should be seen before it is read. Security refusals stand out in
+// red, deletions too.
 const APPARENCE = {
   'authelia.user.added':                   ['fa-user-plus', 'ok'],
   'authelia.user.updated':                 ['fa-user-pen', 'neutre'],
