@@ -44,10 +44,10 @@ totp:
 authentication_backend:
   file:
     path: /config/users_database.yml # User database file location
-    # Recharge users_database.yml des qu'il change sur disque (~1s, via
-    # fsnotify). Indispensable au panel admin : le setup wizard et l'onglet
-    # Users ecrivent ce fichier, et sans watch il faudrait redemarrer le
-    # container Authelia a chaque ajout d'utilisateur.
+    # Reloads users_database.yml as soon as it changes on disk (~1s, via
+    # fsnotify). Essential to the admin panel: the setup wizard and the Users
+    # tab write this file, and without watch the Authelia container would
+    # need a restart on every user added.
     watch: true
     password:
       algorithm: argon2id           # Secure password hashing algorithm
@@ -77,14 +77,14 @@ access_control:
   default_policy: deny              # Deny access by default (secure)
   
   rules:
-    # --- Console d'administration (namespace /console/) --------------------
-    # Ces deux regles doivent rester EN TETE : Authelia applique la premiere
-    # regle qui correspond, et la regle "^/auth/.*$" plus bas est un bypass
-    # qui court-circuiterait l'authentification si elle etait evaluee avant.
+    # --- Admin console (/console/ namespace) -------------------------------
+    # These two rules must stay FIRST: Authelia applies the first matching
+    # rule, and the "^/auth/.*$" rule further down is a bypass that would
+    # short-circuit authentication if evaluated before them.
 
-    # Wizard d'installation : accessible sans compte, puisqu'il sert a en
-    # creer un. Le middleware setup_gate (FastAPI) referme l'acces des que
-    # l'installation est finalisee.
+    # Setup wizard: reachable without an account, since its purpose is to
+    # create one. The setup_gate middleware (FastAPI) closes access again as
+    # soon as the installation is finalised.
     - domain: ${AUTHELIA_DOMAIN}
       policy: bypass
       resources:
@@ -92,8 +92,8 @@ access_control:
         - "^/console/assets/.*$"       # JS/CSS necessaires a son affichage
         - "^/console/api/setup/.*$"    # creation du compte + finalisation
 
-    # Hub d'administration : authentification obligatoire. L'appartenance au
-    # groupe "admin" est verifiee ensuite cote FastAPI.
+    # Admin hub: authentication required. Membership of the "admin" group is
+    # then checked on the FastAPI side.
     - domain: ${AUTHELIA_DOMAIN}
       policy: one_factor
       resources:
@@ -157,10 +157,10 @@ session:
   
   cookies:
     - domain: ${AUTHELIA_DOMAIN}   # Domain for session cookies
-      # URLs absolues vers lesquelles Authelia redirige. Doivent inclure le
-      # port si la stack n'est pas publiee sur 443 (cas du dev local en
-      # 30443). Le cookie domain ci-dessus n'en prend pas : les cookies
-      # ignorent le port par specification.
+      # Absolute URLs Authelia redirects to. They must include the port
+      # when the stack is not published on 443 (local dev on 30443). The
+      # cookie domain above takes none: cookies ignore the port by
+      # specification.
       authelia_url: ${PUBLIC_URL}/auth  # Authelia login URL
       default_redirection_url: ${PUBLIC_URL}/ui/app/  # Default redirect after login
       same_site: lax               # Cookie same-site policy

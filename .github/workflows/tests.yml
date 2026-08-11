@@ -1,8 +1,8 @@
 name: Tests
 
-# Chaque poussee et chaque proposition de fusion. Sans cela, les tests ne
-# tournent que si quelqu'un pense a les lancer -- et c'est precisement ce qui a
-# laisse sept tests casses passer inapercus pendant des jours.
+# On every push and every pull request. Without this, the tests only run if
+# somebody remembers to launch them -- which is precisely what let seven
+# broken tests go unnoticed for days.
 on:
   push:
     branches: ['**']
@@ -19,15 +19,14 @@ jobs:
       - name: Construire l'image auth-service
         run: docker build -t auth-service-test services/auth-service
 
-      # Les dependances de test ne sont pas dans l'image de production : elles
-      # sont figees dans requirements-dev.txt pour que la CI et le poste de
-      # developpement executent exactement la meme chose.
+      # Test dependencies are not in the production image: they are pinned
+      # in requirements-dev.txt so that CI and a developer machine run
+      # exactly the same thing.
       #
-      # On monte le depot entier, pas seulement sources/ : certains tests
-      # relisent des fichiers livres a la racine (orthanc.json.example) pour
-      # verifier qu'une ecriture ne les abime pas. Avec un montage reduit ils
-      # s'esquivaient en silence -- une couverture qu'on croit avoir et qui
-      # n'existe pas.
+      # We mount the whole repository, not just sources/: some tests reread
+      # files shipped at the root (orthanc.json.example) to check a write
+      # does not damage them. With a reduced mount they skipped themselves
+      # silently -- coverage you believe you have and do not.
       - name: Lancer la suite
         run: |
           docker run --rm --entrypoint sh \
@@ -43,10 +42,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # nginx et auth-service seulement : le build d'OHIF compile la
-      # visionneuse depuis ses sources et prend une quinzaine de minutes, ce
-      # qui n'a pas sa place a chaque poussee. Il reste couvert par le test de
-      # bout en bout, lance a la main.
+      # nginx and auth-service only: the OHIF build compiles the viewer from
+      # source and takes about fifteen minutes, which has no place on every
+      # push. It stays covered by the end-to-end test, run by hand.
       - name: nginx
         run: docker build -t nginx-test services/nginx
 
@@ -60,9 +58,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Scripts executables
-        # Un script versionne en 100644 fait echouer le ./bootstrap.sh
-        # documente, sans que cela se voie sur le poste ou le bit existe
-        # localement.
+        # A script versioned as 100644 breaks the documented ./bootstrap.sh,
+        # without showing on the machine where the bit exists locally.
         run: |
           manquants=$(git ls-files -s '*.sh' | awk '$1 != "100755" {print $4}')
           if [ -n "$manquants" ]; then
@@ -80,8 +77,8 @@ jobs:
           echo "Syntaxe correcte."
 
       - name: Traductions synchronisees
-        # Une cle presente dans une langue et absente de l'autre passe
-        # inapercue jusqu'a ce qu'un utilisateur tombe sur un libelle brut.
+        # A key present in one language and missing from the other goes
+        # unnoticed until a user hits a raw label.
         run: |
           python3 - <<'PY'
           import json, sys
@@ -101,8 +98,8 @@ jobs:
           PY
 
       - name: Liens du README
-        # Le dossier docs/ avait perdu neuf guides sans que les huit liens du
-        # README cessent de pointer vers eux.
+        # The docs/ directory had lost nine guides while the README's eight
+        # links kept pointing at them.
         run: |
           manquants=""
           for f in $(grep -oE '\(docs/[A-Za-z_.-]+\)' README.md | tr -d '()' | sort -u); do

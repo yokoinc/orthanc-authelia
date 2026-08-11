@@ -1,44 +1,44 @@
 # =============================================================================
 # AUTHELIA USER DATABASE
 # =============================================================================
-# Ce fichier n'est pas a editer a la main dans le cas normal : le wizard de
-# premiere installation cree le compte administrateur, puis l'onglet
-# Utilisateurs du panel d'administration gere les suivants (creation,
-# groupes, desactivation, suppression). Authelia relit le fichier a chaud.
+# This file is not meant to be hand-edited in normal use: the first-run
+# wizard creates the administrator account, then the Users tab of the admin
+# panel handles the rest (creation, groups, disabling, deletion). Authelia
+# reloads the file live.
 #
-# Edition manuelle malgre tout ? Generer un hash argon2id avec :
+# Editing it by hand anyway? Generate an argon2id hash with:
 #   docker run --rm authelia/authelia:4.39.5 \
-#     authelia crypto hash generate argon2 --password "mot-de-passe"
+#     authelia crypto hash generate argon2 --password "your-password"
 #
 # -----------------------------------------------------------------------------
-# GROUPES DISPONIBLES
+# AVAILABLE GROUPS
 # -----------------------------------------------------------------------------
-# Les groupes n'ont pas besoin d'exister ici pour etre utilisables : ils sont
-# definis par les regles d'acces (configuration.yml, section access_control)
-# et par la correspondance groupe -> droits Orthanc (auth_service.py). Le
-# panel propose les trois a la creation d'un utilisateur.
+# Groups do not need to exist here to be usable: they are defined by the
+# access rules (configuration.yml, access_control section) and by the
+# group-to-Orthanc-permissions mapping (auth_service.py). The panel offers
+# these three when creating a user.
 #
-#   admin     administration complete du PACS, gestion des jetons de partage,
-#             acces au panel. Droits Orthanc : lecture, ecriture, suppression,
-#             modification, anonymisation, partage, envoi, reglages, libelles.
-#   doctor    usage clinique : lecture, televersement, partage, envoi,
-#             libelles. Ni suppression, ni reglages.
-#   external  acces restreint en lecture seule : consultation et telechargement.
+#   admin     full PACS administration, share token management, panel access.
+#             Orthanc rights: read, write, delete, modify, anonymise, share,
+#             send, settings, labels.
+#   doctor    clinical use: read, upload, share, send, labels. Neither delete
+#             nor settings.
+#   external  restricted read-only access: viewing and downloading.
 #
 # -----------------------------------------------------------------------------
-# COMPTE D'AMORCAGE
+# BOOTSTRAP ACCOUNT
 # -----------------------------------------------------------------------------
-# Authelia refuse de demarrer sur une base vide :
+# Authelia refuses to start on an empty database:
 #   "could not validate the schema: users: non zero value required"
-# Il faut donc au moins une entree avant meme que le premier administrateur
-# existe. C'est le seul role du compte ci-dessous.
+# So at least one entry is needed before the first administrator even exists.
+# That is the only purpose of the account below.
 #
-# Il est inoffensif : `disabled: true` interdit toute connexion, il n'a aucun
-# groupe donc aucun droit, et bootstrap.sh remplace le hash factice ci-dessous
-# par celui d'un mot de passe aleatoire jamais affiche ni conserve.
+# It is harmless: `disabled: true` forbids any login, it belongs to no group
+# and therefore holds no right, and bootstrap.sh replaces the dummy hash
+# below with that of a random password never displayed nor kept.
 #
-# La finalisation du wizard le supprime une fois le vrai administrateur cree.
-# L'installation se termine donc sans aucun compte de demonstration.
+# Finalising the wizard removes it once the real administrator exists. The
+# installation therefore ends with no demonstration account at all.
 
 users:
   bootstrap@localhost:

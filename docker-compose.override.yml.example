@@ -1,32 +1,32 @@
-# Additions au docker-compose.yml existant.
-# A merger ou renommer en docker-compose.override.yml pour surcharge automatique.
+# Additions to the existing docker-compose.yml.
+# Merge it, or rename it to docker-compose.override.yml for automatic
+# overriding.
 #
-# Paths adaptes a la structure reelle du repo :
-#   services/orthanc/config/orthanc.json         (deja bind-mounte cote orthanc)
+# Paths matching the repository layout:
+#   services/orthanc/config/orthanc.json         (already bind-mounted for orthanc)
 #   services/authelia/config/                    (bind-mount du dossier entier cote authelia)
 #
 # ============================================================================
-# Prerequis one-shot sur le NAS avant premier up
+# One-off prerequisites on the NAS before the first up
 # ============================================================================
 #
-# 1) Compte Orthanc dedie a auth-service (dans .env, non-editable via UI)
+# 1) Orthanc account dedicated to auth-service (in .env, not editable from the UI)
 #   grep -q ORTHANC_ADMIN_USER .env || cat >> .env <<'EOF'
 #   ORTHANC_ADMIN_USER=svc-auth
 #   ORTHANC_ADMIN_PASS=$(openssl rand -hex 32)
 #   EOF
 #
-# 2) Permissions bind-mounts (UID 1000)
+# 2) Bind-mount permissions (UID 1000)
 #
-# --- Linux natif / Docker Desktop / la plupart des NAS :
+# --- Native Linux / Docker Desktop / most NAS devices:
 #   sudo chown -R 1000:1000 ./services/orthanc/config ./services/authelia/config ./data/admin-backups
 #
-# --- Synology DSM (specifique) :
-#   DSM utilise des ACL Btrfs. `chown` classique peut etre partiellement
-#   ecrase par l'ACL par defaut du partage. Deux options :
+# --- Synology DSM (specific):
+#   DSM uses Btrfs ACLs. A plain `chown` can be partly overridden by the
+#   share's default ACL. Two options:
 #
-#   a) Le plus simple : creer les dossiers depuis File Station en tant que
-#      l'utilisateur qui execute Docker (souvent 'docker' ou ton user perso),
-#      puis via SSH :
+#   a) Simplest: create the directories from File Station as the user that
+#      runs Docker (often 'docker' or your own account), then over SSH:
 #        sudo synoacltool -del ./services/orthanc/config/orthanc.json
 #        sudo synoacltool -del ./services/authelia/config/users_database.yml
 #        sudo chown 1000:1000 ./services/orthanc/config/orthanc.json
@@ -34,48 +34,47 @@
 #        sudo chmod 660 ./services/orthanc/config/orthanc.json
 #        sudo chmod 660 ./services/authelia/config/users_database.yml
 #
-#   b) Plus propre : mettre les fichiers dans un volume Docker natif (pas
-#      un partage DSM). Perd la commodite du File Station mais aucun probleme
-#      d'ACL.
+#   b) Cleaner: put the files in a native Docker volume rather than a DSM
+#      share. Loses File Station convenience but has no ACL trouble.
 #
-#   Verification :
-#     docker exec orthanc-server id       # doit sortir uid=1000
-#     docker exec orthanc-auth-service id # doit sortir uid=1000
+#   Verification:
+#     docker exec orthanc-server id       # must print uid=1000
+#     docker exec orthanc-auth-service id # must print uid=1000
 #     docker exec orthanc-auth-service ls -l /host/orthanc.json
 #     # -> -rw-rw---- 1 1000 1000
 
 services:
   orthanc:
     user: "1000:1000"
-    # (le bind-mount orthanc.json existe deja dans le compose principal,
-    # rien a rajouter ici cote volumes)
+    # (the orthanc.json bind-mount already exists in the main compose file,
+    # nothing to add here on the volumes side)
     environment:
-      # Compte Basic auth utilise par auth-service pour POST /tools/reset,
-      # /modalities, /dicom-web/servers. Injecte via env vars pour rester
-      # hors du orthanc.json edite par UI.
+      # Basic auth account used by auth-service for POST /tools/reset,
+      # /modalities and /dicom-web/servers. Injected through env vars so it
+      # stays out of the orthanc.json edited from the UI.
       - ORTHANC__REGISTERED_USERS={"${ORTHANC_ADMIN_USER}":"${ORTHANC_ADMIN_PASS}"}
       - ORTHANC__AUTHENTICATION_ENABLED=true
 
   authelia:
     user: "1000:1000"
-    # (le bind-mount services/authelia/config existe deja, dossier entier)
+    # (the services/authelia/config bind-mount already exists, whole directory)
 
   auth-service:
     user: "1000:1000"
     volumes:
-      # Bind-mount croise : le meme fichier host que orthanc/authelia,
-      # monte en RW cote auth-service pour edition depuis l'admin panel.
+      # Cross bind-mount: the same host file as orthanc and authelia,
+      # mounted read-write for auth-service so the admin panel can edit it.
       - ./services/orthanc/config/orthanc.json:/host/orthanc.json:rw
       - ./services/authelia/config/users_database.yml:/host/authelia.yml:rw
-      # Volume dedie aux backups rotatifs (10 derniers par fichier)
+      # Dedicated volume for rotating backups (last 10 per file)
       - ./data/admin-backups:/host/backups:rw
     environment:
-      # Credentials pour parler a Orthanc en Basic auth
+      # Credentials to talk to Orthanc over Basic auth
       - ORTHANC_ADMIN_USER=${ORTHANC_ADMIN_USER}
       - ORTHANC_ADMIN_PASS=${ORTHANC_ADMIN_PASS}
       - ORTHANC_URL=http://orthanc:8042
       # Redis
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
-      # Versions (deja injectees dans le chantier precedent)
+      # Versions (already injected by the previous work)
       - IMAGE_VERSION=${IMAGE_VERSION}
       - ASSET_VERSION=${ASSET_VERSION}
