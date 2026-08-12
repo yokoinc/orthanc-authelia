@@ -196,7 +196,7 @@ class TestArgon2:
             _hasher.verify(h, "wrong")
 
     def test_two_hashes_of_same_password_differ(self):
-        """Salt aleatoire = chaque hash unique meme pour le meme password."""
+        """Random salt = every hash unique, even for the same password."""
         from admin_module import _hasher
         h1 = _hasher.hash("test")
         h2 = _hasher.hash("test")
@@ -315,14 +315,14 @@ class TestRestartOrthanc:
         """Neutralise l'audit (Redis) et les attentes entre deux sondages."""
         import admin_module
 
-        async def _audit_muet(*a, **k):
+        async def _audit_silent(*a, **k):
             return None
 
-        async def _sans_attente(_):
+        async def _no_wait(_):
             return None
 
-        monkeypatch.setattr(admin_module, "_audit", _audit_muet)
-        monkeypatch.setattr(admin_module.asyncio, "sleep", _sans_attente)
+        monkeypatch.setattr(admin_module, "_audit", _audit_silent)
+        monkeypatch.setattr(admin_module.asyncio, "sleep", _no_wait)
 
     def test_unconfigured_proxy_answers_503(self, monkeypatch):
         """Without DOCKER_PROXY_URL the feature is unavailable, not broken."""
@@ -382,7 +382,7 @@ class TestRestartOrthanc:
         assert r["ok"] is True
 
     def test_orthanc_never_comes_back(self, monkeypatch):
-        """Le point important : pas de faux succes si Orthanc reste muet."""
+        """The point that matters: no false success if Orthanc stays mute."""
         import admin_module
         from fastapi import HTTPException
 
@@ -403,7 +403,7 @@ class TestRestartOrthanc:
 
         monkeypatch.setattr(admin_module, "DOCKER_PROXY_URL", "http://proxy:2375")
 
-        class _Reponse:
+        class _Response:
             status_code = code
 
         class _Client:
@@ -417,7 +417,7 @@ class TestRestartOrthanc:
                 return False
 
             async def post(self, *a, **k):
-                return _Reponse()
+                return _Response()
 
         monkeypatch.setattr(admin_module.httpx, "AsyncClient", _Client)
 
@@ -426,9 +426,9 @@ class TestRestartOrthanc:
         """Fait repondre /system selon la suite de codes donnee."""
         import admin_module
 
-        restants = list(codes)
+        remaining = list(codes)
 
-        class _Reponse:
+        class _Response:
             def __init__(self, code):
                 self.status_code = code
 
@@ -436,19 +436,19 @@ class TestRestartOrthanc:
             def json():
                 return {"Name": "PACS", "Version": "1.12.11"}
 
-        async def _faux_orthanc(_methode, _chemin, **_k):
-            return _Reponse(restants.pop(0) if restants else 502)
+        async def _fake_orthanc(_method, _path, **_k):
+            return _Response(remaining.pop(0) if remaining else 502)
 
-        monkeypatch.setattr(admin_module, "_orthanc", _faux_orthanc)
+        monkeypatch.setattr(admin_module, "_orthanc", _fake_orthanc)
 
 
 def _run(coro):
-    """Execute une coroutine dans une boucle neuve, fermee ensuite."""
-    boucle = asyncio.new_event_loop()
+    """Run a coroutine in a fresh loop, closed afterwards."""
+    loop = asyncio.new_event_loop()
     try:
-        return boucle.run_until_complete(coro)
+        return loop.run_until_complete(coro)
     finally:
-        boucle.close()
+        loop.close()
 
 
 # ============================================================================
@@ -469,9 +469,9 @@ class TestNonDestructiveWrite:
     """
 
     @staticmethod
-    def _read_back(texte):
+    def _read_back(text):
         from admin_module import _strip_json_comments
-        return json.loads(_strip_json_comments(texte))
+        return json.loads(_strip_json_comments(text))
 
     def test_comments_preserved(self):
         from admin_module import _apply_text_changes
@@ -492,12 +492,12 @@ class TestNonDestructiveWrite:
         from admin_module import _apply_text_changes
         source = '{\n  "A": 1,\n  "B": 2,\n  "C": 3\n}'
         out = _apply_text_changes(source, {"B": 20})
-        avant, apres = source.splitlines(), out.splitlines()
-        assert len(avant) == len(apres)
-        assert [i for i, (a, b) in enumerate(zip(avant, apres)) if a != b] == [2]
+        before, after = source.splitlines(), out.splitlines()
+        assert len(before) == len(after)
+        assert [i for i, (a, b) in enumerate(zip(before, after)) if a != b] == [2]
 
     def test_key_quoted_in_a_comment(self):
-        """Le piege classique : le nom de la cle apparait aussi en commentaire."""
+        """The classic trap: the key name also appears in a comment."""
         from admin_module import _apply_text_changes
         source = """{
   // Not to be confused with the "Name" of the DicomWeb block below
@@ -546,11 +546,11 @@ class TestNonDestructiveWrite:
         assert self._read_back(out) == {"Name": "Orthanc", "DicomAlwaysAllowStore": False}
         # Same indentation as its neighbours: a misaligned key stands out,
         # and makes the file look hand-edited in a hurry.
-        ligne = [l for l in out.splitlines() if "DicomAlwaysAllowStore" in l][0]
-        assert ligne.startswith('  "'), repr(ligne)
+        line = [l for l in out.splitlines() if "DicomAlwaysAllowStore" in l][0]
+        assert line.startswith('  "'), repr(line)
 
     def test_key_added_after_trailing_comment(self):
-        """Le commentaire de fin de bloc doit rester en dernier."""
+        """The end-of-block comment must stay last."""
         from admin_module import _apply_text_changes
         source = '{\n  "Name": "Orthanc"\n  // end of block\n}'
         out = _apply_text_changes(source, {"DicomAet": "PACS"})
@@ -562,14 +562,14 @@ class TestNonDestructiveWrite:
         source = '{\n  "DicomWeb": {\n    "Enable": true\n  }\n}'
         out = _apply_text_changes(source, {"DicomWeb.StowMaxSize": 500})
         assert self._read_back(out)["DicomWeb"] == {"Enable": True, "StowMaxSize": 500}
-        ligne = [l for l in out.splitlines() if "StowMaxSize" in l][0]
-        assert ligne.startswith('    "'), repr(ligne)
+        line = [l for l in out.splitlines() if "StowMaxSize" in l][0]
+        assert line.startswith('    "'), repr(line)
 
     def test_missing_parent_refused(self):
         """Creer une arborescence demanderait de deviner une mise en forme :
         on prefere le signaler et laisser l'appelant regenerer."""
         from admin_module import _apply_text_changes
-        with pytest.raises(ValueError, match="parent absent"):
+        with pytest.raises(ValueError, match="parent object missing"):
             _apply_text_changes('{\n  "Name": "Orthanc"\n}',
                                 {"Absent.Cle": 1})
 
@@ -608,19 +608,19 @@ class TestNonDestructiveWrite:
         from admin_module import _apply_text_changes
         from pathlib import Path as _P
 
-        exemple = next(
+        example = next(
             (parent / "orthanc.json.example"
              for parent in _P(__file__).resolve().parents
              if (parent / "orthanc.json.example").exists()),
             None,
         )
-        if exemple is None:                # depot non monte (arborescence reduite)
+        if example is None:                # depot non monte (arborescence reduite)
             pytest.skip("orthanc.json.example hors de l'arborescence")
 
-        source = exemple.read_text(encoding="utf-8")
-        avant = source.count("//")
+        source = example.read_text(encoding="utf-8")
+        before = source.count("//")
         out = _apply_text_changes(source, {"Name": "PACS Cuffel"})
-        assert out.count("//") == avant
+        assert out.count("//") == before
         assert self._read_back(out)["Name"] == "PACS Cuffel"
 
 
@@ -646,8 +646,8 @@ class TestShareViewer:
     def orthanc_config(self, tmp_path, monkeypatch):
         import admin_module
 
-        fichier = tmp_path / "orthanc.json"
-        fichier.write_text(
+        file = tmp_path / "orthanc.json"
+        file.write_text(
             '{\n'
             '  // Interface web\n'
             '  "OrthancExplorer2": {\n'
@@ -658,8 +658,8 @@ class TestShareViewer:
             '}\n',
             encoding="utf-8",
         )
-        monkeypatch.setattr(admin_module, "ORTHANC_JSON", fichier)
-        return fichier
+        monkeypatch.setattr(admin_module, "ORTHANC_JSON", file)
+        return file
 
     def test_targets_the_field_explorer_reads(self):
         """Guard: Explorer does `tokenType: this.tokens.ShareType`.
@@ -706,8 +706,8 @@ class TestShareViewer:
             {"OrthancExplorer2.Tokens.ShareType": "ohif-viewer-publication"},
         )
         assert "// Interface web" in out
-        relu = _json.loads(_strip_json_comments(out))
-        assert relu["OrthancExplorer2"]["Tokens"]["ShareType"] == "ohif-viewer-publication"
+        reread = _json.loads(_strip_json_comments(out))
+        assert reread["OrthancExplorer2"]["Tokens"]["ShareType"] == "ohif-viewer-publication"
 
     def test_auth_service_returns_same_value(self, orthanc_config):
         """/settings/roles must not contradict what actually applies."""
@@ -731,10 +731,10 @@ class TestSettingsStore:
     def settings_file(self, tmp_path, monkeypatch):
         import admin_module
 
-        fichier = tmp_path / "app-settings" / "settings.json"
-        monkeypatch.setattr(admin_module, "SETTINGS_FILE", fichier)
+        file = tmp_path / "app-settings" / "settings.json"
+        monkeypatch.setattr(admin_module, "SETTINGS_FILE", file)
         monkeypatch.setattr(admin_module, "ENV_FILE", tmp_path / ".env")
-        return fichier
+        return file
 
     def test_write_then_read(self, settings_file):
         from admin_module import _write_setting, _read_setting
@@ -777,16 +777,16 @@ class TestSettingsStore:
         answering."""
         from admin_module import _read_setting
         settings_file.parent.mkdir(parents=True)
-        settings_file.write_text("{ceci n'est pas du JSON", encoding="utf-8")
+        settings_file.write_text("{this is not JSON", encoding="utf-8")
         assert _read_setting("share_default_viewer", default="ohif") == "ohif"
 
     def test_atomic_write(self, settings_file):
-        """Aucun fichier temporaire ne doit subsister apres l'ecriture."""
+        """No temporary file must remain after the write."""
         from admin_module import _write_setting
         _write_setting("a", 1)
-        restes = [f.name for f in settings_file.parent.iterdir()
+        leftovers = [f.name for f in settings_file.parent.iterdir()
                   if f.name != "settings.json"]
-        assert restes == [], restes
+        assert leftovers == [], leftovers
 
     def test_no_secret_in_the_file(self, settings_file):
         """Design guard: this file is not a vault. It lives under data/, escapes
@@ -794,9 +794,9 @@ class TestSettingsStore:
         care."""
         from admin_module import _write_setting
         _write_setting("share_default_viewer", "ohif-viewer-publication")
-        contenu = settings_file.read_text(encoding="utf-8").lower()
-        for interdit in ("password", "secret", "token", "_key"):
-            assert interdit not in contenu, interdit
+        content = settings_file.read_text(encoding="utf-8").lower()
+        for forbidden in ("password", "secret", "token", "_key"):
+            assert forbidden not in content, forbidden
 
 
 # ============================================================================
@@ -816,13 +816,13 @@ class TestLanguage:
         import admin_module
         import auth_service
 
-        fichier = tmp_path / "app-settings" / "settings.json"
-        monkeypatch.setattr(admin_module, "SETTINGS_FILE", fichier)
+        file = tmp_path / "app-settings" / "settings.json"
+        monkeypatch.setattr(admin_module, "SETTINGS_FILE", file)
         monkeypatch.setattr(admin_module, "ENV_FILE", tmp_path / ".env")
         monkeypatch.delenv("LANGUAGE", raising=False)
         # The translations cache survives from one test to the next.
         auth_service._translations_cache["langue"] = None
-        return fichier
+        return file
 
     def test_defaults_to_english(self, settings_file):
         import auth_service
@@ -860,7 +860,7 @@ class TestLanguage:
         assert fr != en, (fr, en)
 
     def test_ui_messages_follow_too(self, settings_file):
-        """ui_messages() etait un dict construit une fois pour toutes."""
+        """ui_messages() used to be a dict built once and for all."""
         import admin_module
         import auth_service
 
@@ -902,32 +902,32 @@ class TestRollback:
         config = tmp_path / "orthanc.json"
         config.write_text('{"Name": "casse"}', encoding="utf-8")
 
-        sauvegardes = tmp_path / "backups"
-        sauvegardes.mkdir()
-        (sauvegardes / "orthanc.json.bak.20260101-120000").write_text(
+        backups = tmp_path / "backups"
+        backups.mkdir()
+        (backups / "orthanc.json.bak.20260101-120000").write_text(
             '{"Name": "connue-bonne"}', encoding="utf-8")
 
         monkeypatch.setattr(admin_module, "ORTHANC_JSON", config)
-        monkeypatch.setattr(admin_module, "BACKUPS_DIR", sauvegardes)
+        monkeypatch.setattr(admin_module, "BACKUPS_DIR", backups)
         monkeypatch.setattr(admin_module, "DOCKER_PROXY_URL", "http://proxy:2375")
 
-        async def _muet(*a, **k):
+        async def _silent(*a, **k):
             return None
 
-        async def _sans_attente(_):
+        async def _no_wait(_):
             return None
 
-        monkeypatch.setattr(admin_module, "_audit", _muet)
-        monkeypatch.setattr(admin_module.asyncio, "sleep", _sans_attente)
+        monkeypatch.setattr(admin_module, "_audit", _silent)
+        monkeypatch.setattr(admin_module.asyncio, "sleep", _no_wait)
 
-        class _Reponse:
+        class _Response:
             status_code = 204
 
         class _Client:
             def __init__(self, *a, **k): pass
             async def __aenter__(self): return self
             async def __aexit__(self, *a): return False
-            async def post(self, *a, **k): return _Reponse()
+            async def post(self, *a, **k): return _Response()
 
         monkeypatch.setattr(admin_module.httpx, "AsyncClient", _Client)
         return config
@@ -936,29 +936,29 @@ class TestRollback:
     def _orthanc_silent(monkeypatch):
         import admin_module
 
-        async def _jamais(*a, **k):
+        async def _never(*a, **k):
             raise ConnectionError("Orthanc ne repond pas")
 
-        monkeypatch.setattr(admin_module, "_orthanc", _jamais)
+        monkeypatch.setattr(admin_module, "_orthanc", _never)
 
     @staticmethod
     def _orthanc_back_after_restore(monkeypatch, config: Path):
         """Orthanc only answers once the configuration has been restored."""
         import admin_module
 
-        class _Reponse:
+        class _Response:
             status_code = 200
 
             @staticmethod
             def json():
                 return {"Version": "1.12.11"}
 
-        async def _selon_config(*a, **k):
+        async def _from_config(*a, **k):
             if "connue-bonne" in config.read_text(encoding="utf-8"):
-                return _Reponse()
+                return _Response()
             raise ConnectionError("configuration refusee")
 
-        monkeypatch.setattr(admin_module, "_orthanc", _selon_config)
+        monkeypatch.setattr(admin_module, "_orthanc", _from_config)
 
     def test_configuration_restored_and_orthanc_restarts(self, stack, monkeypatch):
         """The case that matters: the PACS must come back, not stay down."""
@@ -992,9 +992,9 @@ class TestRollback:
         import admin_module
         from fastapi import HTTPException
 
-        vide = tmp_path / "vides"
-        vide.mkdir()
-        monkeypatch.setattr(admin_module, "BACKUPS_DIR", vide)
+        empty = tmp_path / "vides"
+        empty.mkdir()
+        monkeypatch.setattr(admin_module, "BACKUPS_DIR", empty)
         self._orthanc_silent(monkeypatch)
 
         with pytest.raises(HTTPException) as e:
@@ -1006,12 +1006,12 @@ class TestRollback:
         """Les noms portent un horodatage : l'ordre alphabetique fait foi."""
         import admin_module
 
-        dossier = admin_module.BACKUPS_DIR
-        for horodatage in ("20260101-120000", "20260301-090000",
+        folder = admin_module.BACKUPS_DIR
+        for timestamp in ("20260101-120000", "20260301-090000",
                            "20260201-235959"):
-            (dossier / f"orthanc.json.bak.{horodatage}").touch()
-        choisie = admin_module._latest_orthanc_backup()
-        assert choisie.name.endswith("20260301-090000")
+            (folder / f"orthanc.json.bak.{timestamp}").touch()
+        chosen = admin_module._latest_orthanc_backup()
+        assert chosen.name.endswith("20260301-090000")
 
 
 # ============================================================================
@@ -1022,10 +1022,10 @@ class TestRangesAndValues:
     """The type is not enough: an integer can be a port that does not exist."""
 
     @staticmethod
-    def _change(champ, valeur):
+    def _change(field, expected_value):
         from admin_module import _apply_scalar_change
         config = {"DicomModalitiesInDatabase": True, "OrthancPeersInDatabase": True}
-        _apply_scalar_change(config, champ, valeur)
+        _apply_scalar_change(config, field, expected_value)
         return config
 
     def test_port_out_of_range(self):
@@ -1040,7 +1040,7 @@ class TestRangesAndValues:
         assert self._change("DicomPort", 11112)["DicomPort"] == 11112
 
     def test_zero_worker_threads(self):
-        """Orthanc ne traiterait plus rien."""
+        """Orthanc would no longer process anything."""
         with pytest.raises(ValueError, match="entre 1 et 256"):
             self._change("ConcurrentJobs", 0)
 
@@ -1078,13 +1078,13 @@ class TestExplorerSettings:
     """
 
     @staticmethod
-    def _change(champ, valeur):
+    def _change(field, expected_value):
         from admin_module import _apply_scalar_change
         config = {"DicomModalitiesInDatabase": True, "OrthancPeersInDatabase": True}
-        _apply_scalar_change(config, champ, valeur)
+        _apply_scalar_change(config, field, expected_value)
         return config
 
-    @pytest.mark.parametrize("champ", [
+    @pytest.mark.parametrize("field", [
         "OrthancExplorer2.Theme",
         "OrthancExplorer2.Tokens.ShareType",
         "OrthancExplorer2.Tokens.InstantLinksValidity",
@@ -1095,11 +1095,11 @@ class TestExplorerSettings:
         "OrthancExplorer2.UiOptions.EnableOpenInStoneWebViewer",
         "OrthancExplorer2.UiOptions.EnableOpenInVolView",
     ])
-    def test_settable_without_editing_the_file(self, champ):
+    def test_settable_without_editing_the_file(self, field):
         from admin_module import ORTHANC_EDITABLE_PATHS
-        assert champ in ORTHANC_EDITABLE_PATHS
+        assert field in ORTHANC_EDITABLE_PATHS
 
-    @pytest.mark.parametrize("champ", [
+    @pytest.mark.parametrize("field", [
         # Se couper l'acces a sa propre interface.
         "OrthancExplorer2.Enable",
         "OrthancExplorer2.IsDefaultOrthancUI",
@@ -1112,9 +1112,9 @@ class TestExplorerSettings:
         "Authorization.WebServicePassword",
         "AuthenticationEnabled",
     ])
-    def test_out_of_the_panel_reach(self, champ):
+    def test_out_of_the_panel_reach(self, field):
         from admin_module import ORTHANC_EDITABLE_PATHS
-        assert champ not in ORTHANC_EDITABLE_PATHS
+        assert field not in ORTHANC_EDITABLE_PATHS
 
     def test_theme_limited_to_bootstrap_modes(self):
         """Explorer applies the value to data-bs-theme, which only knows light
@@ -1147,13 +1147,13 @@ class TestExplorerSettings:
         if not descriptions.exists():
             pytest.skip("descriptions de champs hors de l'arborescence")
 
-        texte = descriptions.read_text(encoding="utf-8")
-        decrits = set(re.findall(r"'([A-Za-z][A-Za-z0-9.]*)':", texte))
-        decrits |= set(re.findall(r"^\s+([A-Za-z][A-Za-z0-9]*): \[", texte, re.M))
+        text = descriptions.read_text(encoding="utf-8")
+        described = set(re.findall(r"'([A-Za-z][A-Za-z0-9.]*)':", text))
+        described |= set(re.findall(r"^\s+([A-Za-z][A-Za-z0-9]*): \[", text, re.M))
 
-        oublies = [c for c in ORTHANC_EDITABLE_PATHS
-                   if c.startswith("OrthancExplorer2") and c not in decrits]
-        assert not oublies, f"champs sans libelle : {oublies}"
+        missed = [c for c in ORTHANC_EDITABLE_PATHS
+                   if c.startswith("OrthancExplorer2") and c not in described]
+        assert not missed, f"champs sans libelle : {missed}"
 
 
 # ============================================================================
@@ -1172,15 +1172,15 @@ class TestListSettings:
     """
 
     @staticmethod
-    def _read_back(texte):
+    def _read_back(text):
         from admin_module import _strip_json_comments
-        return json.loads(_strip_json_comments(texte))
+        return json.loads(_strip_json_comments(text))
 
     @staticmethod
-    def _change(champ, valeur):
+    def _change(field, expected_value):
         from admin_module import _apply_scalar_change
         config = {"DicomModalitiesInDatabase": True, "OrthancPeersInDatabase": True}
-        _apply_scalar_change(config, champ, valeur)
+        _apply_scalar_change(config, field, expected_value)
         return config
 
     SOURCE = """{
@@ -1191,8 +1191,8 @@ class TestListSettings:
 
     def test_array_is_located(self):
         from admin_module import _scan_json
-        valeurs, _ = _scan_json(self.SOURCE)
-        assert "StudyListColumns" in valeurs
+        values, _ = _scan_json(self.SOURCE)
+        assert "StudyListColumns" in values
 
     def test_replacement_without_duplicate(self):
         """The central point: a single occurrence of the key after writing."""
@@ -1217,8 +1217,8 @@ class TestListSettings:
         from admin_module import _apply_text_changes
         out = _apply_text_changes(
             self.SOURCE, {"StudyListColumns": ["PatientID", "Modality"]})
-        lignes = [l for l in out.splitlines() if '"Modality"' in l]
-        assert lignes and lignes[0].startswith("    "), out
+        lines = [l for l in out.splitlines() if '"Modality"' in l]
+        assert lines and lines[0].startswith("    "), out
 
     def test_empty_list(self):
         from admin_module import _apply_text_changes
@@ -1230,7 +1230,7 @@ class TestListSettings:
         never inserted twice."""
         from admin_module import _apply_text_changes
         source = '{"Bloc": {"a": 1}}'
-        with pytest.raises(ValueError, match="deja present"):
+        with pytest.raises(ValueError, match="already present"):
             _apply_text_changes(source, {"Bloc": {"a": 2}})
 
     # --- content validation ------------------------------------------------
@@ -1287,24 +1287,24 @@ class TestSetupLock:
         """Redis vide, comme apres la perte de son volume."""
         import admin_module
 
-        class _RedisVide:
+        class _RedisEmpty:
             @staticmethod
-            async def get(_cle):
+            async def get(_key):
                 return None
 
-        monkeypatch.setattr(admin_module, "_r", lambda: _RedisVide())
+        monkeypatch.setattr(admin_module, "_r", lambda: _RedisEmpty())
 
-        fichier = tmp_path / "users_database.yml"
-        monkeypatch.setattr(admin_module, "AUTHELIA_YML", fichier)
-        return fichier
+        file = tmp_path / "users_database.yml"
+        monkeypatch.setattr(admin_module, "AUTHELIA_YML", file)
+        return file
 
     @staticmethod
-    def _write(fichier, users):
+    def _write(file, users):
         import yaml
-        fichier.write_text(yaml.safe_dump({"users": users}), encoding="utf-8")
+        file.write_text(yaml.safe_dump({"users": users}), encoding="utf-8")
 
     def test_first_run_stays_open(self, without_redis):
-        """Seul le compte d'amorcage existe : c'est bien une installation
+        """Only the bootstrap account exists: this really is an install
         neuve, l'assistant doit s'ouvrir."""
         import admin_module
         self._write(without_redis, {
@@ -1341,19 +1341,19 @@ class TestSetupLock:
         """When in doubt, do not open: a read error must not offer the creation
         of an administrator account."""
         import admin_module
-        without_redis.write_text("ceci: n'est pas: du YAML: valide:", encoding="utf-8")
+        without_redis.write_text("this: is not: valid YAML:", encoding="utf-8")
         assert _run(admin_module._setup_completed()) is True
 
     def test_redis_flag_is_enough(self, tmp_path, monkeypatch):
         """L'ancien mecanisme reste valable quand Redis repond."""
         import admin_module
 
-        class _RedisPlein:
+        class _RedisFull:
             @staticmethod
-            async def get(_cle):
+            async def get(_key):
                 return "1"
 
-        monkeypatch.setattr(admin_module, "_r", lambda: _RedisPlein())
+        monkeypatch.setattr(admin_module, "_r", lambda: _RedisFull())
         monkeypatch.setattr(admin_module, "AUTHELIA_YML",
                             tmp_path / "absent.yml")
         assert _run(admin_module._setup_completed()) is True
@@ -1380,54 +1380,54 @@ class TestEffectiveConfig:
     def config(self, tmp_path, monkeypatch):
         import admin_module
 
-        fichier = tmp_path / "orthanc.json"
-        fichier.write_text(json.dumps({
+        file = tmp_path / "orthanc.json"
+        file.write_text(json.dumps({
             "Name": "PACS Cuffel",
             "DicomAet": "PACSCUFFEL",
             "OrthancExplorer2": {"UiOptions": {"StudyListColumns": ["PatientID"]}},
         }), encoding="utf-8")
-        monkeypatch.setattr(admin_module, "ORTHANC_JSON", fichier)
-        return fichier
+        monkeypatch.setattr(admin_module, "ORTHANC_JSON", file)
+        return file
 
     @staticmethod
-    def _respond(monkeypatch, systeme=None, ui=None):
+    def _respond(monkeypatch, system=None, ui=None):
         import admin_module
 
-        class _Reponse:
-            def __init__(self, corps):
-                self.status_code = 200 if corps is not None else 500
-                self._corps = corps or {}
+        class _Response:
+            def __init__(self, body):
+                self.status_code = 200 if body is not None else 500
+                self._body = body or {}
 
             def json(self):
-                return self._corps
+                return self._body
 
-        async def _faux(_methode, chemin, **_k):
-            return _Reponse(systeme if chemin == "/system" else ui)
+        async def _fake(_method, path, **_k):
+            return _Response(system if path == "/system" else ui)
 
-        monkeypatch.setattr(admin_module, "_orthanc", _faux)
+        monkeypatch.setattr(admin_module, "_orthanc", _fake)
 
     def test_no_divergence(self, config, monkeypatch):
         import admin_module
         self._respond(
             monkeypatch,
-            systeme={"Name": "PACS Cuffel", "DicomAet": "PACSCUFFEL"},
+            system={"Name": "PACS Cuffel", "DicomAet": "PACSCUFFEL"},
             ui={"UiOptions": {"StudyListColumns": ["PatientID"]}},
         )
         assert _run(admin_module._check_effective_config()) == []
 
     def test_divergence_detected(self, config, monkeypatch):
-        """Le cas d'une variable d'environnement qui ecrase le fichier."""
+        """The case of an environment variable overriding the file."""
         import admin_module
         self._respond(
             monkeypatch,
-            systeme={"Name": "Autre nom", "DicomAet": "PACSCUFFEL"},
+            system={"Name": "Autre nom", "DicomAet": "PACSCUFFEL"},
             ui={"UiOptions": {"StudyListColumns": ["PatientID"]}},
         )
-        ecarts = _run(admin_module._check_effective_config())
-        assert len(ecarts) == 1
-        assert ecarts[0]["champ"] == "Name"
-        assert ecarts[0]["dans_le_fichier"] == "PACS Cuffel"
-        assert ecarts[0]["applique_par_orthanc"] == "Autre nom"
+        mismatches = _run(admin_module._check_effective_config())
+        assert len(mismatches) == 1
+        assert mismatches[0]["field"] == "Name"
+        assert mismatches[0]["in_file"] == "PACS Cuffel"
+        assert mismatches[0]["applied_by_orthanc"] == "Autre nom"
 
     def test_misplaced_field_detected(self, config, monkeypatch):
         """The real defect: Orthanc applies its default columns because the field
@@ -1435,20 +1435,20 @@ class TestEffectiveConfig:
         import admin_module
         self._respond(
             monkeypatch,
-            systeme={"Name": "PACS Cuffel", "DicomAet": "PACSCUFFEL"},
+            system={"Name": "PACS Cuffel", "DicomAet": "PACSCUFFEL"},
             ui={"UiOptions": {"StudyListColumns": ["PatientBirthDate", "modalities"]}},
         )
-        ecarts = _run(admin_module._check_effective_config())
-        champs = [e["champ"] for e in ecarts]
-        assert "OrthancExplorer2.UiOptions.StudyListColumns" in champs
+        mismatches = _run(admin_module._check_effective_config())
+        fields = [e["field"] for e in mismatches]
+        assert "OrthancExplorer2.UiOptions.StudyListColumns" in fields
 
     def test_field_absent_from_file_ignored(self, tmp_path, monkeypatch):
-        """Non declare = valeur par defaut d'Orthanc : ce n'est pas un ecart."""
+        """Undeclared = Orthanc default: that is not a mismatch."""
         import admin_module
-        fichier = tmp_path / "orthanc.json"
-        fichier.write_text('{"Name": "PACS"}', encoding="utf-8")
-        monkeypatch.setattr(admin_module, "ORTHANC_JSON", fichier)
-        self._respond(monkeypatch, systeme={"Name": "PACS", "DicomPort": 4242},
+        file = tmp_path / "orthanc.json"
+        file.write_text('{"Name": "PACS"}', encoding="utf-8")
+        monkeypatch.setattr(admin_module, "ORTHANC_JSON", file)
+        self._respond(monkeypatch, system={"Name": "PACS", "DicomPort": 4242},
                        ui={})
         assert _run(admin_module._check_effective_config()) == []
 
@@ -1456,10 +1456,10 @@ class TestEffectiveConfig:
         """Nothing to compare must not translate into an alert."""
         import admin_module
 
-        async def _casse(*a, **k):
+        async def _broken(*a, **k):
             raise ConnectionError("Orthanc ne repond pas")
 
-        monkeypatch.setattr(admin_module, "_orthanc", _casse)
+        monkeypatch.setattr(admin_module, "_orthanc", _broken)
         assert _run(admin_module._check_effective_config()) == []
 
     def test_computed_permissions_excluded(self):
@@ -1467,9 +1467,9 @@ class TestEffectiveConfig:
         user: it is a permission, not a setting. Comparing it with the file
         would raise a permanent alert."""
         from admin_module import ORTHANC_VERIFIABLE
-        for champ in ("OrthancExplorer2.UiOptions.EnableShares",
+        for field in ("OrthancExplorer2.UiOptions.EnableShares",
                       "OrthancExplorer2.UiOptions.EnableViewerQuickButton"):
-            assert champ not in ORTHANC_VERIFIABLE
+            assert field not in ORTHANC_VERIFIABLE
 
     def test_columns_declared_under_uioptions(self):
         """Placement guard: Explorer reads this field under UiOptions. Declaring

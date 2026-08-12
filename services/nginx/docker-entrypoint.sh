@@ -67,10 +67,10 @@ elif [ "$SSL_MODE" = "selfsigned" ]; then
     # l'exploitant (Let's Encrypt, autorite interne) peut legitimement porter
     # a different name -- wildcard, multiple SANs -- and must never be
     # overwritten.
-    CN_ACTUEL=$(openssl x509 -in /etc/nginx/ssl/cert.pem -noout -subject 2>/dev/null \
+    CURRENT_CN=$(openssl x509 -in /etc/nginx/ssl/cert.pem -noout -subject 2>/dev/null \
                 | sed -n 's/.*CN *= *\([^,/]*\).*/\1/p' | tr -d ' ')
-    if [ -n "$CN_ACTUEL" ] && [ "$CN_ACTUEL" != "$DOMAIN" ]; then
-        echo "Certificate is for '${CN_ACTUEL}' but domain is now '${DOMAIN}'."
+    if [ -n "$CURRENT_CN" ] && [ "$CURRENT_CN" != "$DOMAIN" ]; then
+        echo "Certificate is for '${CURRENT_CN}' but domain is now '${DOMAIN}'."
         BESOIN_CERT=1
     fi
 fi

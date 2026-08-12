@@ -1,188 +1,190 @@
-# Configuration du Tunnel Cloudflare pour ORTHANC-AUTHELIA
+# Cloudflare Tunnel setup for ORTHANC-AUTHELIA
 
-Ce guide explique comment configurer un tunnel Cloudflare pour exposer votre instance ORTHANC-AUTHELIA sur Internet de manière sécurisée.
+This guide explains how to set up a Cloudflare tunnel to expose your
+ORTHANC-AUTHELIA instance on the Internet securely.
 
-## Table des matières
+## Table of contents
 
-1. [Prérequis](#prérequis)
-2. [Installation de cloudflared](#installation-de-cloudflared)
-3. [Authentification Cloudflare](#authentification-cloudflare)
-4. [Configuration du tunnel](#configuration-du-tunnel)
-5. [Configuration DNS](#configuration-dns)
-6. [Configuration du backend HTTPS](#configuration-du-backend-https)
-7. [Démarrage du tunnel](#démarrage-du-tunnel)
-8. [Automatisation avec systemd](#automatisation-avec-systemd)
-9. [Surveillance et logs](#surveillance-et-logs)
-10. [Dépannage](#dépannage)
+1. [Prerequisites](#prerequisites)
+2. [Installing cloudflared](#installing-cloudflared)
+3. [Cloudflare authentication](#cloudflare-authentication)
+4. [Tunnel configuration](#tunnel-configuration)
+5. [DNS configuration](#dns-configuration)
+6. [HTTPS backend configuration](#https-backend-configuration)
+7. [Starting the tunnel](#starting-the-tunnel)
+8. [Automating with systemd](#automating-with-systemd)
+9. [Monitoring and logs](#monitoring-and-logs)
+10. [Troubleshooting](#troubleshooting)
 
-## Prérequis
+## Prerequisites
 
-- Un compte Cloudflare avec un domaine configuré
-- Docker et Docker Compose installés
-- ORTHANC-AUTHELIA configuré avec HTTPS (port 30443)
-- Certificats SSL générés (self-signed ou Let's Encrypt)
+- A Cloudflare account with a configured domain
+- Docker and Docker Compose installed
+- ORTHANC-AUTHELIA configured with HTTPS (port 30443)
+- SSL certificates generated (self-signed or Let's Encrypt)
 
-## Installation de cloudflared
+## Installing cloudflared
 
-### Sur Ubuntu/Debian
+### On Ubuntu/Debian
 
 ```bash
-# Télécharger et installer cloudflared
+# Download and install cloudflared
 curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
 sudo mv cloudflared /usr/local/bin/
 sudo chmod +x /usr/local/bin/cloudflared
 ```
 
-### Vérification de l'installation
+### Checking the installation
 
 ```bash
 cloudflared --version
 ```
 
-## Authentification Cloudflare
+## Cloudflare authentication
 
-### 1. Connexion à votre compte Cloudflare
+### 1. Logging in to your Cloudflare account
 
 ```bash
 cloudflared tunnel login
 ```
 
-Cette commande ouvrira votre navigateur pour l'authentification Cloudflare.
+This command opens your browser for Cloudflare authentication.
 
-### 2. Sélection du domaine
+### 2. Selecting the domain
 
-Sélectionnez le domaine que vous souhaitez utiliser (ex: `yokoinc.ovh`).
+Select the domain you want to use (for example `yokoinc.ovh`).
 
-## Configuration du tunnel
+## Tunnel configuration
 
-### 1. Créer un nouveau tunnel
+### 1. Create a new tunnel
 
 ```bash
 cloudflared tunnel create orthanc-pacs
 ```
 
-Cette commande créera un tunnel nommé `orthanc-pacs` et générera un UUID unique.
+This command creates a tunnel named `orthanc-pacs` and generates a unique UUID.
 
-### 2. Créer le fichier de configuration
+### 2. Create the configuration file
 
-Créez le fichier `/etc/cloudflared/config.yml` :
+Create the file `/etc/cloudflared/config.yml`:
 
 ```yaml
-# Configuration du tunnel Cloudflare pour ORTHANC-AUTHELIA
+# Cloudflare tunnel configuration for ORTHANC-AUTHELIA
 tunnel: orthanc-pacs
 credentials-file: /etc/cloudflared/orthanc-pacs.json
 
-# Configuration des logs
+# Log configuration
 log-level: info
 log-file: /var/log/cloudflared.log
 
-# Configuration du backend HTTPS
+# HTTPS backend configuration
 ingress:
-  # Règle principale pour le domaine PACS
+  # Main rule for the PACS domain
   - hostname: pacs.yokoinc.ovh
     service: https://localhost:30443
-    # Configuration TLS pour le backend
+    # TLS configuration for the backend
     originRequest:
-      # Désactiver la vérification TLS pour les certificats self-signed
+      # Disable TLS verification for self-signed certificates
       noTLSVerify: true
-      # Forcer HTTP/2 pour de meilleures performances
+      # Force HTTP/2 for better performance
       http2Origin: true
-      # Définir les headers pour le proxy
+      # Set the headers for the proxy
       proxyHeaders:
         Host: pacs.yokoinc.ovh
-      # Timeout de connexion
+      # Connection timeout
       connectTimeout: 30s
-      # Timeout de lecture
+      # Read timeout
       tlsTimeout: 10s
   
-  # Règle par défaut (obligatoire)
+  # Default rule (mandatory)
   - service: http_status:404
 ```
 
-### 3. Créer les répertoires nécessaires
+### 3. Create the required directories
 
 ```bash
 sudo mkdir -p /etc/cloudflared
 sudo mkdir -p /var/log
 ```
 
-### 4. Copier le fichier de credentials
+### 4. Copy the credentials file
 
 ```bash
 sudo cp ~/.cloudflared/orthanc-pacs.json /etc/cloudflared/
 ```
 
-## Configuration DNS
+## DNS configuration
 
-### 1. Ajouter l'enregistrement DNS
+### 1. Add the DNS record
 
 ```bash
 cloudflared tunnel route dns orthanc-pacs pacs.yokoinc.ovh
 ```
 
-### 2. Vérifier la configuration DNS
+### 2. Check the DNS configuration
 
-Vérifiez dans votre dashboard Cloudflare que l'enregistrement CNAME a été créé :
-- **Type** : CNAME
-- **Nom** : pacs
-- **Cible** : `orthanc-pacs.cfargotunnel.com`
-- **Proxy** : ✅ Activé (nuage orange)
+In your Cloudflare dashboard, check that the CNAME record was created:
+- **Type**: CNAME
+- **Name**: pacs
+- **Target**: `orthanc-pacs.cfargotunnel.com`
+- **Proxy**: ✅ Enabled (orange cloud)
 
-## Configuration du backend HTTPS
+## HTTPS backend configuration
 
-### 1. Paramètres SSL/TLS dans Cloudflare
+### 1. SSL/TLS settings in Cloudflare
 
-Dans votre dashboard Cloudflare, allez dans **SSL/TLS** > **Aperçu** :
+In your Cloudflare dashboard, go to **SSL/TLS** > **Overview**:
 
-- **Mode de chiffrement** : Full (strict) ou Full
-- **Certificat de périphérie** : Automatique
-- **Certificat d'origine** : Activé
+- **Encryption mode**: Full (strict) or Full
+- **Edge certificate**: Automatic
+- **Origin certificate**: Enabled
 
-### 2. Paramètres supplémentaires
+### 2. Additional settings
 
-Dans **SSL/TLS** > **Paramètres de périphérie** :
+Under **SSL/TLS** > **Edge certificates**:
 
-- **Version TLS minimale** : 1.2
-- **Vérification TLS automatique** : Activée
-- **Certificat d'origine** : Configuré
+- **Minimum TLS version**: 1.2
+- **Automatic TLS verification**: Enabled
+- **Origin certificate**: Configured
 
-### 3. Configuration des règles de page (optionnel)
+### 3. Page rules (optional)
 
-Créez une règle de page pour `pacs.yokoinc.ovh/*` :
+Create a page rule for `pacs.yokoinc.ovh/*`:
 
-- **Niveau de sécurité** : Moyen
-- **Mode cache** : Standard
-- **Réécriture HTTPS** : Activée
+- **Security level**: Medium
+- **Cache mode**: Standard
+- **HTTPS rewrite**: Enabled
 
-## Démarrage du tunnel
+## Starting the tunnel
 
-### 1. Test de la configuration
+### 1. Testing the configuration
 
 ```bash
 cloudflared tunnel --config /etc/cloudflared/config.yml ingress validate
 ```
 
-### 2. Test de connectivité
+### 2. Connectivity test
 
 ```bash
 cloudflared tunnel --config /etc/cloudflared/config.yml ingress rule https://pacs.yokoinc.ovh/
 ```
 
-### 3. Démarrage manuel (pour test)
+### 3. Manual start (for testing)
 
 ```bash
 sudo cloudflared tunnel --config /etc/cloudflared/config.yml run
 ```
 
-### 4. Vérification
+### 4. Verification
 
-Ouvrez votre navigateur et allez sur `https://pacs.yokoinc.ovh`. Vous devriez voir la page de connexion Authelia.
+Open your browser and go to `https://pacs.yokoinc.ovh`. You should see the
+Authelia login page.
 
-## Automatisation avec systemd
+## Automating with systemd
 
-### 1. Créer le service systemd
+### 1. Create the systemd service
 
-Créez le fichier `/etc/systemd/system/cloudflared.service` :
+Create the file `/etc/systemd/system/cloudflared.service`:
 
 ```ini
 [Unit]
@@ -200,7 +202,7 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-### 2. Activer et démarrer le service
+### 2. Enable and start the service
 
 ```bash
 sudo systemctl daemon-reload
@@ -208,84 +210,84 @@ sudo systemctl enable cloudflared.service
 sudo systemctl start cloudflared.service
 ```
 
-### 3. Vérifier le statut
+### 3. Check the status
 
 ```bash
 sudo systemctl status cloudflared.service
 ```
 
-## Surveillance et logs
+## Monitoring and logs
 
-### 1. Logs en temps réel
+### 1. Live logs
 
 ```bash
 sudo journalctl -u cloudflared.service -f
 ```
 
-### 2. Logs Cloudflared
+### 2. Cloudflared logs
 
 ```bash
 sudo tail -f /var/log/cloudflared.log
 ```
 
-### 3. Métriques Cloudflare
+### 3. Cloudflare metrics
 
-Dans votre dashboard Cloudflare, consultez :
-- **Analytics** > **Trafic** : Statistiques de trafic
-- **Analytics** > **Sécurité** : Événements de sécurité
-- **Analytics** > **Performance** : Métriques de performance
+In your Cloudflare dashboard, look at:
+- **Analytics** > **Traffic**: traffic statistics
+- **Analytics** > **Security**: security events
+- **Analytics** > **Performance**: performance metrics
 
-## Dépannage
+## Troubleshooting
 
-### Erreur de connexion SSL
+### SSL connection error
 
 ```bash
-# Vérifier les certificats SSL
+# Check the SSL certificates
 openssl s_client -connect localhost:30443 -servername pacs.yokoinc.ovh
 
-# Tester avec curl
+# Test with curl
 curl -k -H "Host: pacs.yokoinc.ovh" https://localhost:30443/auth/
 ```
 
-### Erreur 502 Bad Gateway
+### 502 Bad Gateway
 
-1. Vérifiez que ORTHANC-AUTHELIA fonctionne :
+1. Check that ORTHANC-AUTHELIA is running:
    ```bash
    docker compose ps
    curl -k https://localhost:30443/auth/
    ```
 
-2. Vérifiez la configuration cloudflared :
+2. Check the cloudflared configuration:
    ```bash
    cloudflared tunnel --config /etc/cloudflared/config.yml ingress validate
    ```
 
-### Problèmes de DNS
+### DNS problems
 
 ```bash
-# Vérifier la résolution DNS
+# Check DNS resolution
 nslookup pacs.yokoinc.ovh
 dig pacs.yokoinc.ovh
 
-# Vérifier les enregistrements Cloudflare
+# Check the Cloudflare records
 cloudflared tunnel route dns orthanc-pacs pacs.yokoinc.ovh
 ```
 
-### Erreur d'authentification
+### Authentication error
 
 ```bash
-# Réauthentifier
+# Re-authenticate
 cloudflared tunnel login
 
-# Lister les tunnels
+# List the tunnels
 cloudflared tunnel list
 ```
 
-## Configuration avancée
+## Advanced configuration
 
-### 1. Redirection automatique HTTPS
+### 1. Automatic HTTPS redirect
 
-Dans votre configuration nginx, ajoutez :
+In your nginx configuration, add:
 
 ```nginx
 server {
@@ -295,9 +297,9 @@ server {
 }
 ```
 
-### 2. Headers de sécurité
+### 2. Security headers
 
-Ajoutez dans votre configuration nginx :
+Add to your nginx configuration:
 
 ```nginx
 add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
@@ -305,27 +307,27 @@ add_header X-Frame-Options DENY always;
 add_header X-Content-Type-Options nosniff always;
 ```
 
-### 3. Limitation du taux de requêtes
+### 3. Rate limiting
 
-Dans Cloudflare, configurez des règles de limitation :
-- **Règle** : `pacs.yokoinc.ovh/auth/*`
-- **Limite** : 10 requêtes par minute par IP
-- **Action** : Bloquer temporairement
+In Cloudflare, configure rate-limiting rules:
+- **Rule**: `pacs.yokoinc.ovh/auth/*`
+- **Limit**: 10 requests per minute per IP
+- **Action**: block temporarily
 
-## Sécurité
+## Security
 
 ### 1. Firewall
 
-Configurez votre firewall pour bloquer l'accès direct au port 30443 :
+Configure your firewall to block direct access to port 30443:
 
 ```bash
 sudo ufw deny 30443
 sudo ufw allow from 127.0.0.1 to any port 30443
 ```
 
-### 2. Authentification à deux facteurs
+### 2. Two-factor authentication
 
-Assurez-vous que l'authentification à deux facteurs est activée dans Authelia :
+Make sure two-factor authentication is enabled in Authelia:
 
 ```yaml
 totp:
@@ -334,9 +336,9 @@ totp:
   skew: 1
 ```
 
-### 3. Monitoring des accès
+### 3. Access monitoring
 
-Surveillez les logs d'accès :
+Watch the access logs:
 
 ```bash
 docker compose logs nginx | grep "GET /auth/"
@@ -345,39 +347,38 @@ docker compose logs authelia | grep "Access to"
 
 ## Maintenance
 
-### 1. Mise à jour de cloudflared
+### 1. Updating cloudflared
 
 ```bash
-# Télécharger la dernière version
+# Download the latest version
 curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o /tmp/cloudflared
 
-# Remplacer la version actuelle
+# Replace the current version
 sudo systemctl stop cloudflared
 sudo mv /tmp/cloudflared /usr/local/bin/
 sudo chmod +x /usr/local/bin/cloudflared
 sudo systemctl start cloudflared
 ```
 
-### 2. Renouvellement des certificats
+### 2. Certificate renewal
 
-Si vous utilisez des certificats auto-signés, pensez à les renouveler régulièrement :
+With self-signed certificates, remember to renew them from time to time. The
+nginx entrypoint reissues one when it is missing, expired, or no longer matches
+`DOMAIN`, so deleting it and restarting the container is enough. The
+certificate lives in the `orthanc_nginx_ssl` volume, not in the repository:
 
 ```bash
-# Regénérer les certificats
-cd /volume2/docker/pacs-orthanc-authelia
-./scripts/generate_ssl_cert.sh
-
-# Redémarrer nginx
+docker compose exec nginx rm -f /etc/nginx/ssl/cert.pem /etc/nginx/ssl/key.pem
 docker compose restart nginx
 ```
 
 ## Support
 
-- **Documentation Cloudflare** : https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/
-- **GitHub cloudflared** : https://github.com/cloudflare/cloudflared
-- **Logs du système** : `/var/log/cloudflared.log`
-- **Status des services** : `systemctl status cloudflared`
+- **Cloudflare documentation**: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/
+- **cloudflared on GitHub**: https://github.com/cloudflare/cloudflared
+- **System logs**: `/var/log/cloudflared.log`
+- **Service status**: `systemctl status cloudflared`
 
 ---
 
-*Ce guide a été créé pour ORTHANC-AUTHELIA v1.0. Pour les dernières mises à jour, consultez la documentation officielle.*
+*This guide was written for ORTHANC-AUTHELIA v1.0. For the latest updates, see the official documentation.*

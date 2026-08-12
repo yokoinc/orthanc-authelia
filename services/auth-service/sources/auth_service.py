@@ -47,16 +47,16 @@ if _os.path.isdir("/app/frontend"):
         matters.
         """
         html = Path(_SPA_INDEX).read_text(encoding="utf-8")
-        charge = json.dumps(
+        payload_json = json.dumps(
             {"lang": _language(), "ui": translations().get("ui", {})},
             ensure_ascii=False,
         )
         # A </script> inside a translated value would close the tag by
         # accident and break the page.
-        charge = charge.replace("</", "<\\/")
+        payload_json = payload_json.replace("</", "<\\/")
         return html.replace(
             "</head>",
-            f"<script>window.__I18N__={charge};</script></head>",
+            f"<script>window.__I18N__={payload_json};</script></head>",
             1,
         )
 
@@ -108,12 +108,12 @@ def _language() -> str:
 
         # "langue" was the original key: installations that already wrote
         # it keep working without intervention.
-        choisie = (_read_setting("language", "LANGUAGE")
+        chosen = (_read_setting("language", "LANGUAGE")
                    or _read_setting("langue"))
     except Exception:  # noqa: BLE001 - unreadable settings break nothing
-        choisie = ""
-    if choisie in AVAILABLE_LANGUAGES:
-        return choisie
+        chosen = ""
+    if chosen in AVAILABLE_LANGUAGES:
+        return chosen
     return os.getenv("LANGUAGE", "en") if os.getenv("LANGUAGE") in AVAILABLE_LANGUAGES else "en"
 
 
@@ -296,15 +296,15 @@ def load_translations(language="en"):
 # The cache avoids re-reading the file for every label displayed; it only
 # covers the current language, so a change made from the panel takes effect on
 # the next request.
-_translations_cache: dict = {"langue": None, "data": None}
+_translations_cache: dict = {"language": None, "data": None}
 
 
 def translations() -> dict:
     """Table de traduction correspondant a la langue en vigueur."""
-    langue = _language()
-    if _translations_cache["langue"] != langue:
-        _translations_cache["data"] = load_translations(langue)
-        _translations_cache["langue"] = langue
+    language_code = _language()
+    if _translations_cache["language"] != language_code:
+        _translations_cache["data"] = load_translations(language_code)
+        _translations_cache["language"] = language_code
     return _translations_cache["data"]
 
 
@@ -359,9 +359,9 @@ try:
     app.include_router(admin_module.router)
     app.middleware("http")(admin_module.setup_gate)
     app.middleware("http")(admin_module.csrf_gate)
-    logging.info("admin_module chargé — panel sur /console/, assistant sur /console/setup")
+    logging.info("admin_module loaded — panel at /console/, wizard at /console/setup")
 except ImportError as e:
-    logging.warning(f"admin_module non charge : {e} — les routes admin ne seront pas dispo")
+    logging.warning(f"admin_module not loaded: {e} — the admin routes will be unavailable")
 
 def store_token(token: str, token_data: dict):
     """Store token in Redis with expiration"""
@@ -1057,9 +1057,9 @@ async def _server_name() -> str:
     try:
         from admin_module import _orthanc
 
-        reponse = await _orthanc("GET", "/system")
-        if reponse.status_code == 200:
-            return reponse.json().get("Name") or "Orthanc"
+        response = await _orthanc("GET", "/system")
+        if response.status_code == 200:
+            return response.json().get("Name") or "Orthanc"
     except Exception:  # noqa: BLE001 - a UI page does not break over this
         logger.debug("Nom du serveur indisponible, repli sur 'Orthanc'")
     return "Orthanc"

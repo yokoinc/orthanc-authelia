@@ -78,7 +78,7 @@ def admin_user():
 
 @pytest.fixture
 def app(admin_user):
-    """FastAPI app avec le router + middlewares wire-up."""
+    """FastAPI app with the router and middlewares wired up."""
     app = FastAPI()
     app.include_router(admin_module.router)
     app.middleware("http")(admin_module.setup_gate)
@@ -252,13 +252,13 @@ class TestSetupWizard:
 
     def test_finalize_refused_without_admin(self, client, tmp_paths, fake_redis):
         """Finaliser sans admin actif = 400 (invariant lockout)."""
-        # Pas de POST create-admin avant
+        # No create-admin POST beforehand
         r = client.post("/setup/finalize")
         assert r.status_code == 400
         assert "admin" in r.text.lower()
 
     def test_create_admin_forces_admins_group(self, client, tmp_paths, fake_redis):
-        """Meme si l'user oublie 'admins' dans groups, on l'ajoute."""
+        """Even if the user forgets 'admins' in groups, we add it."""
         r = client.post("/setup/create-admin", json={
             "username": "cuffel.gregory",
             "displayname": "Gregory",
@@ -482,7 +482,7 @@ class TestAutoRollback:
 
             assert r.status_code == 502
             assert "rollback" in r.text.lower()
-            # Le mock a bien ete appele 2 fois (initial + rollback)
+            # The mock was indeed called twice (initial + rollback)
             assert reset_route.call_count == 2
 
         # The file is back to its original Name (rollback done)
@@ -502,7 +502,7 @@ class TestAutoRollback:
 class TestSetupLockout:
 
     def test_second_create_admin_refused(self, client, tmp_paths, fake_redis):
-        """Apres 1 create-admin, un 2e appel = 409 tant que non-finalize."""
+        """After one create-admin, a second call = 409 until finalised."""
         r1 = client.post("/setup/create-admin", json={
             "username": "first.admin",
             "displayname": "First",
@@ -603,7 +603,7 @@ class TestHealth:
     def test_ui_setup_redirects_to_hub_when_done(
         self, client, tmp_paths, fake_redis,
     ):
-        """Une fois finalise, le wizard renvoie vers le hub."""
+        """Once finalised, the wizard redirects to the hub."""
         fake_redis.sync.set("orthanc_authelia:setup_completed", "1")
 
         r = client.get("/ui/setup", follow_redirects=False)
@@ -771,7 +771,7 @@ class TestPublicUrl:
         )
         tmp_paths["authelia_cfg"].write_text(CONFIG_TYPE)
 
-    def test_changement_met_a_jour_env_et_authelia(
+    def test_change_updates_env_and_authelia(
         self, client, tmp_paths, fake_redis, csrf_headers,
     ):
         """L'URL publique se propage au .env et a toute la config Authelia."""
@@ -801,12 +801,12 @@ class TestPublicUrl:
         assert "comment that must survive" in cfg
         assert "without a port" in cfg
 
-    def test_meme_url_ne_touche_a_rien(
+    def test_same_url_touches_nothing(
         self, client, tmp_paths, fake_redis, csrf_headers,
     ):
         """Reappliquer l'URL courante est un no-op, sans sauvegarde inutile."""
         self._prepare(tmp_paths)
-        avant = tmp_paths["authelia_cfg"].read_text()
+        before = tmp_paths["authelia_cfg"].read_text()
 
         r = client.post(
             "/api/admin/network",
@@ -815,7 +815,7 @@ class TestPublicUrl:
         )
         assert r.status_code == 200
         assert r.json()["unchanged"] is True
-        assert tmp_paths["authelia_cfg"].read_text() == avant
+        assert tmp_paths["authelia_cfg"].read_text() == before
 
     def test_missing_env_answers_503_with_next_steps(
         self, client, tmp_paths, fake_redis, csrf_headers,
@@ -849,23 +849,23 @@ class TestPublicUrl:
         # .env has not moved: nothing is half-applied
         assert "PUBLIC_URL=https://pacs.localhost:30443" in tmp_paths["env"].read_text()
 
-    def test_rejets(self, client, tmp_paths, fake_redis, csrf_headers):
+    def test_rejections(self, client, tmp_paths, fake_redis, csrf_headers):
         """https obligatoire, origine seule, hote pointe."""
         self._prepare(tmp_paths)
-        for mauvaise in [
+        for bad_url in [
             "http://pacs.exemple.fr",
             "https://monpacs",
             "https://pacs.exemple.fr/chemin",
         ]:
             r = client.post(
                 "/api/admin/network",
-                json={"public_url": mauvaise},
+                json={"public_url": bad_url},
                 headers=csrf_headers,
             )
-            assert r.status_code == 400, f"{mauvaise} aurait du etre refusee"
+            assert r.status_code == 400, f"{bad_url} aurait du etre refusee"
 
 
-class TestModalites:
+class TestModalities:
     """DICOM devices: declaration, removal, connectivity test.
 
     These routes go through Orthanc's API, simulated here. They were only
@@ -885,9 +885,9 @@ class TestModalites:
             r = client.get("/api/admin/modalities")
 
         assert r.status_code == 200, r.text
-        equipements = r.json()["modalities"]
-        assert len(equipements) == 1
-        assert equipements[0] == {
+        devices = r.json()["modalities"]
+        assert len(devices) == 1
+        assert devices[0] == {
             "name": "SCANNER-1", "aet": "SCANNER1",
             "host": "192.0.2.10", "port": 104,
         }
@@ -903,8 +903,8 @@ class TestModalites:
         assert route.called
         # The operation must leave a trace: declaring a device authorises a
         # third-party machine to drop studies here.
-        entrees = fake_redis.sync.xrange("admin:audit")
-        assert any(e[1].get("event") == "orthanc.modality.saved" for e in entrees)
+        entries_read = fake_redis.sync.xrange("admin:audit")
+        assert any(e[1].get("event") == "orthanc.modality.saved" for e in entries_read)
 
     def test_ae_title_too_long_refused(
         self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
@@ -916,7 +916,7 @@ class TestModalites:
         }, headers=csrf_headers)
         assert r.status_code == 422
 
-    def test_port_hors_bornes_refuse(
+    def test_port_out_of_bounds_refused(
         self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
     ):
         r = client.put("/api/admin/modalities/PORT-KO", json={
@@ -924,7 +924,7 @@ class TestModalites:
         }, headers=csrf_headers)
         assert r.status_code == 422
 
-    def test_suppression(self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers):
+    def test_deletion(self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers):
         with respx.mock(base_url="http://orthanc:8042") as mock:
             route = mock.delete("/modalities/IRM-1").respond(status_code=200, json={})
             r = client.delete("/api/admin/modalities/IRM-1", headers=csrf_headers)
@@ -932,7 +932,7 @@ class TestModalites:
         assert r.status_code == 200, r.text
         assert route.called
 
-    def test_echo_joignable(self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers):
+    def test_echo_reachable(self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers):
         with respx.mock(base_url="http://orthanc:8042") as mock:
             mock.post("/modalities/IRM-1/echo").respond(status_code=200, json={})
             r = client.post("/api/admin/modalities/IRM-1/echo", headers=csrf_headers)
@@ -956,11 +956,11 @@ class TestModalites:
         assert "TCP" in r.json()["detail"]
 
 
-class TestModificationUtilisateur:
+class TestUserUpdate:
     """Modification d'un compte, et garde-fou anti-verrouillage.
 
-    Sans ces routes, changer le groupe de quelqu'un imposait de supprimer son
-    compte et de le recreer -- en lui faisant perdre son mot de passe.
+    Without these routes, changing someone's group meant deleting their
+    account and recreating it -- making them lose their password.
     """
 
     def test_partial_update(
@@ -973,12 +973,12 @@ class TestModificationUtilisateur:
         assert r.status_code == 200, r.text
 
         yml = yaml.safe_load(tmp_paths["authelia"].read_text())
-        infos = yml["users"]["cuffel.gregory"]
-        assert infos["displayname"] == "Docteur Cuffel"
-        assert infos["email"] == "cuffel.gregory@gmail.com"   # inchange
-        assert "admin" in infos["groups"]                     # inchange
+        record = yml["users"]["cuffel.gregory"]
+        assert record["displayname"] == "Docteur Cuffel"
+        assert record["email"] == "cuffel.gregory@gmail.com"   # inchange
+        assert "admin" in record["groups"]                     # inchange
 
-    def test_changement_de_groupes(
+    def test_group_change(
         self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
     ):
         # A second administrator, without which the invariant would block.
@@ -1009,7 +1009,7 @@ class TestModificationUtilisateur:
         assert r.status_code == 400
         assert "admin" in r.text.lower()
 
-    def test_refus_de_desactiver_le_dernier_admin(
+    def test_refuses_to_disable_the_last_admin(
         self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
     ):
         r = client.patch("/api/admin/users/cuffel.gregory", json={
@@ -1017,7 +1017,7 @@ class TestModificationUtilisateur:
         }, headers=csrf_headers)
         assert r.status_code == 400
 
-    def test_utilisateur_inconnu(
+    def test_unknown_user(
         self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
     ):
         r = client.patch("/api/admin/users/fantome", json={
@@ -1025,7 +1025,7 @@ class TestModificationUtilisateur:
         }, headers=csrf_headers)
         assert r.status_code == 404
 
-    def test_aucun_champ_fourni(
+    def test_no_field_provided(
         self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
     ):
         r = client.patch("/api/admin/users/cuffel.gregory", json={}, headers=csrf_headers)

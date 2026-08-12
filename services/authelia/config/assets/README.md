@@ -1,59 +1,59 @@
-# Personnalisation de la page de connexion Authelia
+# Customising the Authelia login page
 
-Ce dossier est le `asset_path` d'Authelia (`configuration.yml`, section
-`server`). Authelia n'y lit que trois choses, et rien d'autre :
+This directory is Authelia's `asset_path` (`configuration.yml`, `server`
+section). Authelia reads exactly three things from it, and nothing else:
 
 ```
 assets/
-├── favicon.ico                       icône d'onglet
-├── logo.png                          logo affiché sur la page de connexion
-└── locales/<langue>/portal.json      textes du portail
+├── favicon.ico                       tab icon
+├── logo.png                          logo shown on the login page
+└── locales/<language>/portal.json    portal texts
 ```
 
-Référence : https://www.authelia.com/reference/guides/server-asset-overrides/
+Reference: https://www.authelia.com/reference/guides/server-asset-overrides/
 
-## logo.png — en place
+## logo.png — in place
 
-Copie du logo Orthanc officiel, pour que la page de connexion et le PACS
-présentent la même identité. Sa présence bascule `data-logooverride` à `true`
-dans le HTML du portail ; Authelia le sert ensuite à
-`/static/media/logo.png`. Aucun réglage à activer.
+A copy of the official Orthanc logo, so the login page and the PACS present
+the same identity. Its presence flips `data-logooverride` to `true` in the
+portal's HTML; Authelia then serves it at `/static/media/logo.png`. No setting
+to enable.
 
-## favicon.ico — possible, non fait
+## favicon.ico — possible, not done
 
-Même principe. Déposer le fichier suffit.
+Same principle. Dropping the file in is enough.
 
-## locales/ — déconseillé
+## locales/ — not recommended
 
-Techniquement fonctionnel, mais **la surcharge remplace le fichier entier,
-elle ne fusionne pas**. Déposer un `portal.json` contenant une seule phrase
-fait retomber les 112 autres sur l'anglais. Personnaliser un seul libellé
-oblige donc à recopier les 113 chaînes dans ce dépôt, puis à les
-resynchroniser à chaque version d'Authelia — toute chaîne ajoutée en amont
-resterait masquée par notre copie figée.
+Technically functional, but **the override replaces the whole file, it does
+not merge**. Dropping in a `portal.json` holding a single sentence sends the
+other 112 back to English. Customising one label therefore means copying all
+113 strings into this repository, then resynchronising them with every
+Authelia release — any string added upstream would stay hidden behind our
+frozen copy.
 
-Piège supplémentaire : lorsqu'une clé contient un marqueur (`{{authelia}}`),
-la traduction doit le conserver. Sinon Authelia refuse de démarrer, en
-boucle de redémarrage, avec :
+One more trap: when a key contains a placeholder (`{{authelia}}`), the
+translation must keep it. Otherwise Authelia refuses to start, in a restart
+loop, with:
 
 ```
 translation key '...' has a value which is missing a required placeholder
 ```
 
-Pour récupérer le fichier complet d'une langue avant de le modifier :
+To fetch a language's complete file before editing it:
 
 ```bash
 docker exec orthanc-nginx curl -s http://authelia:9091/locales/fr/portal.json
 ```
 
-## CSS — non supporté
+## CSS — not supported
 
-Authelia n'a pas de mécanisme de feuille de style personnalisée : un
-`custom.css` déposé ici est ignoré. La seule voie est l'injection par nginx,
-déjà utilisée dans `services/nginx/nginx.ssl.conf` (bloc `location /auth/`)
-pour masquer le lien de réinitialisation de mot de passe.
+Authelia has no custom stylesheet mechanism: a `custom.css` dropped here is
+ignored. The only way is injection by nginx, already used in
+`services/nginx/nginx.ssl.conf` (the `location /auth/` block) to hide the
+password reset link.
 
-## Thème
+## Theme
 
-Indépendant de ce dossier : option `theme` dans `configuration.yml`
+Independent of this directory: the `theme` option in `configuration.yml`
 (`auto`, `light`, `dark`, `grey`).

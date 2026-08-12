@@ -51,8 +51,10 @@ def _require_orthanc_creds():
     if not ORTHANC_USER or not ORTHANC_PASS:
         raise HTTPException(
             503,
-            "ORTHANC_ADMIN_USER/ORTHANC_ADMIN_PASS non configures dans .env — "
-            "l'endpoint est disponible mais ne peut pas appeler Orthanc",
+            _msg("err_orthanc_creds_missing",
+                 "ORTHANC_ADMIN_USER/ORTHANC_ADMIN_PASS non configures dans "
+                 ".env — l'endpoint est disponible mais ne peut pas appeler "
+                 "Orthanc"),
         )
 
 # Parent directories are bind-mounted, never the files themselves: atomic
@@ -261,14 +263,14 @@ _settings_cache: dict[str, Any] = {"cle": None, "data": {}}
 def _read_settings() -> dict[str, Any]:
     """Contents of the settings file. Empty dict when it does not exist yet."""
     try:
-        cle = (str(SETTINGS_FILE), SETTINGS_FILE.stat().st_mtime)
+        key = (str(SETTINGS_FILE), SETTINGS_FILE.stat().st_mtime)
     except OSError:
         # No file: fresh install, or settings never changed.
         _settings_cache["cle"] = None
         _settings_cache["data"] = {}
         return {}
 
-    if _settings_cache["cle"] == cle:
+    if _settings_cache["cle"] == key:
         return _settings_cache["data"]
 
     try:
@@ -279,7 +281,7 @@ def _read_settings() -> dict[str, Any]:
         logger.warning("unreadable settings (%s), falling back to defaults", e)
         data = {}
 
-    _settings_cache["cle"] = cle
+    _settings_cache["cle"] = key
     _settings_cache["data"] = data
     return data
 
@@ -337,7 +339,7 @@ def _read_env_var(name: str) -> str:
 
 
 def _write_env_var(name: str, value: str) -> None:
-    """Remplace (ou ajoute) name=value dans le .env, en ecrivant SUR PLACE.
+    """Replace (or add) name=value in .env, writing IN PLACE.
 
     No write-tmp + rename here, unlike everywhere else in this module: .env
     is a file bind-mount. The rename would fail (EBUSY) and, were it to
@@ -348,9 +350,10 @@ def _write_env_var(name: str, value: str) -> None:
     if not ENV_FILE.exists():
         raise HTTPException(
             503,
-            "le fichier .env n'est pas accessible depuis le container. "
-            "Ajouter le montage './.env:/host/env/.env:rw' au service "
-            "auth-service, puis recreer le container.",
+            _msg("err_env_not_mounted",
+                 "le fichier .env n'est pas accessible depuis le container. "
+                 "Ajouter le montage './.env:/host/env/.env:rw' au service "
+                 "auth-service, puis recreer le container."),
         )
     _backup(ENV_FILE, tag="network")
     lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
@@ -383,8 +386,10 @@ def _retarget_authelia_config(previous_origin: str, previous_host: str,
     if not total:
         raise HTTPException(
             500,
-            f"aucune trace de '{previous_host}' dans configuration.yml : "
-            "le fichier a ete modifie a la main, changement annule",
+            _msg("err_authelia_hand_edited",
+                 "aucune trace de '{host}' dans configuration.yml : le fichier "
+                 "a ete modifie a la main, changement annule",
+                 host=previous_host),
         )
     _backup(AUTHELIA_CONFIG, tag="network")
     # Full origin first: replacing the bare host would otherwise turn
@@ -420,11 +425,12 @@ async def _apply_public_url(new_url: str, actor: str) -> dict:
         "public_url": origin,
         "substitutions": substitutions,
         "restart_required": True,
-        "message": (
-            f"URL publique enregistree : {origin}. Relancer la pile "
-            "(docker compose up -d) pour l'appliquer, puis se reconnecter "
-            f"sur {origin} — la session en cours est liee a l'ancien domaine."
-        ),
+        "message": _msg(
+            "msg_public_url_saved",
+            "URL publique enregistree : {origin}. Relancer la pile "
+            "(docker compose up -d) pour l'appliquer, puis se reconnecter sur "
+            "{origin} — la session en cours est liee a l'ancien domaine.",
+            origin=origin),
     }
 
 
@@ -620,19 +626,27 @@ def _load_orthanc_config() -> dict:
 def _validate_authelia(data: dict) -> None:
     """Invariants that keep a YAML from locking everybody out."""
     if not isinstance(data.get("users"), dict) or not data["users"]:
-        raise ValueError("users: section vide ou absente")  # noqa: RUF001
+        raise ValueError(_msg("err_users_section_empty",
+                              "users : section vide ou absente"))  # noqa: RUF001
     active_admins = [
         u for u, info in data["users"].items()
         if not info.get("disabled") and "admin" in (info.get("groups") or [])
     ]
     if not active_admins:
-        raise ValueError("au moins 1 admin actif requis (invariant lockout)")
+        raise ValueError(_msg("err_active_admin_required",
+                              "au moins 1 admin actif requis "
+                              "(invariant lockout)"))
     for name, info in data["users"].items():
         for field in ("password", "email", "displayname"):
             if not info.get(field):
-                raise ValueError(f"{name}: champ {field!r} manquant")
+                raise ValueError(_msg("err_user_field_missing",
+                                      "{user} : champ {field} manquant",
+                                      user=name, field=repr(field)))
         if not info["password"].startswith("$argon2id$"):
-            raise ValueError(f"{name}: password doit etre argon2id (start with $argon2id$)")
+            raise ValueError(_msg(
+                "err_password_not_argon2id",
+                "{user} : password doit etre argon2id (commence par "
+                "$argon2id$)", user=name))
 
 
 def _write_authelia(data: dict) -> None:
@@ -924,10 +938,15 @@ ORTHANC_ALLOWED_VALUES: dict[str, tuple[str, ...]] = {
 def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
     """Set config[a][b][c] = value, refusing to overwrite a dict or array."""
     if dotted not in ORTHANC_EDITABLE_PATHS:
-        raise ValueError(f"{dotted}: non editable via UI")
+        raise ValueError(_msg("err_path_not_editable",
+                              "{field} : non editable depuis l'interface",
+                              field=dotted))
     expected_type = ORTHANC_EDITABLE_PATHS[dotted]
     if not isinstance(value, expected_type):
-        raise ValueError(f"{dotted}: attendu {expected_type.__name__}, recu {type(value).__name__}")
+        raise ValueError(_msg("err_type_mismatch",
+                              "{field} : attendu {expected}, recu {got}",
+                              field=dotted, expected=expected_type.__name__,
+                              got=type(value).__name__))
 
     # In Python a boolean IS an integer: isinstance(True, int) is true.
     # Without this explicit refusal, "DicomPort": true clears the type check,
@@ -935,37 +954,53 @@ def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
     # 1. Found by a test, after the previous guard had exempted booleans from
     # the bounds check.
     if expected_type is int and isinstance(value, bool):
-        raise ValueError(f"{dotted}: attendu int, recu bool")
+        raise ValueError(_msg("err_bool_on_int_field",
+                              "{field} : attendu int, recu bool",
+                              field=dotted))
     if dotted == "DicomAet" and len(value) > 16:
-        raise ValueError("DicomAet: max 16 caracteres (norme DICOM)")
+        raise ValueError(_msg("err_dicomaet_too_long",
+                              "DicomAet : max 16 caracteres "
+                              "(norme DICOM)"))
 
     if dotted in ORTHANC_RANGES:
-        mini, maxi = ORTHANC_RANGES[dotted]
-        if not mini <= value <= maxi:
-            raise ValueError(
-                f"{dotted}: attendu entre {mini} et {maxi}, recu {value}")
+        minimum, maximum = ORTHANC_RANGES[dotted]
+        if not minimum <= value <= maximum:
+            raise ValueError(_msg(
+                "err_out_of_range",
+                "{field} : attendu entre {minimum} et {maximum}, recu {got}",
+                field=dotted, minimum=minimum, maximum=maximum, got=value))
 
     if dotted in ORTHANC_ELEMENT_TYPES:
         expected_element = ORTHANC_ELEMENT_TYPES[dotted]
         for element in value:
             # Same trap as above: a boolean is an integer.
             if isinstance(element, bool) or not isinstance(element, expected_element):
-                raise ValueError(
-                    f"{dotted}: chaque entree doit etre de type "
-                    f"{expected_element.__name__}, recu {element!r}")
+                raise ValueError(_msg(
+                    "err_element_type",
+                    "{field} : chaque entree doit etre de type {expected}, "
+                    "recu {got}",
+                    field=dotted, expected=expected_element.__name__,
+                    got=repr(element)))
         if expected_element is int and any(e < 0 for e in value):
-            raise ValueError(f"{dotted}: une duree negative n'a pas de sens")
+            raise ValueError(_msg("err_negative_duration",
+                                  "{field} : une duree negative n'a pas de "
+                                  "sens", field=dotted))
         if expected_element is str and any(not e.strip() for e in value):
-            raise ValueError(f"{dotted}: une entree vide n'a pas de sens")
+            raise ValueError(_msg("err_empty_entry",
+                                  "{field} : une entree vide n'a pas de sens",
+                                  field=dotted))
         if len(set(value)) != len(value):
-            raise ValueError(f"{dotted}: la liste contient des doublons")
+            raise ValueError(_msg("err_duplicate_entries",
+                                  "{field} : la liste contient des doublons",
+                                  field=dotted))
 
     if dotted in ORTHANC_ALLOWED_VALUES:
-        admises = ORTHANC_ALLOWED_VALUES[dotted]
-        if value not in admises:
-            raise ValueError(
-                f"{dotted}: valeur inconnue {value!r}. "
-                f"Attendu : {', '.join(admises)}")
+        allowed = ORTHANC_ALLOWED_VALUES[dotted]
+        if value not in allowed:
+            raise ValueError(_msg(
+                "err_unknown_value",
+                "{field} : valeur inconnue {got}. Attendu : {allowed}",
+                field=dotted, got=repr(value), allowed=", ".join(allowed)))
 
     keys = dotted.split(".")
     node = config
@@ -988,15 +1023,15 @@ def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
 # of the file is copied byte for byte.
 
 
-def _fin_de_chaine(texte: str, debut: int) -> int:
+def _end_of_string(text: str, start: int) -> int:
     """Index du guillemet fermant de la chaine ouverte a `debut`."""
-    i = debut + 1
-    n = len(texte)
+    i = start + 1
+    n = len(text)
     while i < n:
-        if texte[i] == "\\":
+        if text[i] == "\\":
             i += 2
             continue
-        if texte[i] == '"':
+        if text[i] == '"':
             return i
         i += 1
     return n - 1
@@ -1073,7 +1108,7 @@ def _scan_json(text: str) -> tuple[dict[str, tuple[int, int]],
             expecting_value = True
             i += 1
         elif c == '"':
-            end = _fin_de_chaine(text, i)
+            end = _end_of_string(text, i)
             if stack and stack[-1]["type"] == "{" and not expecting_value:
                 stack[-1]["key"] = text[i + 1:end]
             elif expecting_value and stack and stack[-1]["type"] == "{":
@@ -1166,7 +1201,7 @@ def _render_value(value: Any, text: str, start: int) -> str:
     return "[\n" + entries + f"\n{margin}]"
 
 
-def _apply_text_changes(texte: str, changements: dict[str, Any]) -> str:
+def _apply_text_changes(text: str, changes: dict[str, Any]) -> str:
     """Apply changes to the text while preserving everything else.
 
     A key already present has its value replaced in place. A missing key is
@@ -1177,59 +1212,65 @@ def _apply_text_changes(texte: str, changements: dict[str, Any]) -> str:
     creating a tree would mean guessing at formatting. The caller then falls
     back to a full rewrite, knowingly.
     """
-    positions, objets = _scan_json(texte)
+    positions, objects = _scan_json(text)
 
-    presentes = {c: v for c, v in changements.items() if c in positions}
-    absentes = {c: v for c, v in changements.items() if c not in positions}
+    located = {c: v for c, v in changes.items() if c in positions}
+    to_insert = {c: v for c, v in changes.items() if c not in positions}
 
     # A key the scanner did not record, yet which does exist in the
     # structure, signals a type it cannot handle. Inserting it would produce a
     # duplicate -- the same key twice in the same object -- that the read-back
     # would not catch, json.loads keeping only the last one. Better to refuse
     # and let the caller regenerate.
-    structure = json.loads(_strip_json_comments(texte))
-    for chemin in absentes:
-        noeud = structure
-        for morceau in chemin.split("."):
-            if not isinstance(noeud, dict) or morceau not in noeud:
-                noeud = None
+    structure = json.loads(_strip_json_comments(text))
+    for path in to_insert:
+        node = structure
+        for part in path.split("."):
+            if not isinstance(node, dict) or part not in node:
+                node = None
                 break
-            noeud = noeud[morceau]
+            node = node[part]
         else:
             raise ValueError(
-                f"{chemin} : deja present mais non localisable dans le texte "
-                f"(type non gere par l'analyse)")
+                f"{path}: already present but not locatable in the text "
+                f"(type the scan does not handle)")
 
-    for chemin in absentes:
-        parent = chemin.rsplit(".", 1)[0] if "." in chemin else ""
-        if parent not in objets:
-            raise ValueError(f"{chemin} : objet parent absent du fichier")
+    for path in to_insert:
+        parent = path.rsplit(".", 1)[0] if "." in path else ""
+        if parent not in objects:
+            raise ValueError(f"{path}: parent object missing from the file")
 
     # Back to front, so the recorded offsets stay valid.
-    for chemin in sorted(presentes, key=lambda c: positions[c][0], reverse=True):
-        debut, fin = positions[chemin]
-        texte = texte[:debut] + _render_value(presentes[chemin], texte, debut) + texte[fin:]
+    for path in sorted(located, key=lambda c: positions[c][0], reverse=True):
+        start, fin = positions[path]
+        text = text[:start] + _render_value(located[path], text, start) + text[fin:]
 
     # Each insertion shifts what follows: rescan before the next one.
-    for chemin, valeur in absentes.items():
-        _, objets = _scan_json(texte)
-        parent = chemin.rsplit(".", 1)[0] if "." in chemin else ""
-        cle = chemin.rsplit(".", 1)[-1]
-        texte = _insert_key(texte, objets[parent], cle, valeur)
+    for path, value in to_insert.items():
+        _, objects = _scan_json(text)
+        parent = path.rsplit(".", 1)[0] if "." in path else ""
+        key = path.rsplit(".", 1)[-1]
+        text = _insert_key(text, objects[parent], key, value)
 
-    return texte
+    return text
 
 
 def _validate_orthanc(config: dict) -> None:
     """Invariants critiques a preserver."""
     # Persistence flags, without which modalities entered from the UI vanish
     if not config.get("DicomModalitiesInDatabase"):
-        raise ValueError("DicomModalitiesInDatabase doit rester true (perdrait les modalites au restart)")
+        raise ValueError(_msg(
+            "err_modalities_in_db_required",
+            "DicomModalitiesInDatabase doit rester true : les modalites "
+            "seraient perdues au redemarrage"))
     if not config.get("OrthancPeersInDatabase"):
-        raise ValueError("OrthancPeersInDatabase doit rester true")
+        raise ValueError(_msg("err_peers_in_db_required",
+                              "OrthancPeersInDatabase doit rester true"))
     # DicomAet max 16 chars
     if len(config.get("DicomAet", "")) > 16:
-        raise ValueError("DicomAet: max 16 caracteres")
+        raise ValueError(_msg("err_dicomaet_too_long",
+                              "DicomAet : max 16 caracteres "
+                              "(norme DICOM)"))
 
 
 async def _reload_orthanc() -> None:
@@ -1250,7 +1291,7 @@ async def _reload_orthanc() -> None:
         r.raise_for_status()
 
 
-async def _orthanc(methode: str, chemin: str, **kwargs: Any) -> httpx.Response:
+async def _orthanc(method: str, path: str, **kwargs: Any) -> httpx.Response:
     """Call Orthanc's API with the service account.
 
     Remote-User: admin is essential -- the Authorization plugin reads it to
@@ -1260,7 +1301,7 @@ async def _orthanc(methode: str, chemin: str, **kwargs: Any) -> httpx.Response:
     _require_orthanc_creds()
     async with httpx.AsyncClient(timeout=15) as client:
         return await client.request(
-            methode, f"{ORTHANC_URL}{chemin}",
+            method, f"{ORTHANC_URL}{path}",
             auth=(ORTHANC_USER, ORTHANC_PASS),
             headers={"Remote-User": "admin"},
             **kwargs,
@@ -1295,11 +1336,11 @@ async def admin_whoami(admin: AdminUser = Depends(require_admin)):
     # on its own panel, while Orthanc Explorer displayed the right name. We
     # read the effective value rather than the configuration file, which may
     # have been modified without a restart.
-    nom_serveur = ""
+    server_name = ""
     try:
         r = await _orthanc("GET", "/system")
         if r.status_code == 200:
-            nom_serveur = r.json().get("Name", "")
+            server_name = r.json().get("Name", "")
     except Exception:  # noqa: BLE001 - Orthanc being down must not break the panel
         pass
 
@@ -1307,7 +1348,7 @@ async def admin_whoami(admin: AdminUser = Depends(require_admin)):
         {
             "username": admin.username,
             "image_version": IMAGE_VERSION,
-            "server_name": nom_serveur,
+            "server_name": server_name,
         },
     )
     resp.set_cookie(
@@ -1343,9 +1384,9 @@ async def _setup_completed() -> bool:
         return True
 
     return any(
-        not infos.get("disabled") and "admin" in (infos.get("groups") or [])
-        for nom, infos in (data.get("users") or {}).items()
-        if nom != BOOTSTRAP_USERNAME
+        not info.get("disabled") and "admin" in (info.get("groups") or [])
+        for name, info in (data.get("users") or {}).items()
+        if name != BOOTSTRAP_USERNAME
     )
 
 
@@ -1368,8 +1409,10 @@ async def setup_create_admin(payload: UserCreatePayload):
     if (await _r().get(SETUP_FIRST_ADMIN_KEY)) == "1":
         raise HTTPException(
             409,
-            "un admin a deja ete cree — finaliser le setup (POST /auth/setup/finalize) "
-            "puis utiliser /api/admin/users pour en ajouter d'autres",
+            _msg("err_first_admin_created",
+                 "un admin a deja ete cree — finaliser le setup "
+                 "(POST /auth/setup/finalize) puis utiliser "
+                 "/api/admin/users pour en ajouter d'autres"),
         )
     # Last net, the one that does not depend on the cache: a real
     # administrator already exists. This is where a third party would take
@@ -1377,8 +1420,9 @@ async def setup_create_admin(payload: UserCreatePayload):
     if await _setup_completed():
         raise HTTPException(
             409,
-            "un administrateur existe deja sur cette installation — se "
-            "connecter avec ce compte pour en ajouter d'autres",
+            _msg("err_admin_exists",
+                 "un administrateur existe deja sur cette installation — se "
+                 "connecter avec ce compte pour en ajouter d'autres"),
         )
     if "admin" not in payload.groups:
         payload.groups.append("admin")
@@ -1403,8 +1447,8 @@ async def setup_create_admin(payload: UserCreatePayload):
 
 @router.post("/setup/finalize")
 async def setup_finalize():
-    """Etape finale : verifie l'invariant admin actif, supprime le compte
-    d'amorcage, puis marque le setup comme termine."""
+    """Final step: check the active-admin invariant, remove the bootstrap
+    account, then mark the setup as done."""
     if (await _r().get(SETUP_KEY)) == "1":
         raise HTTPException(409, _msg("err_setup_done", "setup deja finalise"))
     data = _load_authelia()
@@ -1488,10 +1532,10 @@ def _read_share_type() -> str:
         config = _load_orthanc_config()
     except Exception:  # noqa: BLE001 - fichier absent ou illisible
         return SHARE_VIEWERS[0]
-    valeur = (config.get("OrthancExplorer2", {})
+    value = (config.get("OrthancExplorer2", {})
               .get("Tokens", {})
               .get("ShareType", ""))
-    return valeur if valeur in SHARE_VIEWERS else SHARE_VIEWERS[0]
+    return value if value in SHARE_VIEWERS else SHARE_VIEWERS[0]
 
 
 class LanguagePayload(BaseModel):
@@ -1617,19 +1661,19 @@ async def update_user(
     if username not in data.get("users", {}):
         raise HTTPException(404, _msg("err_user_unknown", "user inconnu"))
 
-    infos = data["users"][username]
+    info = data["users"][username]
     modifies = []
     if payload.displayname is not None:
-        infos["displayname"] = payload.displayname
+        info["displayname"] = payload.displayname
         modifies.append("displayname")
     if payload.email is not None:
-        infos["email"] = str(payload.email)
+        info["email"] = str(payload.email)
         modifies.append("email")
     if payload.groups is not None:
-        infos["groups"] = payload.groups
+        info["groups"] = payload.groups
         modifies.append("groups")
     if payload.disabled is not None:
-        infos["disabled"] = payload.disabled
+        info["disabled"] = payload.disabled
         modifies.append("disabled")
 
     if not modifies:
@@ -1686,10 +1730,10 @@ async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
     # which inferred the type from the value, showed a text field for a
     # boolean -- unusable, and refused on save since the server expects a real
     # boolean and not the string "true".
-    noms = {bool: "bool", int: "int", str: "str", list: "list"}
+    names = {bool: "bool", int: "int", str: "str", list: "list"}
 
     result, meta = {}, {}
-    for dotted, attendu in ORTHANC_EDITABLE_PATHS.items():
+    for dotted, expected in ORTHANC_EDITABLE_PATHS.items():
         node = config
         present = True
         for k in dotted.split("."):
@@ -1698,13 +1742,13 @@ async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
                 break
             node = node[k]
         result[dotted] = node
-        bornes = ORTHANC_RANGES.get(dotted)
+        bounds = ORTHANC_RANGES.get(dotted)
         meta[dotted] = {
-            "type": noms.get(attendu, "str"),
+            "type": names.get(expected, "str"),
             # Passed to the interface so it can offer a list rather than a
             # free field, and flag a bound before sending.
-            "min": bornes[0] if bornes else None,
-            "max": bornes[1] if bornes else None,
+            "min": bounds[0] if bounds else None,
+            "max": bounds[1] if bounds else None,
             "choices": list(ORTHANC_ALLOWED_VALUES.get(dotted, ())) or None,
             # Tells "absent from the file" apart from "present but empty":
             # first case Orthanc applies its default value.
@@ -1740,24 +1784,24 @@ async def update_orthanc_config(
             # structure: a textual edit producing anything other than the
             # must be caught here, never discovered by Orthanc at the
             # demarrage suivant.
-            brut = ORTHANC_JSON.read_text(encoding="utf-8")
+            raw_value = ORTHANC_JSON.read_text(encoding="utf-8")
             try:
-                serialized = _apply_text_changes(brut, payload.changes)
-                relu = json.loads(_strip_json_comments(serialized))
-                if relu != config:
-                    raise ValueError("relecture divergente")
-            except ValueError as raison:
+                serialized = _apply_text_changes(raw_value, payload.changes)
+                reread = json.loads(_strip_json_comments(serialized))
+                if reread != config:
+                    raise ValueError("read-back diverges")
+            except ValueError as reason:
                 # Key absent from the file, or unexpected read-back:
                 # regenerate. Comments are lost, which the caller learns
                 # from the response rather than discovering later.
                 logger.warning(
                     "orthanc.json regenere (%s) : les commentaires seront perdus",
-                    raison,
+                    reason,
                 )
                 serialized = json.dumps(config, indent=2, ensure_ascii=False) + "\n"
-                commentaires_perdus = True
+                comments_lost = True
             else:
-                commentaires_perdus = False
+                comments_lost = False
 
             _atomic_write(ORTHANC_JSON, serialized)
     except Timeout as e:
@@ -1789,7 +1833,7 @@ async def update_orthanc_config(
                 "ok": True,
                 "backup": backup.name,
                 "restart_required": True,
-                "commentaires_perdus": commentaires_perdus,
+                "commentaires_perdus": comments_lost,
                 "message": (
                     "Configuration enregistree. Elle ne prendra effet qu'apres "
                     "redemarrage d'Orthanc : utiliser le bouton Redemarrer, ou "
@@ -1825,8 +1869,11 @@ async def update_orthanc_config(
         )
         raise HTTPException(
             502,
-            f"reload Orthanc echoue ({reset_error}). Rollback automatique effectue "
-            f"depuis {backup.name}. Config restee dans l'etat precedent.",
+            _msg("err_orthanc_reload_failed",
+                 "reload Orthanc echoue ({error}). Rollback automatique "
+                 "effectue depuis {backup}. Config restee dans l'etat "
+                 "precedent.",
+                 error=reset_error, backup=backup.name),
         ) from e
 
     await _audit(
@@ -1835,13 +1882,14 @@ async def update_orthanc_config(
         fields=",".join(payload.changes.keys()),
         backup=backup.name,
     )
-    reponse = {"ok": True, "backup": backup.name}
-    if commentaires_perdus:
-        reponse["message"] = (
+    response = {"ok": True, "backup": backup.name}
+    if comments_lost:
+        response["message"] = _msg(
+            "msg_comments_lost",
             "Configuration enregistree, mais le fichier a du etre regenere : "
-            f"ses commentaires ont ete perdus. Copie intacte : {backup.name}"
-        )
-    return reponse
+            "ses commentaires ont ete perdus. Copie intacte : {backup}",
+            backup=backup.name)
+    return response
 
 
 # ============================================================================
@@ -1901,56 +1949,56 @@ async def _check_effective_config() -> list[dict[str, Any]]:
     except Exception:  # noqa: BLE001 - unreadable file, already reported elsewhere
         return []
 
-    reponses: dict[str, dict] = {}
+    responses: dict[str, dict] = {}
     for endpoint in {e for e, _ in ORTHANC_VERIFIABLE.values()}:
         try:
             r = await _orthanc("GET", endpoint)
-            reponses[endpoint] = r.json() if r.status_code == 200 else {}
+            responses[endpoint] = r.json() if r.status_code == 200 else {}
         except Exception:  # noqa: BLE001 - Orthanc muet : rien a comparer
-            reponses[endpoint] = {}
+            responses[endpoint] = {}
 
-    ecarts = []
-    for chemin, (endpoint, acces) in ORTHANC_VERIFIABLE.items():
-        voulu = config
-        for morceau in chemin.split("."):
-            if not isinstance(voulu, dict) or morceau not in voulu:
-                voulu = None
+    mismatches = []
+    for path, (endpoint, access) in ORTHANC_VERIFIABLE.items():
+        wanted = config
+        for part in path.split("."):
+            if not isinstance(wanted, dict) or part not in wanted:
+                wanted = None
                 break
-            voulu = voulu[morceau]
-        if voulu is None:
+            wanted = wanted[part]
+        if wanted is None:
             continue  # not declared: the default applies
 
-        applique = reponses.get(endpoint) or {}
-        for morceau in acces:
-            if not isinstance(applique, dict) or morceau not in applique:
-                applique = None
+        effective = responses.get(endpoint) or {}
+        for part in access:
+            if not isinstance(effective, dict) or part not in effective:
+                effective = None
                 break
-            applique = applique[morceau]
-        if applique is None:
+            effective = effective[part]
+        if effective is None:
             continue  # Orthanc does not expose it in this version
 
-        if voulu != applique:
-            ecarts.append({
-                "champ": chemin,
-                "dans_le_fichier": voulu,
-                "applique_par_orthanc": applique,
+        if wanted != effective:
+            mismatches.append({
+                "field": path,
+                "in_file": wanted,
+                "applied_by_orthanc": effective,
             })
 
-    return ecarts
+    return mismatches
 
 
-async def _wait_for_orthanc(tentatives: int = 30, pause: int = 2) -> str:
+async def _wait_for_orthanc(attempts: int = 30, pause: int = 2) -> str:
     """Wait for Orthanc to answer. Returns its version, or "" if it stays mute.
 
     Orthanc opens its port before it has finished loading its plugins, so we
     query /system, which only answers once the server is genuinely ready.
     """
-    for _ in range(tentatives):
+    for _ in range(attempts):
         await asyncio.sleep(pause)
         try:
-            sonde = await _orthanc("GET", "/system")
-            if sonde.status_code == 200:
-                return sonde.json().get("Version", "inconnue")
+            probe = await _orthanc("GET", "/system")
+            if probe.status_code == 200:
+                return probe.json().get("Version", "inconnue")
         except Exception:  # noqa: BLE001 - expected while restarting
             pass
     return ""
@@ -1962,9 +2010,9 @@ def _latest_orthanc_backup() -> Path | None:
     Names carry a timestamp (orthanc.json.bak.YYYYMMDD-HHMMSS), so
     alphabetical order is chronological order.
     """
-    prefixe = ORTHANC_JSON.name + ".bak."
-    sauvegardes = sorted(BACKUPS_DIR.glob(prefixe + "*"), reverse=True)
-    return sauvegardes[0] if sauvegardes else None
+    prefix = ORTHANC_JSON.name + ".bak."
+    backups = sorted(BACKUPS_DIR.glob(prefix + "*"), reverse=True)
+    return backups[0] if backups else None
 
 
 async def _request_restart() -> None:
@@ -1976,14 +2024,18 @@ async def _request_restart() -> None:
     if r.status_code == 404:
         raise HTTPException(
             502,
-            f"Conteneur '{ORTHANC_CONTAINER}' introuvable. Verifier "
-            f"ORTHANC_CONTAINER dans le fichier .env.",
+            _msg("err_container_not_found",
+                 "Conteneur '{container}' introuvable. Verifier "
+                 "ORTHANC_CONTAINER dans le fichier .env.",
+                 container=ORTHANC_CONTAINER),
         )
     if r.status_code not in (204, 304):
         raise HTTPException(
             502,
-            f"Le proxy Docker a refuse le redemarrage (HTTP {r.status_code}). "
-            f"Verifier ALLOW_RESTARTS sur le service socket-proxy.",
+            _msg("err_restart_refused",
+                 "Le proxy Docker a refuse le redemarrage (HTTP {status}). "
+                 "Verifier ALLOW_RESTARTS sur le service socket-proxy.",
+                 status=r.status_code),
         )
 
 
@@ -2034,19 +2086,20 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
         # Orthanc answers: that does not yet mean it applies what we
         # wrote. Compare, rather than declaring success on the strength of a
         # simple redemarrage.
-        ecarts = await _check_effective_config()
-        if ecarts:
+        mismatches = await _check_effective_config()
+        if mismatches:
             await _audit("orthanc.config.divergente", admin.username,
-                         champs=",".join(e["champ"] for e in ecarts))
+                         fields_changed=",".join(e["field"] for e in mismatches))
             return {
                 "ok": True,
                 "version": version,
-                "ecarts": ecarts,
-                "message": (
-                    f"Orthanc a redemarre, mais {len(ecarts)} reglage(s) ne "
-                    f"sont pas appliques tels qu'ecrits. Une variable "
-                    f"ORTHANC__* du compose les ecrase peut-etre."
-                ),
+                "mismatches": mismatches,
+                "message": _msg(
+                    "msg_restart_mismatches",
+                    "Orthanc a redemarre, mais {count} reglage(s) ne sont pas "
+                    "appliques tels qu'ecrits. Une variable ORTHANC__* du "
+                    "compose les ecrase peut-etre.",
+                    count=len(mismatches)),
             }
         return {
             "ok": True,
@@ -2063,47 +2116,53 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
     await _audit("orthanc.restart.no_response", admin.username,
                  container=ORTHANC_CONTAINER)
 
-    sauvegarde = _latest_orthanc_backup()
-    if sauvegarde is None:
+    backup = _latest_orthanc_backup()
+    if backup is None:
         raise HTTPException(
             504,
-            "Orthanc ne repond pas apres 60 s et aucune sauvegarde de sa "
-            "configuration n'est disponible. Consulter ses journaux "
-            "(docker compose logs orthanc).",
+            _msg("err_orthanc_silent_no_backup",
+                 "Orthanc ne repond pas apres 60 s et aucune sauvegarde de sa "
+                 "configuration n'est disponible. Consulter ses journaux "
+                 "(docker compose logs orthanc)."),
         )
 
     try:
-        shutil.copy2(sauvegarde, ORTHANC_JSON)
+        shutil.copy2(backup, ORTHANC_JSON)
         await _request_restart()
     except Exception as e:  # noqa: BLE001 - we are already in the worst case
         await _audit("orthanc.rollback.failed", admin.username,
-                     backup=sauvegarde.name, error=str(e))
+                     backup=backup.name, error=str(e))
         raise HTTPException(
             500,
-            f"Orthanc ne repond pas, et la restauration de {sauvegarde.name} "
-            f"a echoue ({e}). Intervention manuelle requise.",
+            _msg("err_rollback_failed",
+                 "Orthanc ne repond pas, et la restauration de {backup} a "
+                 "echoue ({error}). Intervention manuelle requise.",
+                 backup=backup.name, error=e),
         ) from e
 
     version = await _wait_for_orthanc()
     if version:
         await _audit("orthanc.rolled_back", admin.username,
-                     backup=sauvegarde.name)
+                     backup=backup.name)
         raise HTTPException(
             500,
-            f"Orthanc n'a pas redemarre avec la nouvelle configuration : "
-            f"elle a ete annulee et {sauvegarde.name} restauree. Le serveur "
-            f"fonctionne a nouveau. Verifier les valeurs saisies, puis "
-            f"consulter les journaux (docker compose logs orthanc).",
+            _msg("err_rolled_back",
+                 "Orthanc n'a pas redemarre avec la nouvelle configuration : "
+                 "elle a ete annulee et {backup} restauree. Le serveur "
+                 "fonctionne a nouveau. Verifier les valeurs saisies, puis "
+                 "consulter les journaux (docker compose logs orthanc).",
+                 backup=backup.name),
         )
 
     await _audit("orthanc.rollback.no_response", admin.username,
-                 backup=sauvegarde.name)
+                 backup=backup.name)
     raise HTTPException(
         504,
-        f"Orthanc ne repond toujours pas apres restauration de "
-        f"{sauvegarde.name}. La cause est donc ailleurs que dans la derniere "
-        f"modification : consulter ses journaux "
-        f"(docker compose logs orthanc).",
+        _msg("err_orthanc_still_silent",
+             "Orthanc ne repond toujours pas apres restauration de {backup}. "
+             "La cause est donc ailleurs que dans la derniere modification : "
+             "consulter ses journaux (docker compose logs orthanc).",
+             backup=backup.name),
     )
 
 
@@ -2119,8 +2178,8 @@ async def config_effective(admin: AdminUser = Depends(require_admin)):
     variable taking precedence over the file, or at a field sitting at the
     wrong place in the tree.
     """
-    ecarts = await _check_effective_config()
-    return {"ok": not ecarts, "ecarts": ecarts, "verifies": len(ORTHANC_VERIFIABLE)}
+    mismatches = await _check_effective_config()
+    return {"ok": not mismatches, "ecarts": mismatches, "verifies": len(ORTHANC_VERIFIABLE)}
 
 
 @router.get("/api/admin/health")
@@ -2188,18 +2247,18 @@ async def list_modalities(admin: AdminUser = Depends(require_admin)):
     if r.status_code != 200:
         raise HTTPException(r.status_code, f"Orthanc: {r.text[:200]}")
 
-    equipements = []
-    for nom in r.json():
-        detail = await _orthanc("GET", f"/modalities/{nom}/configuration")
+    devices = []
+    for name in r.json():
+        detail = await _orthanc("GET", f"/modalities/{name}/configuration")
         cfg = detail.json() if detail.status_code == 200 else {}
-        equipements.append({
-            "name": nom,
+        devices.append({
+            "name": name,
             "aet": cfg.get("AET", ""),
             "host": cfg.get("Host", ""),
             "port": cfg.get("Port", 0),
         })
-    equipements.sort(key=lambda e: e["name"].lower())
-    return {"modalities": equipements}
+    devices.sort(key=lambda e: e["name"].lower())
+    return {"modalities": devices}
 
 
 @router.put("/api/admin/modalities/{name}")
@@ -2249,14 +2308,14 @@ async def echo_modality(name: str, admin: AdminUser = Depends(require_admin)):
     correct address or port.
     """
     r = await _orthanc("POST", f"/modalities/{name}/echo", json={})
-    joignable = r.status_code == 200
+    reachable = r.status_code == 200
     await _audit(
         "orthanc.modality.echo", admin.username,
-        target=name, result="ok" if joignable else "echec",
+        target=name, result="ok" if reachable else "echec",
     )
     return {
-        "reachable": joignable,
-        "detail": "" if joignable else r.text[:200],
+        "reachable": reachable,
+        "detail": "" if reachable else r.text[:200],
     }
 
 
@@ -2273,29 +2332,29 @@ async def read_audit(
     """
     limit = max(1, min(limit, 500))
     try:
-        brut = await _r().xrevrange(AUDIT_STREAM, count=limit)
+        raw_value = await _r().xrevrange(AUDIT_STREAM, count=limit)
     except Exception as e:  # noqa: BLE001 - Redis being down must not break the panel
         raise HTTPException(503, _msg("err_audit_unreadable",
                                 "journal illisible : {detail}", detail=e)) from e
 
-    entrees = []
-    for identifiant, champs in brut:
+    entries = []
+    for identifier, fields_changed in raw_value:
         # event, actor and ts are always present; the rest depends on the
         # event type (target, changed fields, backup involved...) and is
         # grouped so the display does not need to know about them.
         details = {
-            k: v for k, v in champs.items()
+            k: v for k, v in fields_changed.items()
             if k not in ("event", "actor", "ts")
         }
-        entrees.append({
-            "id": identifiant,
-            "event": champs.get("event", "?"),
-            "actor": champs.get("actor", "?"),
-            "ts": int(champs.get("ts", 0) or 0),
+        entries.append({
+            "id": identifier,
+            "event": fields_changed.get("event", "?"),
+            "actor": fields_changed.get("actor", "?"),
+            "ts": int(fields_changed.get("ts", 0) or 0),
             "details": details,
         })
 
-    return {"entries": entrees, "count": len(entrees)}
+    return {"entries": entries, "count": len(entries)}
 
 
 @router.get("/api/admin/backups")
@@ -2308,7 +2367,7 @@ async def list_backups(admin: AdminUser = Depends(require_admin)):
     if not BACKUPS_DIR.exists():
         return {"backups": []}
 
-    connus = {
+    known = {
         "orthanc.json.bak.": "orthanc",
         "users_database.yml.bak.": "authelia",
         ".env.bak.": "env",
@@ -2319,15 +2378,15 @@ async def list_backups(admin: AdminUser = Depends(require_admin)):
     for f in BACKUPS_DIR.iterdir():
         if not f.is_file() or ".bak." not in f.name:
             continue
-        cible = next((v for k, v in connus.items() if f.name.startswith(k)), None)
-        if cible is None:
+        target = next((v for k, v in known.items() if f.name.startswith(k)), None)
+        if target is None:
             # File the restore route cannot handle: exposing it would
             # suggest otherwise.
             continue
         st = f.stat()
         items.append({
             "name": f.name,
-            "target": cible,
+            "target": target,
             "size": st.st_size,
             "modified": int(st.st_mtime),
         })
@@ -2345,29 +2404,32 @@ async def create_backup(admin: AdminUser = Depends(require_admin)):
     edit of a file -- was impossible, although that is precisely when one
     wants it.
     """
-    fichiers = [
+    files = [
         (AUTHELIA_YML, "comptes"),
         (ORTHANC_JSON, "configuration Orthanc"),
         (ENV_FILE, "variables d'environnement"),
         (AUTHELIA_CONFIG, "configuration Authelia"),
     ]
 
-    faits, ignores = [], []
-    for chemin, libelle in fichiers:
-        if chemin and chemin.exists():
+    applied, skipped = [], []
+    for path, label in files:
+        if path and path.exists():
             try:
-                dest = _backup(chemin, tag="manuel")
-                faits.append(dest.name)
+                dest = _backup(path, tag="manuel")
+                applied.append(dest.name)
             except OSError as e:  # disque plein, droits insuffisants
-                ignores.append(f"{libelle} : {e}")
+                skipped.append(f"{label} : {e}")
         else:
-            ignores.append(f"{libelle} : fichier absent")
+            skipped.append(f"{label} : fichier absent")
 
-    if not faits:
-        raise HTTPException(500, "aucun fichier n'a pu etre sauvegarde : " + " ; ".join(ignores))
+    if not applied:
+        raise HTTPException(500, _msg(
+            "err_no_file_backed_up",
+            "aucun fichier n'a pu etre sauvegarde : {details}",
+            details=" ; ".join(skipped)))
 
-    await _audit("backup.created", admin.username, files=",".join(faits))
-    return {"ok": True, "created": faits, "skipped": ignores}
+    await _audit("backup.created", admin.username, files=",".join(applied))
+    return {"ok": True, "created": applied, "skipped": skipped}
 
 
 @router.post("/api/admin/backups/restore")
@@ -2375,9 +2437,9 @@ async def restore_backup(
     backup_name: str,
     admin: AdminUser = Depends(require_admin),
 ):
-    """Restaure un backup depuis /host/backups/ vers son fichier d'origine."""
+    """Restore a backup from /host/backups/ back to its original file."""
     # The name comes from the client: it must only designate a file in the
-    # backups. Un nom comme "orthanc.json.bak.../../../etc/passwd" satisfait
+    # backups. A name like "orthanc.json.bak.../../../etc/passwd" satisfies
     # the shape checks below while still pointing outside the directory,
     # hence this check on the resolved path.
     if "/" in backup_name or "\\" in backup_name or ".." in backup_name:
@@ -2404,7 +2466,7 @@ async def restore_backup(
         reload = None
     elif backup_name.startswith("configuration.yml.bak."):
         dest = AUTHELIA_CONFIG
-        reload = None  # Authelia surveille aussi ce fichier
+        reload = None  # Authelia watches this file too
     else:
         raise HTTPException(400, _msg("err_backup_type", "type de backup non gere"))
 
