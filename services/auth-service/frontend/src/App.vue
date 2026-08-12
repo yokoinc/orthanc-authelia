@@ -13,20 +13,20 @@ const ui = useUiStore()
 </template>
 
 <style>
-/* oe2-shared.css (charge par index.html) fait foi pour la palette, la
-   typographie et les composants. Ce fichier ne contient donc que le style
-   propre au bandeau de notification.
+/* oe2-shared.css (loaded by index.html) is authoritative for the palette,
+   the typography and the components. This file therefore only holds the
+   style specific to the notification banner.
 
-   Les 13 variables :root et la regle body qui se trouvaient ici ont ete
-   retirees : elles redefinissaient par-dessus le design system une police
-   differente (-apple-system au lieu d'Avenir), une taille de 13px au lieu
-   de 14px, aucune graisse fine, et prenaient le fond de la barre laterale
-   comme fond de page. Le panel ne ressemblait donc pas a Orthanc Explorer
-   alors que la feuille partagee etait bien chargee. */
+   The 13 :root variables and the body rule that used to sit here were
+   removed: on top of the design system they redefined a different font
+   (-apple-system instead of Avenir), a size of 13px instead of 14px, no
+   light weight, and took the sidebar background as the page background. The
+   panel therefore did not look like Orthanc Explorer even though the shared
+   stylesheet was properly loaded. */
 
 body {
-  /* Seul reglage conserve : oe2-shared.css ne remet pas la marge par
-     defaut du navigateur a zero. */
+  /* The only setting kept: oe2-shared.css does not reset the browser's
+     default margin to zero. */
   margin: 0;
 }
 .flash {

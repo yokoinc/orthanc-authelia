@@ -13,7 +13,7 @@
   "DicomCheckCalledAet": false,
 
   // --- Who may speak DICOM to this server -----------------------------------
-  // Ces quatre reglages etaient laisses implicites : Orthanc appliquait ses
+  // These four settings were left implicit: Orthanc applied its
   // defaults, among them DicomAlwaysAllowStore set to true -- meaning any
   // device, even an undeclared one, could then drop studies here. On a PACS
   // that must not hinge on a default value nobody knows about.

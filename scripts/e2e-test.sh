@@ -1,91 +1,91 @@
 #!/usr/bin/env bash
 # =============================================================================
-# ORTHANC-AUTHELIA — Test de bout en bout
+# ORTHANC-AUTHELIA — End-to-end test
 # =============================================================================
 # Replays a full installation from scratch and checks the stack answers:
-# bootstrap, demarrage, wizard, creation de l'administrateur, connexion, puis
-# access to Orthanc, to DICOMweb and to the panel.
+# bootstrap, start-up, wizard, administrator creation, login, then access to
+# Orthanc, to DICOMweb and to the panel.
 #
 # The test stack is ISOLATED: separate Docker project, separate ports,
 # separate volumes and network, and a copy of the repository in a temporary
 # directory. The development installation is never touched, so the test can
 # be rerun as often as wanted.
 #
-# Usage :
-#   ./scripts/e2e-test.sh              # test complet puis nettoyage
+# Usage:
+#   ./scripts/e2e-test.sh              # full test, then cleanup
 #   ./scripts/e2e-test.sh --keep       # leaves the stack up for inspection
 #
-# Code de sortie 0 si tout passe, 1 sinon.
+# Exit code 0 if everything passes, 1 otherwise.
 # =============================================================================
 
 set -uo pipefail
 
 PORT_HTTP=31080
 PORT_HTTPS=31443
-PROJET=orthanc-e2e
+PROJECT=orthanc-e2e
 URL="https://pacs.localhost:${PORT_HTTPS}"
 ADMIN_USER=e2e.admin
 ADMIN_PASS=mot-de-passe-e2e-123456
-GARDER=0
-[[ "${1:-}" == "--keep" ]] && GARDER=1
+KEEP=0
+[[ "${1:-}" == "--keep" ]] && KEEP=1
 
-DEPOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-TRAVAIL=$(mktemp -d /tmp/orthanc-e2e.XXXXXX)
+REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+WORKDIR=$(mktemp -d /tmp/orthanc-e2e.XXXXXX)
 
-ROUGE=$'\033[31m'; VERT=$'\033[32m'; JAUNE=$'\033[33m'; CYAN=$'\033[36m'; RAZ=$'\033[0m'
-ECHECS=0
-etape()  { printf "\n${CYAN}▶ %s${RAZ}\n" "$*"; }
-ok()     { printf "  ${VERT}✓${RAZ} %s\n" "$*"; }
-echec()  { printf "  ${ROUGE}✗${RAZ} %s\n" "$*"; ECHECS=$((ECHECS + 1)); }
-info()   { printf "  ${JAUNE}·${RAZ} %s\n" "$*"; }
+RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; CYAN=$'\033[36m'; RESET=$'\033[0m'
+FAILURES=0
+step()   { printf "\n${CYAN}▶ %s${RESET}\n" "$*"; }
+ok()     { printf "  ${GREEN}✓${RESET} %s\n" "$*"; }
+fail()   { printf "  ${RED}✗${RESET} %s\n" "$*"; FAILURES=$((FAILURES + 1)); }
+info()   { printf "  ${YELLOW}·${RESET} %s\n" "$*"; }
 
-compose() { docker compose -p "$PROJET" "$@"; }
+compose() { docker compose -p "$PROJECT" "$@"; }
 
-nettoyer() {
+cleanup() {
     local code=$?
-    if [[ $GARDER -eq 1 ]]; then
-        printf "\n${JAUNE}Pile laissee debout${RAZ} : %s\n" "$URL"
-        printf "Pour la supprimer :\n  cd %s && docker compose -p %s down -v && rm -rf %s\n" \
-            "$TRAVAIL" "$PROJET" "$TRAVAIL"
+    if [[ $KEEP -eq 1 ]]; then
+        printf "\n${YELLOW}Stack left up${RESET}: %s\n" "$URL"
+        printf "To remove it:\n  cd %s && docker compose -p %s down -v && rm -rf %s\n" \
+            "$WORKDIR" "$PROJECT" "$WORKDIR"
         return $code
     fi
-    etape "Nettoyage"
-    (cd "$TRAVAIL" && compose down -v >/dev/null 2>&1) && ok "pile supprimee"
+    step "Cleanup"
+    (cd "$WORKDIR" && compose down -v >/dev/null 2>&1) && ok "stack removed"
     # Containers write as root into the mounted directory (Authelia
     # database, generated configuration, locks): an rm run by the user trips
     # over them. We go through a container, which has the rights.
-    if ! rm -rf "$TRAVAIL" 2>/dev/null; then
-        docker run --rm -v /tmp:/tmp-hote alpine \
-            rm -rf "/tmp-hote/$(basename "$TRAVAIL")" >/dev/null 2>&1
+    if ! rm -rf "$WORKDIR" 2>/dev/null; then
+        docker run --rm -v /tmp:/tmp-host alpine \
+            rm -rf "/tmp-host/$(basename "$WORKDIR")" >/dev/null 2>&1
     fi
-    if [[ -d "$TRAVAIL" ]]; then
-        echec "dossier temporaire non supprime : $TRAVAIL"
+    if [[ -d "$WORKDIR" ]]; then
+        fail "temporary directory not removed: $WORKDIR"
     else
-        ok "dossier temporaire supprime"
+        ok "temporary directory removed"
     fi
     return $code
 }
-trap nettoyer EXIT
+trap cleanup EXIT
 
 # --- Repository copy -------------------------------------------------------
 # git archive rather than cp: only VERSIONED files are copied, so the test
 # starts from exactly what someone cloning gets. A file left out by
 # .gitignore yet required will show up here, and nowhere else.
-etape "Copie du depot (fichiers versionnes uniquement)"
-if ! git -C "$DEPOT" archive HEAD | tar -x -C "$TRAVAIL"; then
-    echec "impossible d'extraire le depot"
+step "Repository copy (versioned files only)"
+if ! git -C "$REPO" archive HEAD | tar -x -C "$WORKDIR"; then
+    fail "cannot extract the repository"
     exit 1
 fi
-ok "$(find "$TRAVAIL" -type f | wc -l) fichiers extraits dans $TRAVAIL"
+ok "$(find "$WORKDIR" -type f | wc -l) files extracted into $WORKDIR"
 
-cd "$TRAVAIL"
+cd "$WORKDIR"
 
 # --- Bootstrap -------------------------------------------------------------
-etape "bootstrap.sh"
+step "bootstrap.sh"
 if ./bootstrap.sh >/tmp/e2e-bootstrap.log 2>&1; then
-    ok "configuration generee"
+    ok "configuration generated"
 else
-    echec "bootstrap a echoue (voir /tmp/e2e-bootstrap.log)"
+    fail "bootstrap failed (see /tmp/e2e-bootstrap.log)"
     tail -15 /tmp/e2e-bootstrap.log
     exit 1
 fi
@@ -93,8 +93,8 @@ fi
 # --- Isolation -------------------------------------------------------------
 # bootstrap pins the public URL to port 30443, taken by the development
 # installation. We move it, along with everything bearing a fixed name:
-# conteneurs, volumes et reseau entreraient sinon en collision.
-etape "Isolation de la pile de test"
+# containers, volumes and network would otherwise collide.
+step "Isolating the test stack"
 sed -i "s|pacs.localhost:30443|pacs.localhost:${PORT_HTTPS}|g" \
     .env services/authelia/config/configuration.yml
 sed -i \
@@ -106,83 +106,83 @@ sed -i \
     -e 's|name: orthanc-network|name: e2e-network|' \
     docker-compose.yml
 if compose config >/dev/null 2>&1; then
-    ok "ports ${PORT_HTTP}/${PORT_HTTPS}, projet ${PROJET}"
+    ok "ports ${PORT_HTTP}/${PORT_HTTPS}, project ${PROJECT}"
 else
-    echec "compose invalide apres isolation"
+    fail "compose invalid after isolation"
     compose config 2>&1 | tail -5
     exit 1
 fi
 
-# --- Demarrage -------------------------------------------------------------
-etape "Demarrage de la pile"
+# --- Start-up --------------------------------------------------------------
+step "Starting the stack"
 if compose up -d >/tmp/e2e-up.log 2>&1; then
-    ok "conteneurs lances"
+    ok "containers started"
 else
-    echec "demarrage impossible (voir /tmp/e2e-up.log)"
+    fail "cannot start (see /tmp/e2e-up.log)"
     tail -15 /tmp/e2e-up.log
     exit 1
 fi
 
-info "attente de la page de connexion (120 s max)"
-pret=0
+info "waiting for the login page (120 s max)"
+ready=0
 for _ in $(seq 1 60); do
     if [[ "$(curl -ks -o /dev/null -m 5 -w '%{http_code}' "${URL}/auth/")" == "200" ]]; then
-        pret=1; break
+        ready=1; break
     fi
     sleep 2
 done
-if [[ $pret -eq 1 ]]; then
-    ok "pile joignable sur ${URL}"
+if [[ $ready -eq 1 ]]; then
+    ok "stack reachable at ${URL}"
 else
-    echec "la pile ne repond pas apres 120 s"
+    fail "the stack does not answer after 120 s"
     compose ps
     exit 1
 fi
 
 # --- Wizard ----------------------------------------------------------------
-etape "Wizard de premiere installation"
-BISCUITS=$(mktemp)
-CSRF=jeton-e2e
+step "First-run wizard"
+COOKIES=$(mktemp)
+CSRF=token-e2e
 
 code=$(curl -ks -o /tmp/e2e-setup.json -m 20 -w '%{http_code}' \
     -X POST "${URL}/console/api/setup/create-admin" \
     -H 'Content-Type: application/json' \
     -H "X-CSRF-Token: ${CSRF}" -b "orthanc_admin_csrf=${CSRF}" \
     -d "{\"username\":\"${ADMIN_USER}\",\"displayname\":\"Admin E2E\",\"email\":\"e2e@exemple.fr\",\"password\":\"${ADMIN_PASS}\",\"groups\":[\"admin\"]}")
-[[ "$code" == "200" ]] && ok "administrateur cree" || { echec "creation admin : HTTP $code $(cat /tmp/e2e-setup.json)"; }
+[[ "$code" == "200" ]] && ok "administrator created" || { fail "admin creation: HTTP $code $(cat /tmp/e2e-setup.json)"; }
 
 code=$(curl -ks -o /tmp/e2e-final.json -m 20 -w '%{http_code}' \
     -X POST "${URL}/console/api/setup/finalize" \
     -H "X-CSRF-Token: ${CSRF}" -b "orthanc_admin_csrf=${CSRF}")
 if [[ "$code" == "200" ]]; then
-    ok "installation finalisee"
+    ok "installation finalised"
     # The bootstrap account must be gone: that is the whole point of the
     # cleanup added at finalisation.
     if grep -q 'bootstrap@localhost' services/authelia/config/users_database.yml 2>/dev/null; then
-        echec "le compte d'amorcage survit a la finalisation"
+        fail "the bootstrap account survives finalisation"
     else
-        ok "compte d'amorcage supprime"
+        ok "bootstrap account removed"
     fi
 else
-    echec "finalisation : HTTP $code $(cat /tmp/e2e-final.json)"
+    fail "finalisation: HTTP $code $(cat /tmp/e2e-final.json)"
 fi
 
-# --- Connexion -------------------------------------------------------------
-etape "Connexion"
-curl -ks -o /dev/null -m 20 -c "$BISCUITS" "${URL}/auth/"
-reponse=$(curl -ks -m 20 -b "$BISCUITS" -c "$BISCUITS" \
+# --- Login -----------------------------------------------------------------
+step "Login"
+curl -ks -o /dev/null -m 20 -c "$COOKIES" "${URL}/auth/"
+response=$(curl -ks -m 20 -b "$COOKIES" -c "$COOKIES" \
     -X POST "${URL}/api/firstfactor" \
     -H 'Content-Type: application/json' \
     -H "X-Forwarded-Proto: https" -H "X-Forwarded-Host: pacs.localhost:${PORT_HTTPS}" \
     -d "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\",\"keepMeLoggedIn\":true}")
-if grep -q '"status":"OK"' <<<"$reponse"; then
-    ok "session ouverte"
+if grep -q '"status":"OK"' <<<"$response"; then
+    ok "session opened"
 else
-    echec "connexion refusee : ${reponse:0:120}"
+    fail "login refused: ${response:0:120}"
 fi
 
-# --- Acces authentifie -----------------------------------------------------
-etape "Acces authentifie"
+# --- Authenticated access --------------------------------------------------
+step "Authenticated access"
 
 # Wait for Orthanc to answer before checking anything. The login page, the
 # only wait condition until now, proves nothing beyond nginx and Authelia
@@ -190,36 +190,36 @@ etape "Acces authentifie"
 # PostgreSQL schema and load its plugins, which takes noticeably longer.
 # Without this wait the test returned 502s and reported a regression that did
 # not exist.
-info "attente d'Orthanc (90 s max)"
-orthanc_pret=0
+info "waiting for Orthanc (90 s max)"
+orthanc_ready=0
 for _ in $(seq 1 45); do
-    if [[ "$(curl -ks -o /dev/null -m 5 -b "$BISCUITS" -w '%{http_code}' "${URL}/system")" == "200" ]]; then
-        orthanc_pret=1; break
+    if [[ "$(curl -ks -o /dev/null -m 5 -b "$COOKIES" -w '%{http_code}' "${URL}/system")" == "200" ]]; then
+        orthanc_ready=1; break
     fi
     sleep 2
 done
-if [[ $orthanc_pret -eq 1 ]]; then
-    ok "Orthanc pret"
+if [[ $orthanc_ready -eq 1 ]]; then
+    ok "Orthanc ready"
 else
-    echec "Orthanc ne repond pas apres 90 s"
-    (cd "$TRAVAIL" && compose logs --tail 15 orthanc 2>&1 | tail -15)
+    fail "Orthanc does not answer after 90 s"
+    (cd "$WORKDIR" && compose logs --tail 15 orthanc 2>&1 | tail -15)
 fi
-verifier() {
-    local chemin=$1 attendu=$2
+check() {
+    local path=$1 expected=$2
     local code
-    code=$(curl -ks -o /dev/null -m 20 -b "$BISCUITS" -w '%{http_code}' "${URL}${chemin}")
-    if [[ "$code" == "$attendu" ]]; then
-        ok "$(printf '%-24s %s' "$chemin" "$code")"
+    code=$(curl -ks -o /dev/null -m 20 -b "$COOKIES" -w '%{http_code}' "${URL}${path}")
+    if [[ "$code" == "$expected" ]]; then
+        ok "$(printf '%-24s %s' "$path" "$code")"
     else
-        echec "$(printf '%-24s %s (attendu %s)' "$chemin" "$code" "$attendu")"
+        fail "$(printf '%-24s %s (expected %s)' "$path" "$code" "$expected")"
     fi
 }
-verifier /ui/app/            200
-verifier /studies            200
-verifier /system             200
-verifier /dicom-web/studies  200
-verifier /console/           200
-verifier /ohif/app-config.js 200
+check /ui/app/            200
+check /studies            200
+check /system             200
+check /dicom-web/studies  200
+check /console/           200
+check /ohif/app-config.js 200
 
 # The profile returned to Orthanc decides the rights: an unrecognised group
 # silently falls back to a read-only profile.
@@ -228,83 +228,82 @@ verifier /ohif/app-config.js 200
 # useful. admin-permissions is the most telling -- it governs DICOM device
 # management, and its absence went unnoticed for a long time because 'all'
 # does not cover it.
-profil=$(curl -ks -m 20 -b "$BISCUITS" "${URL}/ui/api/configuration" \
+profile=$(curl -ks -m 20 -b "$COOKIES" "${URL}/ui/api/configuration" \
     | python3 -c '
 import json, sys
 p = json.load(sys.stdin)["Profile"]
-attendus = {"all", "admin-permissions", "settings", "delete", "upload", "view"}
-manquants = attendus - set(p["permissions"])
-print(p["name"], "|", ",".join(sorted(manquants)) if manquants else "complet")
+expected = {"all", "admin-permissions", "settings", "delete", "upload", "view"}
+missing = expected - set(p["permissions"])
+print(p["name"], "|", ",".join(sorted(missing)) if missing else "complete")
 ' 2>/dev/null)
-if [[ "$profil" == "Administrator | complet" ]]; then
-    ok "profil Orthanc : Administrator, droits essentiels presents"
+if [[ "$profile" == "Administrator | complete" ]]; then
+    ok "Orthanc profile: Administrator, essential rights present"
 else
-    echec "profil Orthanc : ${profil:-illisible}"
+    fail "Orthanc profile: ${profile:-unreadable}"
 fi
 
 # --- Panel features --------------------------------------------------------
 # These routes existed server-side without any interface for a long time:
 # nothing exercised them, so nothing would have reported them breaking.
-etape "Fonctions du panel d'administration"
+step "Administration panel features"
 
 # whoami sets the CSRF cookie, as the SPA does on load. Writes are refused
 # without it.
-curl -ks -o /dev/null -m 20 -b "$BISCUITS" -c "$BISCUITS" "${URL}/console/api/admin/whoami"
-JETON=$(awk '/orthanc_admin_csrf/ {print $NF}' "$BISCUITS" | tail -1)
-if [[ -n "$JETON" ]]; then
-    ok "jeton CSRF obtenu"
+curl -ks -o /dev/null -m 20 -b "$COOKIES" -c "$COOKIES" "${URL}/console/api/admin/whoami"
+TOKEN=$(awk '/orthanc_admin_csrf/ {print $NF}' "$COOKIES" | tail -1)
+if [[ -n "$TOKEN" ]]; then
+    ok "CSRF token obtained"
 else
-    echec "aucun jeton CSRF pose par whoami"
+    fail "no CSRF token set by whoami"
 fi
 
-verifier_panel() {
-    local methode=$1 chemin=$2 corps=$3 libelle=$4 attendu=${5:-200}
+check_panel() {
+    local method=$1 path=$2 body=$3 label=$4 expected=${5:-200}
     local code
-    if [[ -n "$corps" ]]; then
-        code=$(curl -ks -o /tmp/e2e-panel.json -m 20 -b "$BISCUITS" -w '%{http_code}' \
-            -X "$methode" "${URL}${chemin}" \
-            -H 'Content-Type: application/json' -H "X-CSRF-Token: ${JETON}" -d "$corps")
+    if [[ -n "$body" ]]; then
+        code=$(curl -ks -o /tmp/e2e-panel.json -m 20 -b "$COOKIES" -w '%{http_code}' \
+            -X "$method" "${URL}${path}" \
+            -H 'Content-Type: application/json' -H "X-CSRF-Token: ${TOKEN}" -d "$body")
     else
-        code=$(curl -ks -o /tmp/e2e-panel.json -m 20 -b "$BISCUITS" -w '%{http_code}' \
-            -X "$methode" "${URL}${chemin}" -H "X-CSRF-Token: ${JETON}")
+        code=$(curl -ks -o /tmp/e2e-panel.json -m 20 -b "$COOKIES" -w '%{http_code}' \
+            -X "$method" "${URL}${path}" -H "X-CSRF-Token: ${TOKEN}")
     fi
-    if [[ "$code" == "$attendu" ]]; then
-        ok "$(printf '%-38s %s' "$libelle" "$code")"
+    if [[ "$code" == "$expected" ]]; then
+        ok "$(printf '%-38s %s' "$label" "$code")"
     else
-        echec "$(printf '%-38s %s (attendu %s) : %s' "$libelle" "$code" "$attendu" "$(head -c 80 /tmp/e2e-panel.json)")"
+        fail "$(printf '%-38s %s (expected %s): %s' "$label" "$code" "$expected" "$(head -c 80 /tmp/e2e-panel.json)")"
     fi
 }
 
-verifier_panel GET /console/api/admin/backups '' 'liste des sauvegardes'
-verifier_panel GET /console/api/admin/network '' 'adresse publique (lecture)'
-verifier_panel GET /console/api/admin/audit '' 'journal d activite'
-verifier_panel GET /console/api/admin/modalities '' 'equipements DICOM'
+check_panel GET /console/api/admin/backups '' 'backup list'
+check_panel GET /console/api/admin/network '' 'public address (read)'
+check_panel GET /console/api/admin/audit '' 'activity log'
+check_panel GET /console/api/admin/modalities '' 'DICOM devices'
 
-verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
-    '{"displayname":"Admin E2E renomme"}' 'modification de compte'
+check_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
+    '{"displayname":"Admin E2E renomme"}' 'account update'
 
 # Safety net: the wizard's administrator is the only account. Removing
 # oneself from the admin group, or disabling oneself, would leave the stack
-# with nobody to
-# administer it. The server must refuse with an explicit 400 -- not a 500,
-# which is what happened before invariant violations were
-# converties.
-verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
-    '{"groups":["doctor"]}' 'refus de perdre le dernier admin' 400
-verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
-    '{"disabled":true}' 'refus de desactiver le dernier admin' 400
+# with nobody to administer it. The server must refuse with an explicit 400
+# -- not a 500, which is what happened before invariant violations were
+# converted.
+check_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
+    '{"groups":["doctor"]}' 'refuses to lose the last admin' 400
+check_panel PATCH "/console/api/admin/users/${ADMIN_USER}" \
+    '{"disabled":true}' 'refuses to disable the last admin' 400
 
 # The administrator created by the wizard is the only account: changing its
 # password affects nothing beyond this test's session, deleted afterwards.
-verifier_panel PATCH "/console/api/admin/users/${ADMIN_USER}/password" \
-    '{"new_password":"nouveau-mot-de-passe-e2e-123"}' 'changement de mot de passe'
+check_panel PATCH "/console/api/admin/users/${ADMIN_USER}/password" \
+    '{"new_password":"nouveau-mot-de-passe-e2e-123"}' 'password change'
 
-# --- Chaine DICOM ----------------------------------------------------------
+# --- DICOM chain -----------------------------------------------------------
 # The rest of the test checks that URLs answer. Here we check the product
 # does its job: that a study goes in, gets indexed while keeping its
 # metadata, and comes back out through DICOMweb -- which the viewers rely
 # on.
-etape "Chaine DICOM"
+step "DICOM chain"
 
 # A valid DICOM, built on the fly: no binary file to version, and the
 # identifiers are unique on every run.
@@ -313,8 +312,8 @@ import numpy as np
 from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import ExplicitVRLittleEndian, generate_uid
 
-taille = 64
-y, x = np.ogrid[:taille, :taille]
+size = 64
+y, x = np.ogrid[:size, :size]
 img = (x + y).astype(np.uint16) * 16
 
 meta = FileMetaDataset()
@@ -337,8 +336,8 @@ ds.SOPInstanceUID = meta.MediaStorageSOPInstanceUID
 ds.SOPClassUID = meta.MediaStorageSOPClassUID
 ds.StudyDate = '20260729'
 ds.StudyTime = '100000'
-ds.StudyDescription = 'Examen de validation E2E'
-ds.SeriesDescription = 'Serie synthetique'
+ds.StudyDescription = 'E2E validation study'
+ds.SeriesDescription = 'Synthetic series'
 ds.AccessionNumber = 'ACC-E2E-1'
 ds.Modality = 'OT'
 ds.StudyID = '1'
@@ -346,23 +345,23 @@ ds.SeriesNumber = 1
 ds.InstanceNumber = 1
 ds.SamplesPerPixel = 1
 ds.PhotometricInterpretation = 'MONOCHROME2'
-ds.Rows = taille
-ds.Columns = taille
+ds.Rows = size
+ds.Columns = size
 ds.BitsAllocated = 16
 ds.BitsStored = 16
 ds.HighBit = 15
 ds.PixelRepresentation = 0
 ds.PixelData = img.tobytes()
-ds.save_as('/sortie/e2e.dcm', write_like_original=False)
+ds.save_as('/output/e2e.dcm', write_like_original=False)
 print('ok')
 PYDICOM
 
-if docker run --rm -v /tmp:/sortie -v /tmp/e2e-gen-dicom.py:/gen.py:ro \
+if docker run --rm -v /tmp:/output -v /tmp/e2e-gen-dicom.py:/gen.py:ro \
     python:3.11-slim sh -c 'pip install -q pydicom numpy && python /gen.py' \
     >/dev/null 2>&1 && [[ -f /tmp/e2e.dcm ]]; then
-    ok "DICOM de test fabrique ($(stat -c%s /tmp/e2e.dcm) octets)"
+    ok "test DICOM built ($(stat -c%s /tmp/e2e.dcm) bytes)"
 else
-    echec "impossible de fabriquer le DICOM de test"
+    fail "cannot build the test DICOM"
 fi
 
 if [[ -f /tmp/e2e.dcm ]]; then
@@ -375,13 +374,13 @@ if [[ -f /tmp/e2e.dcm ]]; then
     # An upload without credentials must be refused: this endpoint accepts
     # medical data without a session, and leaving it open would let anyone on
     # the network feed the database.
-    refus=$(curl -ks -o /dev/null -m 20 -w '%{http_code}' \
+    refused=$(curl -ks -o /dev/null -m 20 -w '%{http_code}' \
         -X POST "${URL}/api-upload/instances" \
         -H 'Content-Type: application/dicom' --data-binary @/tmp/e2e.dcm)
-    if [[ "$refus" == "401" ]]; then
-        ok "envoi sans identifiants refuse (401)"
+    if [[ "$refused" == "401" ]]; then
+        ok "upload without credentials refused (401)"
     else
-        echec "envoi sans identifiants : $refus au lieu de 401"
+        fail "upload without credentials: $refused instead of 401"
     fi
 
     code=$(curl -ks -o /tmp/e2e-upload.json -m 60 -w '%{http_code}' \
@@ -389,114 +388,124 @@ if [[ -f /tmp/e2e.dcm ]]; then
         -X POST "${URL}/api-upload/instances" \
         -H 'Content-Type: application/dicom' --data-binary @/tmp/e2e.dcm)
     if [[ "$code" == "200" ]]; then
-        ok "envoi accepte par /api-upload/instances"
+        ok "upload accepted by /api-upload/instances"
     else
-        echec "envoi refuse : HTTP $code $(head -c 90 /tmp/e2e-upload.json)"
+        fail "upload refused: HTTP $code $(head -c 90 /tmp/e2e-upload.json)"
     fi
 
     # Indexing: the study must show up in Orthanc's count.
-    etudes=$(curl -ks -m 20 -b "$BISCUITS" "${URL}/statistics" \
+    studies=$(curl -ks -m 20 -b "$COOKIES" "${URL}/statistics" \
         | python3 -c 'import json,sys; print(json.load(sys.stdin)["CountStudies"])' 2>/dev/null)
-    if [[ "$etudes" == "1" ]]; then
-        ok "examen indexe (1 etude)"
+    if [[ "$studies" == "1" ]]; then
+        ok "study indexed (1 study)"
     else
-        echec "indexation : ${etudes:-illisible} etude(s) au lieu de 1"
+        fail "indexing: ${studies:-unreadable} study/studies instead of 1"
     fi
 
     # Metadata: a study that is indexed but has lost its tags is useless --
     # searching by patient or by date would not find it.
-    lu=$(curl -ks -m 20 -b "$BISCUITS" "${URL}/studies?expand" \
+    read_back=$(curl -ks -m 20 -b "$COOKIES" "${URL}/studies?expand" \
         | python3 -c 'import json,sys; e=json.load(sys.stdin)[0]; print(e["PatientMainDicomTags"]["PatientID"], e["MainDicomTags"]["AccessionNumber"])' 2>/dev/null)
-    if [[ "$lu" == "E2E-0001 ACC-E2E-1" ]]; then
-        ok "metadonnees conservees (patient et numero d'acces)"
+    if [[ "$read_back" == "E2E-0001 ACC-E2E-1" ]]; then
+        ok "metadata preserved (patient and accession number)"
     else
-        echec "metadonnees alterees : '${lu:-illisible}'"
+        fail "metadata altered: '${read_back:-unreadable}'"
     fi
 
     # DICOMweb: this is how the viewers fetch the images.
-    nb=$(curl -ks -m 20 -b "$BISCUITS" "${URL}/dicom-web/studies" \
+    count=$(curl -ks -m 20 -b "$COOKIES" "${URL}/dicom-web/studies" \
         | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null)
-    if [[ "$nb" == "1" ]]; then
-        ok "examen expose par DICOMweb"
+    if [[ "$count" == "1" ]]; then
+        ok "study exposed through DICOMweb"
     else
-        echec "DICOMweb renvoie ${nb:-illisible} examen(s) au lieu de 1"
+        fail "DICOMweb returns ${count:-unreadable} study/studies instead of 1"
     fi
 
     # The DICOM is written by the container, therefore as root: deleting it
     # requires going through a container, as for the working directory.
     rm -f /tmp/e2e-gen-dicom.py
-    docker run --rm -v /tmp:/tmp-hote alpine rm -f /tmp-hote/e2e.dcm >/dev/null 2>&1
+    docker run --rm -v /tmp:/tmp-host alpine rm -f /tmp-host/e2e.dcm >/dev/null 2>&1
 fi
 
 # --- File ownership --------------------------------------------------------
 # Authelia and auth-service write into the repository. If they run as root
 # they take ownership of the directories and any later reinstall fails on a
-# "Permission denied" -- the README's reset procedure becomes
-# inapplicable. Le compose leur impose l'identite de l'utilisateur ; on verifie
-# that it is applied, since nothing else would report it before the next
-# reinstallation.
-etape "Proprietaire des fichiers ecrits"
-etrangers=$(find services/authelia/config services/orthanc/config data \
+# "Permission denied" -- the README's reset procedure becomes inapplicable.
+# The compose file forces the user's identity on them; we check it is
+# applied, since nothing else would report it before the next reinstallation.
+step "Ownership of written files"
+foreign=$(find services/authelia/config services/orthanc/config data \
     ! -user "$(id -u)" 2>/dev/null | head -5)
-if [[ -z "$etrangers" ]]; then
-    ok "tout appartient a l'utilisateur courant"
+if [[ -z "$foreign" ]]; then
+    ok "everything belongs to the current user"
 else
-    echec "fichiers appartenant a un autre utilisateur :"
-    printf '      %s\n' $etrangers
+    fail "files belonging to another user:"
+    printf '      %s\n' $foreign
 fi
 
 # --- Docker proxy scope ----------------------------------------------------
 # The Docker socket amounts to root on the host. The proxy exposes only one
 # operation, restarting a container; everything else must be refused.
 #
-# This test is not theoretical: with CONTAINERS=1, the POST=1 variable
-# opened
-# TOUT /containers/*, dont POST /containers/create. Un conteneur privilegie
-# mounting the host root was then accepted -- exactly the escape this mount
-# must prevent. The regression would fit in a single line of the compose
-# file, breaking nothing visible: hence this check.
-etape "Perimetre du proxy Docker"
+# This test is not theoretical: with CONTAINERS=1, the POST=1 variable opened
+# ALL of /containers/*, including POST /containers/create. A privileged
+# container mounting the host root was then accepted -- exactly the escape
+# this mount must prevent. The regression would fit in a single line of the
+# compose file, breaking nothing visible: hence this check.
+step "Docker proxy scope"
 if compose ps --services 2>/dev/null | grep -qx socket-proxy; then
-    interroge_proxy() {
-        # $1 = methode, $2 = chemin, $3 = corps JSON (facultatif)
-        local corps=()
-        [[ -n "${3:-}" ]] && corps=(-H 'Content-Type: application/json' -d "$3")
-        compose exec -T auth-service \
-            curl -s -o /dev/null -w '%{http_code}' -X "$1" \
-            "${corps[@]}" --max-time 20 \
-            "http://socket-proxy:2375$2" 2>/dev/null || echo "000"
+    # Through python, not curl: the auth-service image ships neither. Calling
+    # a missing binary returned "000" for every check, so all three reported
+    # an escape that was not one -- a security test that could only cry wolf.
+    query_proxy() {
+        # $1 = method, $2 = path, $3 = JSON body (optional)
+        compose exec -T auth-service python -c '
+import sys, urllib.request, urllib.error
+method, path = sys.argv[1], sys.argv[2]
+body = sys.argv[3].encode() if len(sys.argv) > 3 and sys.argv[3] else None
+req = urllib.request.Request("http://socket-proxy:2375" + path,
+                             data=body, method=method)
+if body:
+    req.add_header("Content-Type", "application/json")
+try:
+    print(urllib.request.urlopen(req, timeout=20).status)
+except urllib.error.HTTPError as e:
+    print(e.code)
+except Exception:
+    print("000")
+' "$1" "$2" "${3:-}" 2>/dev/null | tr -d '\r' || echo "000"
     }
 
-    code=$(interroge_proxy POST "/containers/create" \
-        '{"Image":"alpine","HostConfig":{"Privileged":true,"Binds":["/:/hote"]}}')
+    code=$(query_proxy POST "/containers/create" \
+        '{"Image":"alpine","HostConfig":{"Privileged":true,"Binds":["/:/host"]}}')
     if [[ "$code" == "403" ]]; then
-        ok "creation de conteneur refusee (HTTP 403)"
+        ok "container creation refused (HTTP 403)"
     else
-        echec "creation de conteneur privilegie ACCEPTEE (HTTP $code) -- evasion possible"
+        fail "privileged container creation ACCEPTED (HTTP $code) -- escape possible"
     fi
 
-    code=$(interroge_proxy POST "/containers/orthanc-server/exec" '{"Cmd":["id"]}')
+    code=$(query_proxy POST "/containers/orthanc-server/exec" '{"Cmd":["id"]}')
     if [[ "$code" == "403" ]]; then
-        ok "exec dans un conteneur refuse (HTTP 403)"
+        ok "exec in a container refused (HTTP 403)"
     else
-        echec "exec dans un conteneur ACCEPTE (HTTP $code)"
+        fail "exec in a container ACCEPTED (HTTP $code)"
     fi
 
-    code=$(interroge_proxy GET "/images/json")
+    code=$(query_proxy GET "/images/json")
     if [[ "$code" == "403" ]]; then
-        ok "acces aux images refuse (HTTP 403)"
+        ok "access to images refused (HTTP 403)"
     else
-        echec "acces aux images ACCEPTE (HTTP $code)"
+        fail "access to images ACCEPTED (HTTP $code)"
     fi
 else
-    ok "service socket-proxy absent, rien a verifier"
+    ok "no socket-proxy service, nothing to check"
 fi
 
-# --- Bilan -----------------------------------------------------------------
-etape "Bilan"
-if [[ $ECHECS -eq 0 ]]; then
-    printf "  ${VERT}Installation complete validee.${RAZ}\n"
+# --- Summary ---------------------------------------------------------------
+step "Summary"
+if [[ $FAILURES -eq 0 ]]; then
+    printf "  ${GREEN}Full installation validated.${RESET}\n"
     exit 0
 fi
-printf "  ${ROUGE}%d verification(s) en echec.${RAZ}\n" "$ECHECS"
+printf "  ${RED}%d check(s) failed.${RESET}\n" "$FAILURES"
 exit 1

@@ -734,7 +734,7 @@ class TestOrthancReloadRefused:
                 side_effect=httpx.ConnectError("injoignable")
             )
             r = client.patch("/api/admin/orthanc/config", json={
-                "changes": {"Name": "Ne Doit Pas Rester"},
+                "changes": {"Name": "Must Not Remain"},
             }, headers=csrf_headers)
 
         assert r.status_code == 502

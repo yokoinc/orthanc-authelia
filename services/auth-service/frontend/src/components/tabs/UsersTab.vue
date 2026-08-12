@@ -15,12 +15,12 @@ const users = ref([])
 //
 // Changing the password stays available: without it, that account could
 // never change its own again.
-const adminsActifs = computed(
+const activeAdmins = computed(
   () => users.value.filter((u) => !u.disabled && (u.groups || []).includes('admin')),
 )
 
-function estDernierAdmin(u) {
-  return adminsActifs.value.length === 1 && adminsActifs.value[0].username === u.username
+function isLastAdmin(u) {
+  return activeAdmins.value.length === 1 && activeAdmins.value[0].username === u.username
 }
 const loading = ref(true)
 const showAddForm = ref(false)
@@ -58,18 +58,18 @@ async function addUser() {
 
 // Editing an account: same expanding-row approach as the password, so as
 // not to leave the table.
-const editionPour = ref('')
-const edition = reactive({ displayname: '', email: '', groups: [], disabled: false })
-const envoiEdition = ref(false)
+const editingFor = ref('')
+const editing = reactive({ displayname: '', email: '', groups: [], disabled: false })
+const savingEdit = ref(false)
 
-function ouvrirEdition(u) {
-  if (editionPour.value === u.username) {
-    editionPour.value = ''
+function openEdit(u) {
+  if (editingFor.value === u.username) {
+    editingFor.value = ''
     return
   }
-  editionPour.value = u.username
-  motDePassePour.value = ''
-  Object.assign(edition, {
+  editingFor.value = u.username
+  passwordFor.value = ''
+  Object.assign(editing, {
     displayname: u.displayname || '',
     email: u.email || '',
     groups: [...(u.groups || [])],
@@ -77,62 +77,62 @@ function ouvrirEdition(u) {
   })
 }
 
-function basculerGroupeEdition(g) {
-  const i = edition.groups.indexOf(g)
-  if (i >= 0) edition.groups.splice(i, 1)
-  else edition.groups.push(g)
+function toggleEditGroup(g) {
+  const i = editing.groups.indexOf(g)
+  if (i >= 0) editing.groups.splice(i, 1)
+  else editing.groups.push(g)
 }
 
-async function enregistrerEdition() {
-  envoiEdition.value = true
+async function saveEdit() {
+  savingEdit.value = true
   try {
-    await api(`/console/api/admin/users/${encodeURIComponent(editionPour.value)}`, {
+    await api(`/console/api/admin/users/${encodeURIComponent(editingFor.value)}`, {
       method: 'PATCH',
       body: {
-        displayname: edition.displayname,
-        email: edition.email,
-        groups: edition.groups,
-        disabled: edition.disabled,
+        displayname: editing.displayname,
+        email: editing.email,
+        groups: editing.groups,
+        disabled: editing.disabled,
       },
     })
-    ui.notify(t('users_updated', '{username} a été modifié.', { username: editionPour.value }), 'ok')
-    editionPour.value = ''
+    ui.notify(t('users_updated', '{username} a été modifié.', { username: editingFor.value }), 'ok')
+    editingFor.value = ''
     load()
   } catch (e) {
     // The server refuses to leave the stack without an active
     // administrator: the message explains what blocks, do not hide it.
     ui.notify(e.message, 'err')
   } finally {
-    envoiEdition.value = false
+    savingEdit.value = false
   }
 }
 
 // Password change: inline input rather than a prompt(), which would show
 // the password in clear and allows no validation.
-const motDePassePour = ref('')
-const nouveauMotDePasse = ref('')
-const envoiMotDePasse = ref(false)
+const passwordFor = ref('')
+const newPassword = ref('')
+const savingPassword = ref(false)
 
-function ouvrirMotDePasse(username) {
-  motDePassePour.value = motDePassePour.value === username ? '' : username
-  nouveauMotDePasse.value = ''
+function openPassword(username) {
+  passwordFor.value = passwordFor.value === username ? '' : username
+  newPassword.value = ''
 }
 
-async function enregistrerMotDePasse() {
-  if (nouveauMotDePasse.value.length < 12) return
-  envoiMotDePasse.value = true
+async function savePassword() {
+  if (newPassword.value.length < 12) return
+  savingPassword.value = true
   try {
-    await api(`/console/api/admin/users/${encodeURIComponent(motDePassePour.value)}/password`, {
+    await api(`/console/api/admin/users/${encodeURIComponent(passwordFor.value)}/password`, {
       method: 'PATCH',
-      body: { new_password: nouveauMotDePasse.value },
+      body: { new_password: newPassword.value },
     })
-    ui.notify(t('users_password_changed', 'Mot de passe modifié pour {username}.', { username: motDePassePour.value }), 'ok')
-    motDePassePour.value = ''
-    nouveauMotDePasse.value = ''
+    ui.notify(t('users_password_changed', 'Mot de passe modifié pour {username}.', { username: passwordFor.value }), 'ok')
+    passwordFor.value = ''
+    newPassword.value = ''
   } catch (e) {
     ui.notify(e.message, 'err')
   } finally {
-    envoiMotDePasse.value = false
+    savingPassword.value = false
   }
 }
 

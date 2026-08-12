@@ -17,24 +17,24 @@
              ===================================================================== -->
         <aside class="oe2-sidebar">
             <a href="/ui/app/" class="oe2-sidebar__brand" title="{BACK_TO_PACS}">
-                <!-- Vrai logo Orthanc upstream (recupere de OE2:
-                     WebApplication/src/assets/images/orthanc.png). Bundle
-                     dans nos static assets pour ne pas dependre du
-                     /orthanc-logo.png du user, qui est son branding perso. -->
+                <!-- The real upstream Orthanc logo (taken from OE2:
+                     WebApplication/src/assets/images/orthanc.png). Bundled
+                     into our own static assets, so as not to depend on the
+                     user's /orthanc-logo.png, which is their branding. -->
                 <img src="/auth/static/orthanc-logo-official.png" alt="Orthanc" class="oe2-sidebar__logo">
             </a>
-            <!-- Nom du serveur avec border-bottom blanc (reprise .orthanc-name d'OE2).
-                 Repris d'Orthanc, comme le fait Explorer : ecrire "Orthanc" en dur
-                 laissait un serveur renomme s'annoncer sous un nom qui n'est pas le
-                 sien. -->
+            <!-- Server name with a white border-bottom (taken from OE2's
+                 .orthanc-name). Read from Orthanc, as Explorer does:
+                 hard-coding "Orthanc" let a renamed server announce itself
+                 under a name that is not its own. -->
             <div class="oe2-sidebar__brand-name">{SERVER_NAME}</div>
 
-            <nav class="oe2-sidebar__nav" aria-label="Navigation principale">
+            <nav class="oe2-sidebar__nav" aria-label="Main navigation">
                 <a href="/ui/app/" class="oe2-sidebar__link">
                     <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
                     <span>{BACK_TO_PACS}</span>
                 </a>
-                <!-- <span> au lieu d'<a href="#"> pour eviter le scroll top au clic -->
+                <!-- <span> rather than <a href="#">, to avoid scrolling to the top on click -->
                 <span class="oe2-sidebar__link active" role="link" aria-current="page">
                     <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
                     <span>{TITLE}</span>
@@ -72,11 +72,12 @@
                 </button>
             </div>
             <div class="tokens-table-wrapper">
-                <!-- Container bare: le JS y injecte directement <table> ou
-                     <div class="empty-state">. Le loading-state est nested
-                     pour que sa classe (avec padding 40px) disparaisse quand
-                     JS remplace l'innerHTML, sinon la table s'affichait avec
-                     40px de vide autour = "double tableau" apparent. -->
+                <!-- Bare container: the JS injects <table> or
+                     <div class="empty-state"> straight into it. The loading
+                     state is nested so its class (with 40px padding)
+                     disappears when the JS replaces the innerHTML; otherwise
+                     the table showed up with 40px of empty space around it,
+                     looking like a double table. -->
                 <div id="tokensContainer">
                     <div class="loading-state" aria-busy="true">
                         <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
@@ -137,9 +138,9 @@
     </div>
 
     <!-- =========================================================================
-         TOASTS - le container porte aria-live="polite" pour que les toasts
-         successifs soient annonces par les lecteurs d'ecran (les toast eux-memes
-         gardent role="alert").
+         TOASTS - the container carries aria-live="polite" so that
+         successive toasts are announced by screen readers (the toasts
+         themselves keep role="alert").
          ========================================================================= -->
     <div class="toast-container position-fixed bottom-0 end-0 p-3"
          aria-live="polite" aria-atomic="true">

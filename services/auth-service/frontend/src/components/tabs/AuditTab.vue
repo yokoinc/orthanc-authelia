@@ -5,68 +5,68 @@ import { t } from '../../i18n.js'
 import { useUiStore } from '../../stores/ui.js'
 
 const ui = useUiStore()
-const entrees = ref([])
-const chargement = ref(true)
-const filtre = ref('')
+const entries = ref([])
+const loading = ref(true)
+const filter = ref('')
 
 // Every event carries an icon and a colour: in a log, the nature of an
 // action should be seen before it is read. Security refusals stand out in
 // red, deletions too.
-const APPARENCE = {
+const APPEARANCE = {
   'authelia.user.added':                   ['fa-user-plus', 'ok'],
-  'authelia.user.updated':                 ['fa-user-pen', 'neutre'],
+  'authelia.user.updated':                 ['fa-user-pen', 'neutral'],
   'authelia.user.deleted':                 ['fa-user-minus', 'danger'],
-  'authelia.password.changed':             ['fa-key', 'neutre'],
+  'authelia.password.changed':             ['fa-key', 'neutral'],
   'orthanc.config.updated':                ['fa-server', 'ok'],
-  'orthanc.config.updated_pending_restart': ['fa-server', 'attention'],
-  'orthanc.config.rolled_back':            ['fa-rotate-left', 'attention'],
+  'orthanc.config.updated_pending_restart': ['fa-server', 'warning'],
+  'orthanc.config.rolled_back':            ['fa-rotate-left', 'warning'],
   'orthanc.config.rollback_failed':        ['fa-triangle-exclamation', 'danger'],
-  'backup.restored':                       ['fa-rotate-left', 'attention'],
-  'network.public_url.changed':            ['fa-globe', 'attention'],
+  'backup.restored':                       ['fa-rotate-left', 'warning'],
+  'network.public_url.changed':            ['fa-globe', 'warning'],
   'setup.admin.created':                   ['fa-shield-halved', 'ok'],
   'setup.finalized':                       ['fa-flag-checkered', 'ok'],
   'csrf.token':                            ['fa-ban', 'danger'],
   'csrf.origin':                           ['fa-ban', 'danger'],
 }
 
-function apparence(evenement) {
-  return APPARENCE[evenement] || ['fa-circle-info', 'neutre']
+function appearance(eventName) {
+  return APPEARANCE[eventName] || ['fa-circle-info', 'neutral']
 }
 
-function dateLisible(horodatage) {
-  if (!horodatage) return '—'
-  return new Date(horodatage * 1000).toLocaleString()
+function readableDate(timestamp) {
+  if (!timestamp) return '—'
+  return new Date(timestamp * 1000).toLocaleString()
 }
 
-function detailsLisibles(details) {
-  const entrees = Object.entries(details || {})
-  if (!entrees.length) return ''
-  return entrees.map(([k, v]) => `${k} : ${v}`).join(' · ')
+function readableDetails(details) {
+  const entries = Object.entries(details || {})
+  if (!entries.length) return ''
+  return entries.map(([k, v]) => `${k} : ${v}`).join(' · ')
 }
 
-const filtrees = computed(() => {
-  const f = filtre.value.trim().toLowerCase()
-  if (!f) return entrees.value
-  return entrees.value.filter((e) =>
+const filtered = computed(() => {
+  const f = filter.value.trim().toLowerCase()
+  if (!f) return entries.value
+  return entries.value.filter((e) =>
     e.event.toLowerCase().includes(f) ||
     e.actor.toLowerCase().includes(f) ||
-    detailsLisibles(e.details).toLowerCase().includes(f),
+    readableDetails(e.details).toLowerCase().includes(f),
   )
 })
 
-async function charger() {
-  chargement.value = true
+async function load() {
+  loading.value = true
   try {
     const data = await api('/console/api/admin/audit?limit=200')
-    entrees.value = data.entries
+    entries.value = data.entries
   } catch (e) {
     ui.notify(e.message, 'err')
   } finally {
-    chargement.value = false
+    loading.value = false
   }
 }
 
-onMounted(charger)
+onMounted(load)
 </script>
 
 <template>
@@ -143,6 +143,6 @@ h2 { font-size: var(--oe2-fs-body); margin: 0 0 6px; font-weight: 400; }
 .ic { width: 16px; margin-right: 8px; text-align: center; }
 .ic--ok { color: var(--oe2-success); }
 .ic--danger { color: var(--oe2-danger); }
-.ic--attention { color: var(--oe2-accent-orange); }
-.ic--neutre { color: var(--oe2-muted); }
+.ic--warning { color: var(--oe2-accent-orange); }
+.ic--neutral { color: var(--oe2-muted); }
 </style>

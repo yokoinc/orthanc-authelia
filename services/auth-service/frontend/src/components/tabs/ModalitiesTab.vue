@@ -5,59 +5,59 @@ import { t } from '../../i18n.js'
 import { useUiStore } from '../../stores/ui.js'
 
 const ui = useUiStore()
-const equipements = ref([])
-const chargement = ref(true)
-const formulaireOuvert = ref(false)
-const envoi = ref(false)
-const testEnCours = ref('')
-const resultats = reactive({})
+const devices = ref([])
+const loading = ref(true)
+const formOpen = ref(false)
+const saving = ref(false)
+const testing = ref('')
+const results = reactive({})
 
-const nouveau = reactive({ name: '', aet: '', host: '', port: 104 })
+const draft = reactive({ name: '', aet: '', host: '', port: 104 })
 
-function valide() {
-  return nouveau.name.trim() && nouveau.aet.trim() &&
-    nouveau.aet.length <= 16 && nouveau.host.trim() &&
-    nouveau.port >= 1 && nouveau.port <= 65535
+function isValid() {
+  return draft.name.trim() && draft.aet.trim() &&
+    draft.aet.length <= 16 && draft.host.trim() &&
+    draft.port >= 1 && draft.port <= 65535
 }
 
-async function charger() {
-  chargement.value = true
+async function load() {
+  loading.value = true
   try {
     const data = await api('/console/api/admin/modalities')
-    equipements.value = data.modalities
+    devices.value = data.modalities
   } catch (e) {
     ui.notify(e.message, 'err')
   } finally {
-    chargement.value = false
+    loading.value = false
   }
 }
 
-async function enregistrer() {
-  if (!valide()) return
-  envoi.value = true
+async function save() {
+  if (!isValid()) return
+  saving.value = true
   try {
-    await api(`/console/api/admin/modalities/${encodeURIComponent(nouveau.name.trim())}`, {
+    await api(`/console/api/admin/modalities/${encodeURIComponent(draft.name.trim())}`, {
       method: 'PUT',
-      body: { aet: nouveau.aet.trim(), host: nouveau.host.trim(), port: nouveau.port },
+      body: { aet: draft.aet.trim(), host: draft.host.trim(), port: draft.port },
     })
-    ui.notify(t('modality_saved', 'Équipement {name} enregistré.', { name: nouveau.name.trim() }), 'ok')
-    Object.assign(nouveau, { name: '', aet: '', host: '', port: 104 })
-    formulaireOuvert.value = false
-    charger()
+    ui.notify(t('modality_saved', 'Équipement {name} enregistré.', { name: draft.name.trim() }), 'ok')
+    Object.assign(draft, { name: '', aet: '', host: '', port: 104 })
+    formOpen.value = false
+    load()
   } catch (e) {
     ui.notify(e.message, 'err')
   } finally {
-    envoi.value = false
+    saving.value = false
   }
 }
 
-async function supprimer(nom) {
-  if (!confirm(t('modality_delete_confirm', "Supprimer l'équipement « {name} » ?", { name: nom }))) return
+async function remove(name) {
+  if (!confirm(t('modality_delete_confirm', "Supprimer l'équipement « {name} » ?", { name: name }))) return
   try {
-    await api(`/console/api/admin/modalities/${encodeURIComponent(nom)}`, { method: 'DELETE' })
-    ui.notify(t('modality_deleted', '{name} a été supprimé.', { name: nom }), 'ok')
-    delete resultats[nom]
-    charger()
+    await api(`/console/api/admin/modalities/${encodeURIComponent(name)}`, { method: 'DELETE' })
+    ui.notify(t('modality_deleted', '{name} a été supprimé.', { name: name }), 'ok')
+    delete results[name]
+    load()
   } catch (e) {
     ui.notify(e.message, 'err')
   }
@@ -66,28 +66,28 @@ async function supprimer(nom) {
 // A declared device is not necessarily reachable: wrong address, closed
 // port, refused AE title. The test avoids discovering the problem on the day
 // of a transfer.
-async function tester(nom) {
-  testEnCours.value = nom
+async function test(name) {
+  testing.value = name
   try {
-    const r = await api(`/console/api/admin/modalities/${encodeURIComponent(nom)}/echo`, {
+    const r = await api(`/console/api/admin/modalities/${encodeURIComponent(name)}/echo`, {
       method: 'POST',
     })
-    resultats[nom] = r.reachable ? 'ok' : 'ko'
+    results[name] = r.reachable ? 'ok' : 'ko'
     ui.notify(
       r.reachable
-        ? t('modality_echo_ok', '{name} répond.', { name: nom })
-        : t('modality_echo_ko', '{name} ne répond pas.', { name: nom }),
+        ? t('modality_echo_ok', '{name} répond.', { name: name })
+        : t('modality_echo_ko', '{name} ne répond pas.', { name: name }),
       r.reachable ? 'ok' : 'err',
     )
   } catch (e) {
-    resultats[nom] = 'ko'
+    results[name] = 'ko'
     ui.notify(e.message, 'err')
   } finally {
-    testEnCours.value = ''
+    testing.value = ''
   }
 }
 
-onMounted(charger)
+onMounted(load)
 </script>
 
 <template>

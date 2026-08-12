@@ -8,144 +8,144 @@ const ui = useUiStore()
 
 // --- Public address --------------------------------------------------------
 const url = ref('')
-const urlInitiale = ref('')
-const urlModifiable = ref(false)
-const enregistrementUrl = ref(false)
+const initialUrl = ref('')
+const urlEditable = ref(false)
+const savingUrl = ref(false)
 
-const urlModifiee = computed(() => url.value !== urlInitiale.value && url.value.length > 7)
+const urlChanged = computed(() => url.value !== initialUrl.value && url.value.length > 7)
 
 // --- Interface language ----------------------------------------------------
-const LANGUES = [
-  { id: 'fr', libelle: 'Français' },
-  { id: 'en', libelle: 'English' },
+const LANGUAGES = [
+  { id: 'fr', label: 'Français' },
+  { id: 'en', label: 'English' },
 ]
-const langue = ref('')
-const langueInitiale = ref('')
-const enregistrementLangue = ref(false)
+const language = ref('')
+const initialLanguage = ref('')
+const savingLanguage = ref(false)
 
-async function enregistrerLangue() {
-  enregistrementLangue.value = true
+async function saveLanguage() {
+  savingLanguage.value = true
   try {
     await api('/console/api/admin/language', {
-      method: 'PUT', body: { language: langue.value },
+      method: 'PUT', body: { language: language.value },
     })
-    langueInitiale.value = langue.value
+    initialLanguage.value = language.value
     // Labels are injected into the page on load: without a reload the
     // interface would stay in the previous language.
     window.location.reload()
   } catch (e) {
     ui.notify(e.message, 'err')
-    enregistrementLangue.value = false
+    savingLanguage.value = false
   }
 }
 
-async function chargerPreferences() {
+async function loadPreferences() {
   try {
     const d = await api('/console/api/admin/preferences')
-    langue.value = d.language
-    langueInitiale.value = d.language
+    language.value = d.language
+    initialLanguage.value = d.language
   } catch (e) {
     ui.notify(e.message, 'err')
   }
 }
 
-async function enregistrerViewer() {
-  enregistrementViewer.value = true
+async function saveViewer() {
+  savingViewer.value = true
   try {
     await api('/console/api/admin/sharing', {
       method: 'PUT', body: { default_viewer: viewer.value },
     })
-    viewerInitial.value = viewer.value
+    initialViewer.value = viewer.value
     ui.notify(t('sharing_saved', 'Viewer par défaut enregistré.'), 'ok')
   } catch (e) {
     ui.notify(e.message, 'err')
   } finally {
-    enregistrementViewer.value = false
+    savingViewer.value = false
   }
 }
 
 // --- Backups ---------------------------------------------------------------
-const sauvegardes = ref([])
-const chargement = ref(true)
-const sauvegardeEnCours = ref(false)
+const backups = ref([])
+const loading = ref(true)
+const backingUp = ref(false)
 
 // Copies were only created in reaction to a panel write: there was no way
 // to take one before a risky operation.
-async function sauvegarder() {
-  sauvegardeEnCours.value = true
+async function createBackup() {
+  backingUp.value = true
   try {
     const r = await api('/console/api/admin/backups', { method: 'POST' })
     ui.notify(t('backup_created', '{count} fichier(s) sauvegardé(s).', { count: r.created.length }), 'ok')
-    charger()
+    load()
   } catch (e) {
     ui.notify(e.message, 'err')
   } finally {
-    sauvegardeEnCours.value = false
+    backingUp.value = false
   }
 }
 
-function dateLisible(horodatage) {
-  return new Date(horodatage * 1000).toLocaleString()
+function readableDate(timestamp) {
+  return new Date(timestamp * 1000).toLocaleString()
 }
 
-function tailleLisible(octets) {
-  if (octets < 1024) return `${octets} o`
-  if (octets < 1024 * 1024) return `${Math.round(octets / 1024)} ko`
-  return `${(octets / 1024 / 1024).toFixed(1)} Mo`
+function readableSize(bytes) {
+  if (bytes < 1024) return `${bytes} o`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} ko`
+  return `${(bytes / 1024 / 1024).toFixed(1)} Mo`
 }
 
-async function charger() {
-  chargement.value = true
+async function load() {
+  loading.value = true
   try {
-    const reseau = await api('/console/api/admin/network')
-    url.value = reseau.public_url || ''
-    urlInitiale.value = url.value
-    urlModifiable.value = reseau.editable
+    const network = await api('/console/api/admin/network')
+    url.value = network.public_url || ''
+    initialUrl.value = url.value
+    urlEditable.value = network.editable
   } catch (e) {
     ui.notify(e.message, 'err')
   }
   try {
     const data = await api('/console/api/admin/backups')
-    sauvegardes.value = data.backups
+    backups.value = data.backups
   } catch (e) {
     ui.notify(e.message, 'err')
   } finally {
-    chargement.value = false
+    loading.value = false
   }
 }
 
-async function enregistrerUrl() {
-  if (!urlModifiee.value) return
+async function saveUrl() {
+  if (!urlChanged.value) return
   if (!confirm(t('network_confirm', "Changer l'adresse publique impose de redémarrer la pile et de se reconnecter sur la nouvelle adresse. Continuer ?"))) return
-  enregistrementUrl.value = true
+  savingUrl.value = true
   try {
     await api('/console/api/admin/network', {
       method: 'POST',
       body: { public_url: url.value },
     })
-    urlInitiale.value = url.value
+    initialUrl.value = url.value
     ui.notify(t('network_saved', 'Adresse enregistrée. Redémarrer la pile pour appliquer, puis se reconnecter sur la nouvelle adresse.'), 'ok')
   } catch (e) {
     ui.notify(e.message, 'err')
   } finally {
-    enregistrementUrl.value = false
+    savingUrl.value = false
   }
 }
 
-async function restaurer(nom) {
-  if (!confirm(t('backup_confirm', 'Restaurer « {name} » ? Le fichier actuel sera sauvegardé avant d\'être remplacé.', { name: nom }))) return
+async function restore(name) {
+  if (!confirm(t('backup_confirm', 'Restaurer « {name} » ? Le fichier actuel sera sauvegardé avant d\'être remplacé.', { name: name }))) return
   try {
-    await api(`/console/api/admin/backups/restore?backup_name=${encodeURIComponent(nom)}`, {
+    await api(`/console/api/admin/backups/restore?backup_name=${encodeURIComponent(name)}`, {
       method: 'POST',
     })
     ui.notify(t('backup_restored', 'Sauvegarde restaurée.'), 'ok')
-    charger()
+    load()
   } catch (e) {
     ui.notify(e.message, 'err')
   }
 }
 
-onMounted(() => { charger(); chargerPreferences() })
+onMounted(() => { load(); loadPreferences() })
 </script>
 
 <template>

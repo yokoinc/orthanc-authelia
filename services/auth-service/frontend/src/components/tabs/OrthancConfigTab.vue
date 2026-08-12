@@ -3,7 +3,7 @@ import { ref, onMounted, computed } from 'vue'
 import { api } from '../../api.js'
 import { t } from '../../i18n.js'
 import { useUiStore } from '../../stores/ui.js'
-import { GROUPES } from '../../orthanc_fields.js'
+import { GROUPS } from '../../orthanc_fields.js'
 
 const ui = useUiStore()
 const fields = ref({})
@@ -23,8 +23,8 @@ const meta = ref({})
 // settings. Deriving it from the value only worked for settings present in
 // orthanc.json: the others are null and fell back to a text field, although
 // they are often booleans.
-function detectType(cle) {
-  const t = meta.value[cle]?.type
+function detectType(key) {
+  const t = meta.value[key]?.type
   if (t === 'bool') return 'bool'
   if (t === 'int') return 'number'
   if (t === 'list') return 'list'
@@ -33,15 +33,15 @@ function detectType(cle) {
 
 // Setting absent from the file: Orthanc applies its default. Saying so
 // avoids suggesting an empty setting.
-function parDefaut(cle) {
-  return meta.value[cle]?.present === false
+function isDefault(key) {
+  return meta.value[key]?.present === false
 }
 
 // The default value, formatted for display. Two settings are absent from
 // Orthanc's reference file: we then show nothing rather than put forward an
 // invented value.
-function valeurDefaut(cle) {
-  const d = meta.value[cle]?.default
+function defaultValue(key) {
+  const d = meta.value[key]?.default
   if (d === undefined || d === null) return ''
   if (typeof d === 'boolean') return d ? t('yes', 'Oui') : t('no', 'Non')
   if (Array.isArray(d)) return d.length ? d.join(', ') : '—'
@@ -54,15 +54,15 @@ function isModified(key) {
 }
 
 // A setting's label and help text, or its technical name otherwise.
-function libelle(cle) {
-  for (const g of GROUPES) {
-    if (g.champs[cle]) return g.champs[cle][0]
+function label(key) {
+  for (const g of GROUPS) {
+    if (g.fields[key]) return g.fields[key][0]
   }
-  return cle
+  return key
 }
-function aide(cle) {
-  for (const g of GROUPES) {
-    if (g.champs[cle]) return g.champs[cle][1]
+function help(key) {
+  for (const g of GROUPS) {
+    if (g.fields[key]) return g.fields[key][1]
   }
   return ''
 }
@@ -70,52 +70,52 @@ function aide(cle) {
 // Settings the description does not cover stay visible in an "Other"
 // group: a misfiled field beats an invisible one when the server-side list
 // grows.
-const groupesAffiches = computed(() => {
-  const connus = new Set()
-  const resultat = []
+const visibleGroups = computed(() => {
+  const known = new Set()
+  const result = []
 
-  for (const g of GROUPES) {
-    const cles = Object.keys(g.champs).filter((c) => c in fields.value)
-    cles.forEach((c) => connus.add(c))
-    if (cles.length) resultat.push({ ...g, cles })
+  for (const g of GROUPS) {
+    const keys = Object.keys(g.fields).filter((c) => c in fields.value)
+    keys.forEach((c) => known.add(c))
+    if (keys.length) result.push({ ...g, keys })
   }
 
-  const restants = Object.keys(fields.value).filter((c) => !connus.has(c))
-  if (restants.length) {
-    resultat.push({
+  const remaining = Object.keys(fields.value).filter((c) => !known.has(c))
+  if (remaining.length) {
+    result.push({
       id: 'autres',
-      titre: t('orthanc_group_other', 'Autres'),
-      icone: 'fa-ellipsis',
-      cles: restants,
+      title: t('orthanc_group_other', 'Autres'),
+      icon: 'fa-ellipsis',
+      keys: remaining,
     })
   }
-  return resultat
+  return result
 })
 
 // Allowed values and bounds, as the server declares them. Reusing them
 // rather than restating them keeps interface and validation from drifting
 // apart: the server is what refuses, the interface only announces it
 // earlier.
-function choix(cle) {
-  return meta.value[cle]?.choices || null
+function allowedValues(key) {
+  return meta.value[key]?.choices || null
 }
-function borneMin(cle) {
-  return meta.value[cle]?.min ?? null
+function minBound(key) {
+  return meta.value[key]?.min ?? null
 }
-function borneMax(cle) {
-  return meta.value[cle]?.max ?? null
+function maxBound(key) {
+  return meta.value[key]?.max ?? null
 }
 
-const nbModifies = computed(
+const modifiedCount = computed(
   () => Object.keys(fields.value).filter(isModified).length,
 )
 
 // Lists are edited as text, one value per line.
-function listeVersTexte(v) {
+function listToText(v) {
   return Array.isArray(v) ? v.join('\n') : ''
 }
-function texteVersListe(cle, texte) {
-  fields.value[cle] = texte.split('\n').map((l) => l.trim()).filter(Boolean)
+function textToList(key, text) {
+  fields.value[key] = text.split('\n').map((l) => l.trim()).filter(Boolean)
 }
 
 async function load() {

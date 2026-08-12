@@ -22,7 +22,7 @@ const tabs = [
   { id: 'audit',   label: t('tab_audit', 'Journal'),            icon: 'fa-clock-rotate-left', comp: AuditTab },
 ]
 const active = ref('users')
-const currentTab = () => tabs.find((onglet) => onglet.id === active.value).comp
+const currentTab = () => tabs.find((tab) => tab.id === active.value).comp
 
 // Runtime URLs (served by nginx, not bundled by Vite)
 const logoUrl = '/auth/static/orthanc-logo-official.png'

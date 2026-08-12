@@ -10,13 +10,13 @@ on:
   workflow_dispatch:
 
 jobs:
-  unitaires:
-    name: Tests unitaires
+  unit:
+    name: Unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Construire l'image auth-service
+      - name: Build the auth-service image
         run: docker build -t auth-service-test services/auth-service
 
       # Test dependencies are not in the production image: they are pinned
@@ -27,17 +27,17 @@ jobs:
       # files shipped at the root (orthanc.json.example) to check a write
       # does not damage them. With a reduced mount they skipped themselves
       # silently -- coverage you believe you have and do not.
-      - name: Lancer la suite
+      - name: Run the suite
         run: |
           docker run --rm --entrypoint sh \
             -e AUTH_USERNAME=ci -e AUTH_PASSWORD=mot-de-passe-ci-1234 \
             -e ORTHANC_ADMIN_USER=ci -e ORTHANC_ADMIN_PASS=ci \
-            -v "$PWD:/depot" -w /depot/services/auth-service/sources \
+            -v "$PWD:/repo" -w /repo/services/auth-service/sources \
             auth-service-test \
             -c 'pip install -q -r requirements-dev.txt && python -m pytest tests/ -q'
 
   images:
-    name: Construction des images
+    name: Image builds
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,32 +51,32 @@ jobs:
       - name: auth-service
         run: docker build -t auth-service-test services/auth-service
 
-  coherence:
-    name: Coherence du depot
+  consistency:
+    name: Repository consistency
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Scripts executables
+      - name: Executable scripts
         # A script versioned as 100644 breaks the documented ./bootstrap.sh,
         # without showing on the machine where the bit exists locally.
         run: |
-          manquants=$(git ls-files -s '*.sh' | awk '$1 != "100755" {print $4}')
-          if [ -n "$manquants" ]; then
-            echo "Scripts non executables dans le depot :"
-            echo "$manquants"
+          missing=$(git ls-files -s '*.sh' | awk '$1 != "100755" {print $4}')
+          if [ -n "$missing" ]; then
+            echo "Non-executable scripts in the repository:"
+            echo "$missing"
             exit 1
           fi
-          echo "Tous les scripts sont executables."
+          echo "Every script is executable."
 
-      - name: Syntaxe des scripts
+      - name: Script syntax
         run: |
           for f in $(git ls-files '*.sh'); do
             bash -n "$f" || exit 1
           done
-          echo "Syntaxe correcte."
+          echo "Syntax correct."
 
-      - name: Traductions synchronisees
+      - name: Translations in sync
         # A key present in one language and missing from the other goes
         # unnoticed until a user hits a raw label.
         run: |
@@ -88,31 +88,31 @@ jobs:
           en = json.loads((d / 'en.json').read_text(encoding='utf-8'))
           code = 0
           for section in ('ui', 'js'):
-              ecart = set(fr.get(section, {})) ^ set(en.get(section, {}))
-              if ecart:
-                  print(f"section {section} desynchronisee : {sorted(ecart)}")
+              drift = set(fr.get(section, {})) ^ set(en.get(section, {}))
+              if drift:
+                  print(f"section {section} out of sync: {sorted(drift)}")
                   code = 1
           if not code:
-              print(f"fr et en couvrent les memes cles ({len(fr['ui'])} en ui).")
+              print(f"fr and en cover the same keys ({len(fr['ui'])} in ui).")
           sys.exit(code)
           PY
 
-      - name: Liens du README
+      - name: README links
         # The docs/ directory had lost nine guides while the README's eight
         # links kept pointing at them.
         run: |
-          manquants=""
+          missing=""
           for f in $(grep -oE '\(docs/[A-Za-z_.-]+\)' README.md | tr -d '()' | sort -u); do
-            [ -f "$f" ] || manquants="$manquants $f"
+            [ -f "$f" ] || missing="$missing $f"
           done
-          if [ -n "$manquants" ]; then
-            echo "Liens morts dans le README :$manquants"
+          if [ -n "$missing" ]; then
+            echo "Dead links in the README:$missing"
             exit 1
           fi
-          echo "Tous les liens du README resolvent."
+          echo "Every README link resolves."
 
-      - name: Compose valide
+      - name: Compose valid
         run: |
           cp docker-compose.yml.example docker-compose.yml
           docker compose config >/dev/null
-          echo "docker-compose.yml.example est valide."
+          echo "docker-compose.yml.example is valid."

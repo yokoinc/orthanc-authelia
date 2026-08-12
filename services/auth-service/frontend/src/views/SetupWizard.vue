@@ -17,27 +17,27 @@ const form = reactive({
 const submitting = ref(false)
 // Set when the domain has changed: we show the steps to follow instead of
 // redirecting to an address that will no longer answer.
-const termine = ref('')
+const done = ref('')
 
 // Starting URL, so a change only fires if the user actually edits it.
-const urlInitiale = ref('')
-const urlModifiable = ref(false)
+const initialUrl = ref('')
+const urlEditable = ref(false)
 
 onMounted(async () => {
   try {
     const r = await api('/console/api/setup/network')
-    urlInitiale.value = r.public_url || ''
+    initialUrl.value = r.public_url || ''
     form.publicUrl = r.public_url || ''
-    urlModifiable.value = r.editable
+    urlEditable.value = r.editable
   } catch {
     // Purely optional field: if it is unavailable, the wizard must stay
     // usable to create the administrator.
-    urlModifiable.value = false
+    urlEditable.value = false
   }
 })
 
-const urlChangee = computed(
-  () => form.publicUrl.trim() !== '' && form.publicUrl.trim() !== urlInitiale.value,
+const urlChanged = computed(
+  () => form.publicUrl.trim() !== '' && form.publicUrl.trim() !== initialUrl.value,
 )
 
 const passwordsMatch = computed(
@@ -83,21 +83,21 @@ async function submit() {
     })
     // The public URL is changed before finalisation, while the setup window
     // is open. It only takes effect when the stack restarts.
-    let nouvelleUrl = null
-    if (urlChangee.value) {
+    let newUrl = null
+    if (urlChanged.value) {
       const r = await api('/console/api/setup/network', {
         method: 'POST',
         body: { public_url: form.publicUrl.trim() },
       })
-      if (!r.unchanged) nouvelleUrl = r.public_url
+      if (!r.unchanged) newUrl = r.public_url
     }
 
     await api('/console/api/setup/finalize', { method: 'POST' })
 
-    if (nouvelleUrl) {
+    if (newUrl) {
       // No redirect: the current address will not answer after the restart,
       // and the session cookie is bound to the previous domain.
-      termine.value = nouvelleUrl
+      done.value = newUrl
       submitting.value = false
       return
     }

@@ -184,20 +184,20 @@ To develop the frontend with hot reload:
 ```bash
 cd services/auth-service/frontend
 npm install
-npm run dev    # proxifie /api vers localhost:8000
+npm run dev    # proxies /api to localhost:8000
 ```
 
-### Réinitialiser complètement
+### Full reset
 
 ```bash
 docker compose down -v      # stop + supprime volumes (data included)
 rm -rf services/authelia/config/{configuration.yml,users_database.yml}
 rm -rf services/orthanc/config/orthanc.json .env docker-compose.yml
-./bootstrap.sh              # regénère tout à neuf
+./bootstrap.sh              # regenerates everything from scratch
 docker compose up -d
 ```
 
-### Advanced : DB PostgreSQL externe
+### Advanced: external PostgreSQL database
 
 If you already run a postgres elsewhere, create a `docker-compose.override.yml` at the root:
 
@@ -208,7 +208,7 @@ services:
   orthanc:
     networks:
       - orthanc-network
-      - database              # ton réseau externe existant
+      - database              # your existing external network
     environment:
       - ORTHANC__POSTGRESQL__HOST=database
 networks:
@@ -411,9 +411,9 @@ To validate a complete installation without touching the running one:
 
 - **Blank page, the site no longer answers**: most often an HSTS record kept
   while the certificate is self-signed — the browser then refuses any
-  exception. Purger via `chrome://net-internals/#hsts`. Vérifier d'abord côté
-  server with `curl -k https://your-domain/auth/`: if it answers 200, the
-  problem is indeed in the browser.
+  exception. Purge it through `chrome://net-internals/#hsts`. Check the
+  server side first with `curl -k https://your-domain/auth/`: if it answers
+  200, the problem is indeed in the browser.
 - **Can't login**: Run `./manage-authelia-users.sh` and restart Authelia
 - **Database connection failed**: Verify PostgreSQL is on `database` network
 - **Port conflicts**: Change ports in `docker-compose.yml`

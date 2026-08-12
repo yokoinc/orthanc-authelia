@@ -937,7 +937,7 @@ class TestRollback:
         import admin_module
 
         async def _never(*a, **k):
-            raise ConnectionError("Orthanc ne repond pas")
+            raise ConnectionError("Orthanc does not answer")
 
         monkeypatch.setattr(admin_module, "_orthanc", _never)
 
@@ -1457,7 +1457,7 @@ class TestEffectiveConfig:
         import admin_module
 
         async def _broken(*a, **k):
-            raise ConnectionError("Orthanc ne repond pas")
+            raise ConnectionError("Orthanc does not answer")
 
         monkeypatch.setattr(admin_module, "_orthanc", _broken)
         assert _run(admin_module._check_effective_config()) == []

@@ -22,16 +22,16 @@ export const lang = source.lang || 'en'
  *               to a blank in the middle of the screen.
  * @param vars   interpolated values, referenced as {name} in the label
  */
-export function t(cle, repli, vars) {
-  let texte = source.ui[cle]
-  if (texte === undefined) {
-    if (import.meta.env.DEV) console.warn(`[i18n] clé absente : ${cle}`)
-    texte = repli !== undefined ? repli : cle
+export function t(key, fallback, vars) {
+  let text = source.ui[key]
+  if (text === undefined) {
+    if (import.meta.env.DEV) console.warn(`[i18n] missing key: ${key}`)
+    text = fallback !== undefined ? fallback : key
   }
   if (vars) {
-    for (const [nom, valeur] of Object.entries(vars)) {
-      texte = texte.replaceAll(`{${nom}}`, String(valeur))
+    for (const [name, value] of Object.entries(vars)) {
+      text = text.replaceAll(`{${name}}`, String(value))
     }
   }
-  return texte
+  return text
 }

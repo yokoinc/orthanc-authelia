@@ -230,7 +230,7 @@ services:
       - ALLOW_RESTARTS=1  # containers/<id>/restart (et stop, kill)
       #
       # CONTAINERS stays at 0, and that matters: with CONTAINERS=1, POST=1
-      # autorise TOUT /containers/*, dont POST /containers/create. Verifie --
+      # opens ALL of /containers/*, including POST /containers/create. Verified --
       # a privileged container mounting the host root was accepted (201),
       # which is exactly the escape this mount must prevent. With
       # CONTAINERS=0, create and exec answer 403 and the restart
@@ -337,7 +337,7 @@ services:
   
   ohif:
     # Same again: published image, or a local build otherwise. This build is
-    # long (~15 min), OHIF etant compile depuis ses sources -- l'image
+    # long (~15 min), OHIF being compiled from source -- the official
     # official ohif/app image cannot serve under /ohif/, its base path being
     # frozen at build time.
     image: registry.yokoinc.ovh/orthanc-ohif:3.11.0

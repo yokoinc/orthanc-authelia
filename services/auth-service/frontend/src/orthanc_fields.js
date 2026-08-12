@@ -11,12 +11,12 @@ import { t } from './i18n.js'
 // Keys absent from this description stay visible, in an "Other" group: a
 // misfiled field beats an invisible one.
 
-export const GROUPES = [
+export const GROUPS = [
   {
     id: 'identite',
-    titre: 'Identité',
-    icone: 'fa-id-card',
-    champs: {
+    title: 'Identité',
+    icon: 'fa-id-card',
+    fields: {
       Name: [t('cfg_Name_label', 'Nom du serveur'),
           t('cfg_Name_help', 'Affiché dans l\'interface et annoncé aux autres équipements.')],
 
@@ -27,9 +27,9 @@ export const GROUPES = [
   },
   {
     id: 'dicom',
-    titre: 'Réseau DICOM',
-    icone: 'fa-network-wired',
-    champs: {
+    title: 'Réseau DICOM',
+    icon: 'fa-network-wired',
+    fields: {
       DicomServerEnabled: [t('cfg_DicomServerEnabled_label', 'Activer le serveur DICOM'),
           t('cfg_DicomServerEnabled_help', 'Réception des examens envoyés par les modalités (protocole DIMSE, port dédié).')],
 
@@ -70,9 +70,9 @@ export const GROUPES = [
   },
   {
     id: 'http',
-    titre: 'Accès web',
-    icone: 'fa-globe',
-    champs: {
+    title: 'Accès web',
+    icon: 'fa-globe',
+    fields: {
       RemoteAccessAllowed: [t('cfg_RemoteAccessAllowed_label', 'Autoriser l\'accès distant'),
           t('cfg_RemoteAccessAllowed_help', 'Sans cela, seul l\'hôte local peut joindre l\'interface. Le proxy étant dans un autre conteneur, désactiver cette option coupe tout accès.')],
 
@@ -89,9 +89,9 @@ export const GROUPES = [
   },
   {
     id: 'stockage',
-    titre: 'Stockage',
-    icone: 'fa-database',
-    champs: {
+    title: 'Stockage',
+    icon: 'fa-database',
+    fields: {
       StorageCompression: [t('cfg_StorageCompression_label', 'Compresser les fichiers'),
           t('cfg_StorageCompression_help', 'Réduit la place occupée au prix de temps processeur à chaque lecture et écriture.')],
 
@@ -116,9 +116,9 @@ export const GROUPES = [
   },
   {
     id: 'dicomweb',
-    titre: 'DICOMweb',
-    icone: 'fa-share-nodes',
-    champs: {
+    title: 'DICOMweb',
+    icon: 'fa-share-nodes',
+    fields: {
       'DicomWeb.Enable': [t('cfg_DicomWeb_Enable_label', 'Activer DICOMweb'),
           t('cfg_DicomWeb_Enable_help', 'Protocole utilisé par les visionneuses web (OHIF, Stone). Le désactiver les empêche d\'afficher les examens.')],
 
@@ -144,9 +144,9 @@ export const GROUPES = [
   },
   {
     id: 'traitement',
-    titre: 'Traitement des images',
-    icone: 'fa-wand-magic-sparkles',
-    champs: {
+    title: 'Traitement des images',
+    icon: 'fa-wand-magic-sparkles',
+    fields: {
       IngestTranscoding: [t('cfg_IngestTranscoding_label', 'Recompression à la réception'),
           t('cfg_IngestTranscoding_help', 'Convertit les images entrantes dans une syntaxe de transfert donnée. Laisser vide pour conserver le format d\'origine.')],
 
@@ -163,9 +163,9 @@ export const GROUPES = [
   },
   {
     id: 'taches',
-    titre: 'Tâches',
-    icone: 'fa-list-check',
-    champs: {
+    title: 'Tâches',
+    icon: 'fa-list-check',
+    fields: {
       ConcurrentJobs: [t('cfg_ConcurrentJobs_label', 'Tâches simultanées'),
           t('cfg_ConcurrentJobs_help', 'Nombre de traitements exécutés en parallèle (envois, exports, anonymisations).')],
 
@@ -179,9 +179,9 @@ export const GROUPES = [
   },
   {
     id: 'recherche',
-    titre: 'Recherches',
-    icone: 'fa-magnifying-glass',
-    champs: {
+    title: 'Recherches',
+    icon: 'fa-magnifying-glass',
+    fields: {
       LimitFindResults: [t('cfg_LimitFindResults_label', 'Résultats maximum'),
           t('cfg_LimitFindResults_help', 'Plafond du nombre d\'examens renvoyés par une recherche. 0 pour ne pas limiter.')],
 
@@ -192,9 +192,9 @@ export const GROUPES = [
   },
   {
     id: 'entretien',
-    titre: 'Entretien automatique',
-    icone: 'fa-broom',
-    champs: {
+    title: 'Entretien automatique',
+    icon: 'fa-broom',
+    fields: {
       'Housekeeper.Enable': [t('cfg_Housekeeper_Enable_label', 'Activer l\'entretien'),
           t('cfg_Housekeeper_Enable_help', 'Tache de fond qui remet la base en cohérence après un changement de configuration : recompression du stockage, tags principaux, cache DICOMweb.')],
       'Housekeeper.ThrottleDelay': [t('cfg_Housekeeper_ThrottleDelay_label', 'Ménagement (ms)'),
@@ -213,9 +213,9 @@ export const GROUPES = [
   },
   {
     id: 'interface',
-    titre: 'Interface et partage',
-    icone: 'fa-display',
-    champs: {
+    title: 'Interface et partage',
+    icon: 'fa-display',
+    fields: {
       'OrthancExplorer2.Theme': [t('cfg_Theme_label', 'Thème'),
           t('cfg_Theme_help', 'Clair ou sombre. Le sombre fatigue moins les yeux en salle de lecture.')],
 
@@ -262,9 +262,9 @@ export const GROUPES = [
   },
   {
     id: 'journaux',
-    titre: 'Journaux',
-    icone: 'fa-file-lines',
-    champs: {
+    title: 'Journaux',
+    icon: 'fa-file-lines',
+    fields: {
       LogLevel: [t('cfg_LogLevel_label', 'Niveau de détail'),
           t('cfg_LogLevel_help', 'default, verbose ou trace. Les niveaux élevés produisent beaucoup de volume.')],
 
