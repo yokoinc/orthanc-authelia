@@ -379,8 +379,8 @@ services:
       - ./services/nginx/nginx.ssl.conf:/etc/nginx/templates/nginx.conf.template:ro
       - ./services/nginx/conf.d:/etc/nginx/conf.d.templates:ro
     environment:
-      # Seule variable a renseigner : l'URL publique complete. Le nom
-      # host name (DOMAIN) is derived from it by the entrypoint.
+      # The only variable to fill in: the full public URL. The host name
+      # (DOMAIN) is derived from it by the entrypoint.
       - PUBLIC_URL=${PUBLIC_URL}
       - SSL_MODE=${SSL_MODE:-selfsigned}
       # Optional: enables POST /api-upload/instances for scripted DICOM uploads

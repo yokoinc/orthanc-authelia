@@ -94,6 +94,11 @@ fi
 # bootstrap pins the public URL to port 30443, taken by the development
 # installation. We move it, along with everything bearing a fixed name:
 # containers, volumes and network would otherwise collide.
+#
+# The Redis volume matters most: it holds the setup flags. Sharing it with
+# the development stack made the wizard answer "setup already finalised", and
+# every authenticated check after it failed for want of an account -- while
+# the cleanup, down -v, was aiming at the development data.
 step "Isolating the test stack"
 sed -i "s|pacs.localhost:30443|pacs.localhost:${PORT_HTTPS}|g" \
     .env services/authelia/config/configuration.yml
@@ -102,6 +107,7 @@ sed -i \
     -e "s|\"30080:80\"|\"${PORT_HTTP}:80\"|" \
     -e "s|\"30443:443\"|\"${PORT_HTTPS}:443\"|" \
     -e 's|name: orthanc_nginx_ssl|name: e2e_nginx_ssl|' \
+    -e 's|name: orthanc_redis_data|name: e2e_redis_data|' \
     -e 's|name: orthanc_postgres_data|name: e2e_postgres_data|' \
     -e 's|name: orthanc-network|name: e2e-network|' \
     docker-compose.yml
