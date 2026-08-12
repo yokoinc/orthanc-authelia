@@ -97,9 +97,9 @@ onMounted(load)
       {{ t('modalities_note', "Appareils avec lesquels ce serveur échange des examens : scanners, IRM, stations de post-traitement. Les déclarations prennent effet immédiatement, sans redémarrage.") }}
     </p>
 
-    <div v-if="chargement" class="loading">{{ t('loading', 'Chargement…') }}</div>
+    <div v-if="loading" class="loading">{{ t('loading', 'Chargement…') }}</div>
 
-    <table v-else-if="equipements.length" class="table">
+    <table v-else-if="devices.length" class="table">
       <thead>
         <tr>
           <th>{{ t('modality_col_name', 'Nom') }}</th>
@@ -110,11 +110,11 @@ onMounted(load)
         </tr>
       </thead>
       <tbody>
-        <tr v-for="m in equipements" :key="m.name">
+        <tr v-for="m in devices" :key="m.name">
           <td>
             <strong>{{ m.name }}</strong>
-            <span v-if="resultats[m.name]" :class="['pastille', 'pastille--' + resultats[m.name]]">
-              {{ resultats[m.name] === 'ok' ? t('modality_reachable', 'joignable') : t('modality_unreachable', 'injoignable') }}
+            <span v-if="results[m.name]" :class="['pastille', 'pastille--' + results[m.name]]">
+              {{ results[m.name] === 'ok' ? t('modality_reachable', 'joignable') : t('modality_unreachable', 'injoignable') }}
             </span>
           </td>
           <td class="mono">{{ m.aet }}</td>
@@ -123,14 +123,14 @@ onMounted(load)
           <td class="right">
             <button
               class="oe2-btn oe2-btn--secondary"
-              :disabled="testEnCours === m.name"
+              :disabled="testing === m.name"
               :title="t('modality_test', 'Tester la connexion')"
-              @click="tester(m.name)"
+              @click="test(m.name)"
             >
               <i class="fa-solid fa-tower-broadcast"></i>
-              {{ testEnCours === m.name ? t('modality_testing', 'Test…') : t('modality_test', 'Tester') }}
+              {{ testing === m.name ? t('modality_testing', 'Test…') : t('modality_test', 'Tester') }}
             </button>
-            <button class="oe2-btn oe2-btn--danger" :title="t('delete', 'Supprimer')" @click="supprimer(m.name)">
+            <button class="oe2-btn oe2-btn--danger" :title="t('delete', 'Supprimer')" @click="remove(m.name)">
               <i class="fa-solid fa-trash"></i>
             </button>
           </td>
@@ -140,31 +140,31 @@ onMounted(load)
 
     <div v-else class="loading">{{ t('modalities_empty', 'Aucun équipement déclaré') }}</div>
 
-    <details :open="formulaireOuvert" @toggle="formulaireOuvert = $event.target.open">
+    <details :open="formOpen" @toggle="formOpen = $event.target.open">
       <summary>{{ t('modality_add', '+ Déclarer un équipement') }}</summary>
-      <form class="form" @submit.prevent="enregistrer">
-        <div class="champ">
+      <form class="form" @submit.prevent="save">
+        <div class="field">
           <label>{{ t('modality_col_name', 'Nom') }}</label>
-          <input v-model="nouveau.name" required maxlength="64" placeholder="SCANNER-1">
-          <span class="aide">{{ t('modality_name_help', 'Identifiant libre, utilisé dans Orthanc') }}</span>
+          <input v-model="draft.name" required maxlength="64" placeholder="SCANNER-1">
+          <span class="hint">{{ t('modality_name_help', 'Identifiant libre, utilisé dans Orthanc') }}</span>
         </div>
-        <div class="champ">
+        <div class="field">
           <label>{{ t('modality_col_aet', 'Titre AE') }}</label>
-          <input v-model="nouveau.aet" required maxlength="16" placeholder="SCANNER1">
-          <span class="aide">{{ t('modality_aet_help', '16 caractères maximum, imposé par la norme DICOM') }}</span>
+          <input v-model="draft.aet" required maxlength="16" placeholder="SCANNER1">
+          <span class="hint">{{ t('modality_aet_help', '16 caractères maximum, imposé par la norme DICOM') }}</span>
         </div>
-        <div class="champ">
+        <div class="field">
           <label>{{ t('modality_col_host', 'Adresse') }}</label>
-          <input v-model="nouveau.host" required placeholder="192.168.1.50">
+          <input v-model="draft.host" required placeholder="192.168.1.50">
         </div>
-        <div class="champ">
+        <div class="field">
           <label>{{ t('modality_col_port', 'Port') }}</label>
-          <input v-model.number="nouveau.port" type="number" min="1" max="65535">
-          <span class="aide">{{ t('modality_port_help', '104 par convention') }}</span>
+          <input v-model.number="draft.port" type="number" min="1" max="65535">
+          <span class="hint">{{ t('modality_port_help', '104 par convention') }}</span>
         </div>
-        <div class="champ">
-          <button type="submit" class="oe2-btn oe2-btn--primary" :disabled="!valide() || envoi">
-            {{ envoi ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
+        <div class="field">
+          <button type="submit" class="oe2-btn oe2-btn--primary" :disabled="!isValid() || saving">
+            {{ saving ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
           </button>
         </div>
       </form>
@@ -196,14 +196,14 @@ summary { cursor: pointer; font-size: var(--oe2-fs-small); color: var(--oe2-link
   padding: 12px 8px; margin-top: 8px;
   background: var(--oe2-nav-sub-bg); border-radius: 3px;
 }
-.champ { display: flex; flex-direction: column; gap: 3px; }
-.champ label { color: var(--oe2-muted); font-size: var(--oe2-fs-tiny); }
-.champ input {
+.field { display: flex; flex-direction: column; gap: 3px; }
+.field label { color: var(--oe2-muted); font-size: var(--oe2-fs-tiny); }
+.field input {
   background: var(--oe2-nav-bg);
   border: 1px solid var(--oe2-border-subtle);
   color: var(--oe2-nav-color);
   padding: 5px 8px; border-radius: 3px;
   font-family: var(--oe2-font-stack); font-size: var(--oe2-fs-small);
 }
-.aide { font-size: var(--oe2-fs-micro); color: var(--oe2-muted); }
+.hint { font-size: var(--oe2-fs-micro); color: var(--oe2-muted); }
 </style>

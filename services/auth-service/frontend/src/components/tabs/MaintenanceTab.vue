@@ -155,20 +155,20 @@ onMounted(() => { load(); loadPreferences() })
       {{ t('network_note', "Adresse par laquelle les navigateurs joignent le PACS, port compris. Elle sert aux redirections, aux cookies de session et au certificat.") }}
     </p>
 
-    <div class="ligne">
+    <div class="row">
       <input
-        v-model="url" type="url" :disabled="!urlModifiable"
+        v-model="url" type="url" :disabled="!urlEditable"
         placeholder="https://pacs.exemple.fr:30443"
       >
       <button
         class="oe2-btn oe2-btn--primary"
-        :disabled="!urlModifiee || enregistrementUrl || !urlModifiable"
-        @click="enregistrerUrl"
+        :disabled="!urlChanged || savingUrl || !urlEditable"
+        @click="saveUrl"
       >
-        {{ enregistrementUrl ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
+        {{ savingUrl ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
       </button>
     </div>
-    <div v-if="!urlModifiable" class="avert">
+    <div v-if="!urlEditable" class="avert">
       {{ t('network_readonly', "Le fichier .env n'est pas accessible : l'adresse ne peut pas être modifiée depuis le panel.") }}
     </div>
 
@@ -177,33 +177,33 @@ onMounted(() => { load(); loadPreferences() })
       {{ t('langue_note', "Langue du panel et des pages de partage. Le changement recharge la page.") }}
     </p>
 
-    <div class="ligne">
-      <select v-model="langue">
-        <option v-for="l in LANGUES" :key="l.id" :value="l.id">{{ l.libelle }}</option>
+    <div class="row">
+      <select v-model="language">
+        <option v-for="l in LANGUAGES" :key="l.id" :value="l.id">{{ l.label }}</option>
       </select>
       <button
         class="oe2-btn oe2-btn--primary"
-        :disabled="langue === langueInitiale || enregistrementLangue"
-        @click="enregistrerLangue"
+        :disabled="language === initialLanguage || savingLanguage"
+        @click="saveLanguage"
       >
-        {{ enregistrementLangue ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
+        {{ savingLanguage ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
       </button>
     </div>
 
-    <div class="entete espace">
+    <div class="header-row espace">
       <h2>{{ t('backups_title', 'Sauvegardes') }}</h2>
-      <button class="oe2-btn oe2-btn--primary" :disabled="sauvegardeEnCours" @click="sauvegarder">
+      <button class="oe2-btn oe2-btn--primary" :disabled="backingUp" @click="createBackup">
         <i class="fa-solid fa-floppy-disk"></i>
-        {{ sauvegardeEnCours ? t('backup_creating', 'Sauvegarde…') : t('backup_now', 'Sauvegarder maintenant') }}
+        {{ backingUp ? t('backup_creating', 'Sauvegarde…') : t('backup_now', 'Sauvegarder maintenant') }}
       </button>
     </div>
     <p class="note">
       {{ t('backups_note', "Créées automatiquement avant chaque écriture de la configuration Orthanc ou de la liste des utilisateurs. Les dix dernières sont conservées.") }}
     </p>
 
-    <div v-if="chargement" class="loading">{{ t('loading', 'Chargement…') }}</div>
+    <div v-if="loading" class="loading">{{ t('loading', 'Chargement…') }}</div>
 
-    <table v-else-if="sauvegardes.length" class="table">
+    <table v-else-if="backups.length" class="table">
       <thead>
         <tr>
           <th>{{ t('backups_col_date', 'Date') }}</th>
@@ -213,14 +213,14 @@ onMounted(() => { load(); loadPreferences() })
         </tr>
       </thead>
       <tbody>
-        <tr v-for="s in sauvegardes" :key="s.name">
-          <td>{{ dateLisible(s.modified) }}</td>
+        <tr v-for="s in backups" :key="s.name">
+          <td>{{ readableDate(s.modified) }}</td>
           <td>
             <span class="cible">{{ s.target === 'orthanc' ? 'orthanc.json' : 'users_database.yml' }}</span>
           </td>
-          <td>{{ tailleLisible(s.size) }}</td>
+          <td>{{ readableSize(s.size) }}</td>
           <td class="right">
-            <button class="oe2-btn oe2-btn--secondary" @click="restaurer(s.name)">
+            <button class="oe2-btn oe2-btn--secondary" @click="restore(s.name)">
               <i class="fa-solid fa-rotate-left"></i> {{ t('restore', 'Restaurer') }}
             </button>
           </td>
@@ -235,15 +235,15 @@ onMounted(() => { load(); loadPreferences() })
 <style scoped>
 h2 { font-size: var(--oe2-fs-body); margin: 0 0 6px; font-weight: 400; }
 .espace { margin-top: 28px; }
-.entete { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.header-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .note { color: var(--oe2-muted); font-size: var(--oe2-fs-small); margin: 0 0 12px; max-width: 70ch; }
-.ligne { display: flex; gap: 8px; align-items: center; }
-.ligne select {
+.row { display: flex; gap: 8px; align-items: center; }
+.row select {
     /* Same footprint as the neighbouring text fields, without stretching
-       toute la ligne : la liste est courte. */
+       across the whole row: the list is short. */
     min-width: 220px;
 }
-.ligne input {
+.row input {
   flex: 1; max-width: 420px;
   background: var(--oe2-nav-sub-bg);
   border: 1px solid var(--oe2-border-subtle);
@@ -251,7 +251,7 @@ h2 { font-size: var(--oe2-fs-body); margin: 0 0 6px; font-weight: 400; }
   padding: 6px 10px; border-radius: 3px;
   font-family: var(--oe2-font-stack); font-size: var(--oe2-fs-small);
 }
-.ligne input:disabled { opacity: 0.5; }
+.row input:disabled { opacity: 0.5; }
 .avert {
   margin-top: 8px; font-size: var(--oe2-fs-tiny); color: #e8c98a;
   border-left: 3px solid var(--oe2-accent-orange);

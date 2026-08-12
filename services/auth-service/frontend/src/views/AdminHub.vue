@@ -59,7 +59,7 @@ onMounted(async () => {
           <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
           <span>{{ t('nav_back_to_explorer', 'Retour à Orthanc Explorer') }}</span>
         </a>
-        <!-- <span> plutot qu'<a href="#"> : evite le saut en haut de page au clic. -->
+        <!-- <span> rather than <a href="#">: avoids jumping to the top of the page on click. -->
         <span class="oe2-sidebar__link active" role="link" aria-current="page">
           <i class="fa-solid fa-shield-halved" aria-hidden="true"></i>
           <span>{{ t('nav_administration', 'Administration') }}</span>
@@ -78,13 +78,13 @@ onMounted(async () => {
 
       <nav class="tabs" role="tablist">
         <button
-          v-for="onglet in tabs" :key="onglet.id"
-          :class="['tab', { 'tab--active': active === onglet.id }]"
-          @click="active = onglet.id"
+          v-for="tab in tabs" :key="tab.id"
+          :class="['tab', { 'tab--active': active === tab.id }]"
+          @click="active = tab.id"
           role="tab"
-          :aria-selected="active === onglet.id"
+          :aria-selected="active === tab.id"
         >
-          <i :class="['fa-solid', onglet.icon]"></i> {{ onglet.label }}
+          <i :class="['fa-solid', tab.icon]"></i> {{ tab.label }}
         </button>
       </nav>
 
@@ -103,10 +103,10 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* The layout (sidebar, header, footer) comes from oe2-shared.css,
-   comme pour le gestionnaire de partages : c'est ce qui garantit une police,
-   des couleurs et des espacements identiques a Orthanc Explorer. Ne subsiste
-   ici que la barre d'onglets, absente du systeme partage. */
+/* The layout (sidebar, header, footer) comes from oe2-shared.css, as it
+   does for the share manager: that is what guarantees a font, colours and
+   spacing identical to Orthanc Explorer. All that remains here is the tab
+   bar, absent from the shared system. */
 
 .tabs {
   display: flex;

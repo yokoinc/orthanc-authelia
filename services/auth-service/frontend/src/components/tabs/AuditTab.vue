@@ -71,11 +71,11 @@ onMounted(load)
 
 <template>
   <div>
-    <div class="entete">
+    <div class="header-row">
       <h2>{{ t('audit_title', "Journal d'activité") }}</h2>
       <div class="actions">
-        <input v-model="filtre" :placeholder="t('audit_filter', 'Filtrer…')">
-        <button class="oe2-btn oe2-btn--secondary" @click="charger">
+        <input v-model="filter" :placeholder="t('audit_filter', 'Filtrer…')">
+        <button class="oe2-btn oe2-btn--secondary" @click="load">
           <i class="fa-solid fa-rotate"></i> {{ t('refresh', 'Rafraîchir') }}
         </button>
       </div>
@@ -85,9 +85,9 @@ onMounted(load)
       {{ t('audit_note', "Les 200 derniers événements : comptes, configuration Orthanc, sauvegardes restaurées et requêtes rejetées pour raison de sécurité.") }}
     </p>
 
-    <div v-if="chargement" class="loading">{{ t('loading', 'Chargement…') }}</div>
+    <div v-if="loading" class="loading">{{ t('loading', 'Chargement…') }}</div>
 
-    <table v-else-if="filtrees.length" class="table">
+    <table v-else-if="filtered.length" class="table">
       <thead>
         <tr>
           <th>{{ t('audit_col_date', 'Date') }}</th>
@@ -97,26 +97,26 @@ onMounted(load)
         </tr>
       </thead>
       <tbody>
-        <tr v-for="e in filtrees" :key="e.id">
-          <td class="date">{{ dateLisible(e.ts) }}</td>
+        <tr v-for="e in filtered" :key="e.id">
+          <td class="date">{{ readableDate(e.ts) }}</td>
           <td>
-            <i :class="['fa-solid', apparence(e.event)[0], 'ic', 'ic--' + apparence(e.event)[1]]"></i>
+            <i :class="['fa-solid', appearance(e.event)[0], 'ic', 'ic--' + appearance(e.event)[1]]"></i>
             <span class="ev">{{ e.event }}</span>
           </td>
           <td>{{ e.actor }}</td>
-          <td class="det">{{ detailsLisibles(e.details) }}</td>
+          <td class="det">{{ readableDetails(e.details) }}</td>
         </tr>
       </tbody>
     </table>
 
     <div v-else class="loading">
-      {{ filtre ? t('audit_no_match', 'Aucun événement ne correspond') : t('audit_empty', 'Journal vide') }}
+      {{ filter ? t('audit_no_match', 'Aucun événement ne correspond') : t('audit_empty', 'Journal vide') }}
     </div>
   </div>
 </template>
 
 <style scoped>
-.entete { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.header-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 h2 { font-size: var(--oe2-fs-body); margin: 0 0 6px; font-weight: 400; }
 .actions { display: flex; gap: 6px; align-items: center; }
 .actions input {

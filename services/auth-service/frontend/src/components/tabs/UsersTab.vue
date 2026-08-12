@@ -187,35 +187,35 @@ onMounted(load)
             >{{ g }}</span>
           </td>
           <td>
-            <span :class="u.disabled ? 'etat etat--off' : 'etat etat--on'">
+            <span :class="u.disabled ? 'status status--off' : 'status status--on'">
               {{ u.disabled ? t('users_disabled', 'Désactivé') : t('users_enabled', 'Actif') }}
             </span>
-            <span v-if="estDernierAdmin(u)" class="protege">
+            <span v-if="isLastAdmin(u)" class="protege">
               <i class="fa-solid fa-lock"></i> {{ t('users_protected', 'protégé') }}
             </span>
           </td>
           <td class="right">
             <button
               class="oe2-btn oe2-btn--secondary"
-              :disabled="estDernierAdmin(u)"
-              :title="estDernierAdmin(u)
+              :disabled="isLastAdmin(u)"
+              :title="isLastAdmin(u)
                 ? t('users_last_admin_locked', 'Dernier administrateur actif : ni modification ni suppression possibles. Créez un second administrateur pour débloquer.')
                 : t('users_edit', 'Modifier')"
-              @click="ouvrirEdition(u)"
+              @click="openEdit(u)"
             >
               <i class="fa-solid fa-pen"></i>
             </button>
             <button
               class="oe2-btn oe2-btn--secondary"
               :title="t('users_change_password', 'Changer le mot de passe')"
-              @click="ouvrirMotDePasse(u.username)"
+              @click="openPassword(u.username)"
             >
               <i class="fa-solid fa-key"></i>
             </button>
             <button
               class="oe2-btn oe2-btn--danger"
-              :disabled="estDernierAdmin(u)"
-              :title="estDernierAdmin(u)
+              :disabled="isLastAdmin(u)"
+              :title="isLastAdmin(u)
                 ? t('users_last_admin_locked', 'Dernier administrateur actif : ni modification ni suppression possibles. Créez un second administrateur pour débloquer.')
                 : t('delete', 'Supprimer')"
               @click="deleteUser(u.username)"
@@ -224,64 +224,64 @@ onMounted(load)
             </button>
           </td>
         </tr>
-        <tr v-if="editionPour === u.username">
-          <td colspan="6" class="edit-ligne">
-            <div class="champ">
+        <tr v-if="editingFor === u.username">
+          <td colspan="6" class="edit-row">
+            <div class="field">
               <label>{{ t('setup_displayname_label', 'Nom affiché') }}</label>
-              <input v-model="edition.displayname" maxlength="100">
+              <input v-model="editing.displayname" maxlength="100">
             </div>
-            <div class="champ">
+            <div class="field">
               <label>{{ t('setup_email_label', 'Adresse e-mail') }}</label>
-              <input v-model="edition.email" type="email">
+              <input v-model="editing.email" type="email">
             </div>
-            <div class="champ">
+            <div class="field">
               <label>{{ t('users_col_groups', 'Groupes') }}</label>
               <div class="groups">
                 <label v-for="g in ['admin', 'doctor', 'external']" :key="g" class="chk">
                   <input
-                    type="checkbox" :checked="edition.groups.includes(g)"
-                    @change="basculerGroupeEdition(g)"
+                    type="checkbox" :checked="editing.groups.includes(g)"
+                    @change="toggleEditGroup(g)"
                   >
                   {{ g }}
                 </label>
               </div>
             </div>
-            <div class="champ">
+            <div class="field">
               <label class="chk">
-                <input type="checkbox" v-model="edition.disabled">
+                <input type="checkbox" v-model="editing.disabled">
                 {{ t('users_disable', 'Désactiver ce compte') }}
               </label>
             </div>
-            <div class="champ">
+            <div class="field">
               <button
                 class="oe2-btn oe2-btn--primary"
-                :disabled="envoiEdition"
-                @click="enregistrerEdition"
+                :disabled="savingEdit"
+                @click="saveEdit"
               >
-                {{ envoiEdition ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
+                {{ savingEdit ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
               </button>
-              <button class="oe2-btn oe2-btn--ghost" @click="editionPour = ''">
+              <button class="oe2-btn oe2-btn--ghost" @click="editingFor = ''">
                 {{ t('cancel', 'Annuler') }}
               </button>
             </div>
           </td>
         </tr>
-        <tr v-if="motDePassePour === u.username">
-          <td colspan="6" class="pwd-ligne">
+        <tr v-if="passwordFor === u.username">
+          <td colspan="6" class="pwd-row">
             <label>{{ t('users_new_password', 'Nouveau mot de passe') }}</label>
             <input
-              v-model="nouveauMotDePasse" type="password" minlength="12"
+              v-model="newPassword" type="password" minlength="12"
               :placeholder="t('users_password_hint', '12 caractères minimum')"
-              @keyup.enter="enregistrerMotDePasse"
+              @keyup.enter="savePassword"
             >
             <button
               class="oe2-btn oe2-btn--primary"
-              :disabled="nouveauMotDePasse.length < 12 || envoiMotDePasse"
-              @click="enregistrerMotDePasse"
+              :disabled="newPassword.length < 12 || savingPassword"
+              @click="savePassword"
             >
-              {{ envoiMotDePasse ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
+              {{ savingPassword ? t('saving', 'Enregistrement…') : t('save', 'Enregistrer') }}
             </button>
-            <button class="oe2-btn oe2-btn--ghost" @click="ouvrirMotDePasse('')">
+            <button class="oe2-btn oe2-btn--ghost" @click="openPassword('')">
               {{ t('cancel', 'Annuler') }}
             </button>
           </td>
@@ -316,29 +316,29 @@ onMounted(load)
 </template>
 
 <style scoped>
-.etat { font-size: var(--oe2-fs-tiny); }
-.etat--on { color: var(--oe2-success); }
-.etat--off { color: var(--oe2-muted); }
+.status { font-size: var(--oe2-fs-tiny); }
+.status--on { color: var(--oe2-success); }
+.status--off { color: var(--oe2-muted); }
 .protege { margin-left: 8px; font-size: var(--oe2-fs-micro); color: var(--oe2-accent-soft); }
-.edit-ligne {
+.edit-row {
   background: var(--oe2-nav-sub-bg);
   display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
 }
-.edit-ligne .champ { display: flex; flex-direction: column; gap: 3px; }
-.edit-ligne label { color: var(--oe2-muted); font-size: var(--oe2-fs-tiny); }
-.edit-ligne input[type=text], .edit-ligne input[type=email], .edit-ligne input:not([type]) {
+.edit-row .field { display: flex; flex-direction: column; gap: 3px; }
+.edit-row label { color: var(--oe2-muted); font-size: var(--oe2-fs-tiny); }
+.edit-row input[type=text], .edit-row input[type=email], .edit-row input:not([type]) {
   background: var(--oe2-nav-bg);
   border: 1px solid var(--oe2-border-subtle);
   color: var(--oe2-nav-color);
   padding: 5px 8px; border-radius: 3px;
   font-family: var(--oe2-font-stack); font-size: var(--oe2-fs-small);
 }
-.pwd-ligne {
+.pwd-row {
   background: var(--oe2-nav-sub-bg);
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
-.pwd-ligne label { color: var(--oe2-muted); font-size: var(--oe2-fs-tiny); }
-.pwd-ligne input {
+.pwd-row label { color: var(--oe2-muted); font-size: var(--oe2-fs-tiny); }
+.pwd-row input {
   background: var(--oe2-nav-bg);
   border: 1px solid var(--oe2-border-subtle);
   color: var(--oe2-nav-color);

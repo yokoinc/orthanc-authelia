@@ -187,81 +187,81 @@ onMounted(load)
     <div v-if="loading" class="loading">{{ t('loading', 'Chargement…') }}</div>
 
     <div v-else>
-      <section v-for="g in groupesAffiches" :key="g.id" class="groupe">
-        <h3><i :class="['fa-solid', g.icone]"></i> {{ g.titre }}</h3>
+      <section v-for="g in visibleGroups" :key="g.id" class="group">
+        <h3><i :class="['fa-solid', g.icon]"></i> {{ g.title }}</h3>
 
         <div
-          v-for="cle in g.cles" :key="cle"
-          class="row" :class="{ 'row--modified': isModified(cle) }"
+          v-for="key in g.keys" :key="key"
+          class="row" :class="{ 'row--modified': isModified(key) }"
         >
           <div class="intitule">
-            <label :for="'c-' + cle">{{ libelle(cle) }}</label>
+            <label :for="'c-' + key">{{ label(key) }}</label>
             <span class="tech">
-              {{ cle }}
-              <em v-if="parDefaut(cle) && valeurDefaut(cle)" class="defaut">
-                {{ t('orthanc_default_is', '· par défaut : {value}', { value: valeurDefaut(cle) }) }}
+              {{ key }}
+              <em v-if="isDefault(key) && defaultValue(key)" class="defaut">
+                {{ t('orthanc_default_is', '· par défaut : {value}', { value: defaultValue(key) }) }}
               </em>
-              <em v-else-if="parDefaut(cle)" class="defaut">{{ t('orthanc_default', '· valeur par défaut d\'Orthanc') }}</em>
+              <em v-else-if="isDefault(key)" class="defaut">{{ t('orthanc_default', '· valeur par défaut d\'Orthanc') }}</em>
             </span>
-            <span v-if="aide(cle)" class="aide">{{ aide(cle) }}</span>
-            <span v-if="borneMin(cle) !== null" class="aide">
-              {{ t('orthanc_range', 'Entre {min} et {max}.', { min: borneMin(cle), max: borneMax(cle) }) }}
+            <span v-if="help(key)" class="hint">{{ help(key) }}</span>
+            <span v-if="minBound(key) !== null" class="hint">
+              {{ t('orthanc_range', 'Entre {min} et {max}.', { min: minBound(key), max: maxBound(key) }) }}
             </span>
           </div>
 
-          <div class="valeur">
-            <select v-if="detectType(cle) === 'bool'" :id="'c-' + cle" v-model="fields[cle]">
-              <!-- Le parametre absent du fichier vaut null : sans cette option
-                   la liste n'avait rien a selectionner et s'affichait vide.
-                   La choisir revient a ne rien ecrire, donc a laisser Orthanc
-                   appliquer sa valeur par defaut. -->
+          <div class="value">
+            <select v-if="detectType(key) === 'bool'" :id="'c-' + key" v-model="fields[key]">
+              <!-- A setting absent from the file is null: without this
+                   option the list had nothing to select and showed up empty.
+                   Choosing it amounts to writing nothing, hence letting
+                   Orthanc apply its default value. -->
               <option :value="null">
-                {{ valeurDefaut(cle)
-                  ? t('orthanc_keep_default', 'Par défaut ({value})', { value: valeurDefaut(cle) })
+                {{ defaultValue(key)
+                  ? t('orthanc_keep_default', 'Par défaut ({value})', { value: defaultValue(key) })
                   : t('orthanc_undefined', 'Non défini') }}
               </option>
               <option :value="true">{{ t('yes', 'Oui') }}</option>
               <option :value="false">{{ t('no', 'Non') }}</option>
             </select>
-            <!-- Le serveur declare des valeurs admises : une liste evite
-                 d'avoir a connaitre par coeur des libelles comme
-                 « volview-viewer-publication », et supprime la faute de
-                 frappe. -->
+            <!-- The server declares the accepted values: a list saves
+                 having to know labels such as
+                 "volview-viewer-publication" by heart, and removes the
+                 typo. -->
             <select
-              v-else-if="choix(cle)"
-              :id="'c-' + cle" v-model="fields[cle]"
+              v-else-if="allowedValues(key)"
+              :id="'c-' + key" v-model="fields[key]"
             >
               <option :value="null">
-                {{ valeurDefaut(cle)
-                  ? t('orthanc_keep_default', 'Par défaut ({value})', { value: valeurDefaut(cle) })
+                {{ defaultValue(key)
+                  ? t('orthanc_keep_default', 'Par défaut ({value})', { value: defaultValue(key) })
                   : t('orthanc_undefined', 'Non défini') }}
               </option>
-              <option v-for="v in choix(cle)" :key="v" :value="v">{{ v }}</option>
+              <option v-for="v in allowedValues(key)" :key="v" :value="v">{{ v }}</option>
             </select>
             <textarea
-              v-else-if="detectType(cle) === 'list'"
-              :id="'c-' + cle" rows="4"
-              :value="listeVersTexte(fields[cle])"
-              @input="texteVersListe(cle, $event.target.value)"
+              v-else-if="detectType(key) === 'list'"
+              :id="'c-' + key" rows="4"
+              :value="listToText(fields[key])"
+              @input="textToList(key, $event.target.value)"
             ></textarea>
             <input
-              v-else-if="detectType(cle) === 'number'"
-              :id="'c-' + cle" v-model.number="fields[cle]" type="number"
-              :min="borneMin(cle)" :max="borneMax(cle)"
-              :placeholder="valeurDefaut(cle)"
+              v-else-if="detectType(key) === 'number'"
+              :id="'c-' + key" v-model.number="fields[key]" type="number"
+              :min="minBound(key)" :max="maxBound(key)"
+              :placeholder="defaultValue(key)"
             >
             <input
-              v-else :id="'c-' + cle" v-model="fields[cle]" type="text"
-              :placeholder="valeurDefaut(cle)"
+              v-else :id="'c-' + key" v-model="fields[key]" type="text"
+              :placeholder="defaultValue(key)"
             >
-            <span v-if="isModified(cle)" class="flag">{{ t('modified', '● modifié') }}</span>
+            <span v-if="isModified(key)" class="flag">{{ t('modified', '● modifié') }}</span>
           </div>
         </div>
       </section>
 
       <div class="toolbar">
-        <span v-if="nbModifies" class="compteur">
-          {{ t('orthanc_pending', '{count} paramètre(s) modifié(s)', { count: nbModifies }) }}
+        <span v-if="modifiedCount" class="compteur">
+          {{ t('orthanc_pending', '{count} paramètre(s) modifié(s)', { count: modifiedCount }) }}
         </span>
         <span v-else-if="restartRequired" class="compteur compteur--attente">
           {{ t('orthanc_restart_pending', 'En attente de redémarrage pour prendre effet') }}
@@ -275,7 +275,7 @@ onMounted(load)
             ? t('orthanc_restarting', 'Redémarrage…')
             : t('orthanc_restart', 'Redémarrer Orthanc') }}
         </button>
-        <button class="oe2-btn oe2-btn--primary" :disabled="saving || !nbModifies" @click="save">
+        <button class="oe2-btn oe2-btn--primary" :disabled="saving || !modifiedCount" @click="save">
           <i class="fa-solid fa-check"></i>
           {{ saving
             ? t('orthanc_saving', 'Enregistrement…')
@@ -292,14 +292,14 @@ h2 { font-size: var(--oe2-fs-body); margin: 0 0 6px; font-weight: 400; }
 .loading { color: var(--oe2-muted); text-align: center; padding: 20px; }
 
 .compteur--attente { color: var(--oe2-warn, #b26a00); }
-.groupe { margin-bottom: 22px; }
-.groupe h3 {
+.group { margin-bottom: 22px; }
+.group h3 {
   font-size: var(--oe2-fs-small); font-weight: 400; text-transform: uppercase;
   letter-spacing: 0.5px; color: var(--oe2-accent-soft);
   margin: 0 0 8px; padding-bottom: 5px;
   border-bottom: 1px solid var(--oe2-separator);
 }
-.groupe h3 i { margin-right: 7px; }
+.group h3 i { margin-right: 7px; }
 
 .row {
   display: grid; grid-template-columns: minmax(240px, 2fr) minmax(200px, 1fr);
@@ -312,10 +312,10 @@ h2 { font-size: var(--oe2-fs-body); margin: 0 0 6px; font-weight: 400; }
 .intitule label { font-size: var(--oe2-fs-small); }
 .tech { font-family: var(--oe2-font-mono); font-size: var(--oe2-fs-micro); color: var(--oe2-muted); }
 .defaut { font-family: var(--oe2-font-stack); font-style: normal; color: var(--oe2-accent-soft); }
-.aide { font-size: var(--oe2-fs-tiny); color: var(--oe2-muted); max-width: 60ch; }
+.hint { font-size: var(--oe2-fs-tiny); color: var(--oe2-muted); max-width: 60ch; }
 
-.valeur { display: flex; align-items: center; gap: 8px; }
-.valeur input, .valeur select, .valeur textarea {
+.value { display: flex; align-items: center; gap: 8px; }
+.value input, .value select, .value textarea {
   flex: 1; min-width: 0;
   background: var(--oe2-nav-sub-bg);
   border: 1px solid var(--oe2-border-subtle);
@@ -323,7 +323,7 @@ h2 { font-size: var(--oe2-fs-body); margin: 0 0 6px; font-weight: 400; }
   padding: 5px 8px; border-radius: 3px;
   font-family: var(--oe2-font-stack); font-size: var(--oe2-fs-small);
 }
-.valeur textarea { font-family: var(--oe2-font-mono); font-size: var(--oe2-fs-tiny); resize: vertical; }
+.value textarea { font-family: var(--oe2-font-mono); font-size: var(--oe2-fs-tiny); resize: vertical; }
 .flag { color: var(--oe2-accent-orange); font-size: var(--oe2-fs-micro); white-space: nowrap; }
 
 .toolbar {

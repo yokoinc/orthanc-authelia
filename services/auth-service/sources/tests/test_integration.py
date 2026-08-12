@@ -1,13 +1,13 @@
 """
-Tests d'integration : endpoints FastAPI + Redis + fichiers YAML/JSON + mocks httpx.
+Integration tests: FastAPI endpoints + Redis + YAML/JSON files + httpx mocks.
 
-Utilise :
-- TestClient (starlette) pour appeler les endpoints
-- fakeredis.aioredis pour simuler Redis en memoire
-- respx pour mocker les appels a http://orthanc:8042/tools/reset
-- tmp_path pour isoler les fichiers authelia.yml + orthanc.json + backups
+Uses:
+- TestClient (starlette) to call the endpoints
+- fakeredis.aioredis to simulate Redis in memory
+- respx to mock the calls to http://orthanc:8042/tools/reset
+- tmp_path to isolate the authelia.yml + orthanc.json + backups files
 
-Executer :
+Run with:
     cd services/auth-service/sources
     python -m pytest tests/test_integration.py -v
 """
@@ -33,7 +33,7 @@ import admin_module
 
 @pytest.fixture
 def tmp_paths(tmp_path, monkeypatch):
-    """Redirige les 3 chemins module-level vers un tmp_path per-test."""
+    """Point the 3 module-level paths at a per-test tmp_path."""
     authelia = tmp_path / "authelia.yml"
     orthanc = tmp_path / "orthanc.json"
     backups = tmp_path / "backups"
@@ -103,14 +103,14 @@ def client(app, tmp_paths, fake_redis):
 
 @pytest.fixture
 def csrf_headers(client):
-    """Setup double-submit cookie + header pour passer csrf_gate."""
+    """Double-submit cookie + header, to get past csrf_gate."""
     client.cookies.set("orthanc_admin_csrf", "test-token")
     return {"x-csrf-token": "test-token"}
 
 
 @pytest.fixture
 def valid_orthanc_json(tmp_paths):
-    """Pre-cree un orthanc.json valide (avec les flags DB critiques)."""
+    """Pre-create a valid orthanc.json (with the critical DB flags)."""
     initial = {
         "Name": "Cuffel PACS",
         "DicomAet": "YOKOINC",
@@ -125,7 +125,7 @@ def valid_orthanc_json(tmp_paths):
 
 @pytest.fixture
 def valid_authelia_yml(tmp_paths):
-    """Pre-cree un users_database.yml valide (1 admin actif, argon2id)."""
+    """Pre-create a valid users_database.yml (1 active admin, argon2id)."""
     hasher = admin_module._hasher
     data = {
         "users": {
@@ -240,7 +240,7 @@ class TestSetupWizard:
         assert list(yml["users"]) == ["cuffel.gregory"]
 
     def test_finalize_without_bootstrap_account(self, client, tmp_paths, fake_redis):
-        """Absent ou renomme, la finalisation se passe sans rien supprimer."""
+        """Missing or renamed, finalisation goes through without deleting anything."""
         assert self._create_first_admin(client).status_code == 200
 
         r = client.post("/setup/finalize")
@@ -251,7 +251,7 @@ class TestSetupWizard:
         assert list(yml["users"]) == ["cuffel.gregory"]
 
     def test_finalize_refused_without_admin(self, client, tmp_paths, fake_redis):
-        """Finaliser sans admin actif = 400 (invariant lockout)."""
+        """Finalising without an active admin = 400 (lockout invariant)."""
         # No create-admin POST beforehand
         r = client.post("/setup/finalize")
         assert r.status_code == 400
@@ -290,7 +290,7 @@ class TestOrthancConfig:
             assert r.status_code == 200, r.text
             assert reset_route.called
 
-        # Le fichier a ete mis a jour
+        # The file was updated
         new = json.loads(tmp_paths["orthanc"].read_text())
         assert new["Name"] == "New PACS Name"
         assert new["HttpCompressionEnabled"] is True
@@ -298,7 +298,7 @@ class TestOrthancConfig:
         assert new["DicomModalitiesInDatabase"] is True
         assert new["OrthancPeersInDatabase"] is True
 
-        # Un backup a ete cree
+        # A backup was created
         backups = list(tmp_paths["backups"].glob("orthanc.json.bak.*"))
         assert len(backups) == 1
 
@@ -312,7 +312,7 @@ class TestOrthancConfig:
     def test_patch_refuses_non_whitelisted_path(
         self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
     ):
-        """Un chemin hors whitelist renvoie 400."""
+        """A path outside the allow-list answers 400."""
         r = client.patch("/api/admin/orthanc/config", json={
             "changes": {"PostgreSQL.Password": "hack"},
         }, headers=csrf_headers)
@@ -338,7 +338,7 @@ class TestBackupRestore:
     def test_orthanc_rollback(
         self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
     ):
-        """PATCH puis restore = fichier remis a l'etat initial."""
+        """PATCH then restore = file back to its initial state."""
         with respx.mock(base_url="http://orthanc:8042") as mock:
             mock.post("/tools/reset").respond(status_code=200, json={})
 
@@ -365,7 +365,7 @@ class TestBackupRestore:
         assert restored["Name"] == valid_orthanc_json["Name"]
 
     def test_restore_rejects_bad_name(self, client, tmp_paths, fake_redis, csrf_headers):
-        """Nom sans .bak. dedans = 404."""
+        """A name without .bak. in it = 404."""
         r = client.post(
             "/api/admin/backups/restore?backup_name=evil_traversal",
             headers=csrf_headers,
@@ -380,7 +380,7 @@ class TestBackupRestore:
 class TestCSRF:
 
     def test_post_without_token_refused(self, client, tmp_paths, fake_redis, valid_authelia_yml):
-        """POST /api/admin/* sans cookie + header CSRF = 403."""
+        """POST /api/admin/* without the CSRF cookie and header = 403."""
         r = client.post("/api/admin/users", json={
             "username": "csrf.victim",
             "displayname": "CSRF Test",
@@ -403,7 +403,7 @@ class TestCSRF:
         assert "csrf.token" in r.text
 
     def test_get_bypass_csrf(self, client, tmp_paths, fake_redis, valid_authelia_yml):
-        """GET n'est jamais soumis a CSRF (idempotent)."""
+        """GET is never subject to CSRF (idempotent)."""
         r = client.get("/api/admin/users")
         assert r.status_code == 200  # OK, csrf_gate laisse passer
 
@@ -466,7 +466,7 @@ class TestAutoRollback:
     def test_rollback_on_reset_failure(
         self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
     ):
-        """PATCH → /tools/reset renvoie 500 → rollback auto → 502 mais fichier restore."""
+        """PATCH → /tools/reset answers 500 → automatic rollback → 502, file restored."""
         # First reset (the failing one) then second (the rollback, succeeding)
         with respx.mock(base_url="http://orthanc:8042") as mock:
             reset_route = mock.post("/tools/reset").mock(
@@ -496,7 +496,7 @@ class TestAutoRollback:
 
 
 # ============================================================================
-# Test 8 : Setup wizard verrouille apres 1er create-admin
+# Test 8: setup wizard locked after the first create-admin
 # ============================================================================
 
 class TestSetupLockout:
@@ -560,7 +560,7 @@ class TestCorruptConfig:
     def test_corrupt_orthanc_json_returns_readable_500(
         self, client, tmp_paths, fake_redis, csrf_headers,
     ):
-        """JSON syntaxiquement casse → 500 avec message restore."""
+        """Syntactically broken JSON → 500 with a restore message."""
         tmp_paths["orthanc"].write_text('{"Name": "unclosed')
 
         r = client.get("/api/admin/orthanc/config")
@@ -579,7 +579,7 @@ class TestHealth:
     def test_health_reports_component_status(
         self, client, tmp_paths, fake_redis, valid_authelia_yml, valid_orthanc_json,
     ):
-        """/api/admin/health renvoie l'etat de chaque composant."""
+        """/api/admin/health reports the state of each component."""
         with respx.mock(base_url="http://orthanc:8042") as mock:
             mock.get("/system").respond(status_code=200, json={"Version": "26.4.2"})
 
@@ -620,7 +620,7 @@ class TestHealth:
     def test_whoami_returns_info_and_csrf_cookie(
         self, client, tmp_paths, fake_redis, valid_authelia_yml,
     ):
-        """whoami fournit l'identite au SPA et pose le cookie CSRF."""
+        """whoami gives the SPA its identity and sets the CSRF cookie."""
         import json
         fake_redis.sync.set("orthanc_authelia:setup_completed", "1")
 
@@ -774,7 +774,7 @@ class TestPublicUrl:
     def test_change_updates_env_and_authelia(
         self, client, tmp_paths, fake_redis, csrf_headers,
     ):
-        """L'URL publique se propage au .env et a toute la config Authelia."""
+        """The public URL propagates to .env and to the whole Authelia config."""
         self._prepare(tmp_paths)
 
         r = client.post(
@@ -787,7 +787,7 @@ class TestPublicUrl:
 
         env = tmp_paths["env"].read_text()
         assert "PUBLIC_URL=https://pacs.exemple.fr" in env
-        # Les autres variables survivent
+        # The other variables survive
         assert "TZ=Europe/Paris" in env
         assert "LOG_LEVEL=INFO" in env
 
@@ -804,7 +804,7 @@ class TestPublicUrl:
     def test_same_url_touches_nothing(
         self, client, tmp_paths, fake_redis, csrf_headers,
     ):
-        """Reappliquer l'URL courante est un no-op, sans sauvegarde inutile."""
+        """Reapplying the current URL is a no-op, with no pointless backup."""
         self._prepare(tmp_paths)
         before = tmp_paths["authelia_cfg"].read_text()
 
@@ -957,7 +957,7 @@ class TestModalities:
 
 
 class TestUserUpdate:
-    """Modification d'un compte, et garde-fou anti-verrouillage.
+    """Updating an account, and the anti-lockout safeguard.
 
     Without these routes, changing someone's group meant deleting their
     account and recreating it -- making them lose their password.

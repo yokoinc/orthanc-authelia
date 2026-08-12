@@ -300,7 +300,7 @@ _translations_cache: dict = {"language": None, "data": None}
 
 
 def translations() -> dict:
-    """Table de traduction correspondant a la langue en vigueur."""
+    """Translation table for the language currently in force."""
     language_code = _language()
     if _translations_cache["language"] != language_code:
         _translations_cache["data"] = load_translations(language_code)

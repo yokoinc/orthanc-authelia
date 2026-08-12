@@ -76,6 +76,12 @@ jobs:
           done
           echo "Syntax correct."
 
+      - name: Vue templates
+        # Vue compiles a template without resolving its identifiers: a
+        # half-renamed component passes both the build and the tests, and
+        # only fails in the browser console.
+        run: python3 scripts/check-vue-templates.py
+
       - name: Translations in sync
         # A key present in one language and missing from the other goes
         # unnoticed until a user hits a raw label.

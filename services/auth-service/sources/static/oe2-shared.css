@@ -355,7 +355,7 @@ body {
 }
 
 /* -----------------------------------------------------------------------------
-   BOUTONS (systeme unifie)
+   BUTTONS (unified system)
    ----------------------------------------------------------------------------- */
 .oe2-btn {
     display: inline-flex;
@@ -580,7 +580,7 @@ body {
     /* App: stack the sidebar above the main content */
     .oe2-app { flex-direction: column; }
 
-    /* Sidebar devient un bandeau haut (100% width, colonne interne) */
+    /* The sidebar becomes a top banner (100% width, inner column) */
     .oe2-sidebar {
         width: 100%;
         flex-direction: column;
@@ -602,7 +602,7 @@ body {
         overflow-x: auto;
         border-top: 1px solid rgba(255,255,255,0.08);
     }
-    /* Scrollbar cachee (WebKit + Firefox fallback) */
+    /* Hidden scrollbar (WebKit + Firefox fallback) */
     .oe2-sidebar__nav { scrollbar-width: none; }
     .oe2-sidebar__nav::-webkit-scrollbar { height: 0; }
     .oe2-sidebar__link {
@@ -721,7 +721,7 @@ body {
 .loading-state i { color: var(--oe2-accent-soft); opacity: 1; }
 .empty-state p, .loading-state p { margin: 0; }
 
-/* Badges - JS emet <span class="badge-oe2 badge-XXX"> */
+/* Badges - the JS emits <span class="badge-oe2 badge-XXX"> */
 .badge-oe2 {
     display: inline-block;
     padding: 2px 8px;
@@ -743,7 +743,7 @@ body {
 .badge-success { background-color: rgba(40, 167, 69, 0.20); color: var(--oe2-success); }
 .badge-muted   { background-color: rgba(128, 128, 128, 0.20); color: var(--oe2-muted); }
 
-/* Duration - JS emet <span class="duration duration-XXX"> */
+/* Duration - the JS emits <span class="duration duration-XXX"> */
 .duration {
     font-size: var(--oe2-fs-small);
     color: var(--oe2-muted);
@@ -762,7 +762,7 @@ body {
     color: var(--oe2-muted);
 }
 
-/* Token id (inline code) - JS emet <code class="token-id"> */
+/* Token id (inline code) - the JS emits <code class="token-id"> */
 .token-id {
     font-family: var(--oe2-font-mono);
     font-size: var(--oe2-fs-tiny);
@@ -799,7 +799,7 @@ body {
     text-align: right;
 }
 
-/* Actions cell - JS emet <div class="actions-cell"><button class="btn-action"> */
+/* Actions cell - the JS emits <div class="actions-cell"><button class="btn-action"> */
 .actions-cell {
     display: flex;
     gap: 4px;

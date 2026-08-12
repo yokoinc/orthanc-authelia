@@ -120,13 +120,13 @@ async function submit() {
       {{ t('setup_subtitle', "Premier démarrage — création du compte administrateur. Ce compte pourra ensuite gérer les autres utilisateurs depuis le panel d'administration.") }}
     </p>
 
-    <div v-if="termine" class="fini">
+    <div v-if="done" class="fini">
       <p><strong>{{ t('setup_done_title', 'Installation terminée.') }}</strong></p>
       <p>{{ t('setup_done_restart', 'Relancer la pile pour appliquer le nouveau domaine :') }}</p>
       <pre>docker compose up -d</pre>
       <p>
         {{ t('setup_done_connect', 'Puis se connecter sur') }}
-        <a :href="termine">{{ termine }}</a>.
+        <a :href="done">{{ done }}</a>.
       </p>
     </div>
 
@@ -171,13 +171,13 @@ async function submit() {
 
       <label for="publicUrl">{{ t('setup_public_url_label', 'URL publique') }}</label>
       <input
-        id="publicUrl" v-model="form.publicUrl" :disabled="!urlModifiable"
+        id="publicUrl" v-model="form.publicUrl" :disabled="!urlEditable"
         placeholder="https://pacs.exemple.fr"
       >
-      <div v-if="!urlModifiable" class="hint">
+      <div v-if="!urlEditable" class="hint">
         {{ t('setup_public_url_locked', "Non modifiable ici : le fichier .env n'est pas monté dans le conteneur.") }}
       </div>
-      <div v-else-if="urlChangee" class="hint hint--warn">
+      <div v-else-if="urlChanged" class="hint hint--warn">
         {{ t('setup_public_url_warning', 'Le domaine va changer. Il faudra relancer la pile puis se reconnecter sur cette adresse : la session en cours est liée à l\'ancien domaine.') }}
       </div>
       <div v-else class="hint">

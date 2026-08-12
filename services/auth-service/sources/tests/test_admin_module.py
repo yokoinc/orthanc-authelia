@@ -244,8 +244,8 @@ class TestStripJsonComments:
         from admin_module import _strip_json_comments
         import json
         raw = """{
-  /* sur
-     plusieurs lignes */
+  /* across
+     several lines */
   "a": 1
 }"""
         assert json.loads(_strip_json_comments(raw)) == {"a": 1}
@@ -312,7 +312,7 @@ class TestRestartOrthanc:
 
     @pytest.fixture(autouse=True)
     def _without_side_effects(self, monkeypatch):
-        """Neutralise l'audit (Redis) et les attentes entre deux sondages."""
+        """Silence the audit trail (Redis) and the waits between two probes."""
         import admin_module
 
         async def _audit_silent(*a, **k):
@@ -337,7 +337,7 @@ class TestRestartOrthanc:
         assert "DOCKER_PROXY_URL" in e.value.detail
 
     def test_container_not_found(self, monkeypatch):
-        """404 du proxy = mauvais nom de conteneur : le dire explicitement."""
+        """A 404 from the proxy = wrong container name: say so explicitly."""
         import admin_module
         from fastapi import HTTPException
 
@@ -349,7 +349,7 @@ class TestRestartOrthanc:
         assert "ORTHANC_CONTAINER" in e.value.detail
 
     def test_restart_refused_by_proxy(self, monkeypatch):
-        """403 = ALLOW_RESTARTS absent. Orienter vers la bonne cause."""
+        """403 = ALLOW_RESTARTS missing. Point at the right cause."""
         import admin_module
         from fastapi import HTTPException
 
@@ -372,7 +372,7 @@ class TestRestartOrthanc:
         assert r["version"] == "1.12.11"
 
     def test_succeeds_after_a_few_probes(self, monkeypatch):
-        """Orthanc ouvre son port avant d'etre pret : on attend qu'il reponde."""
+        """Orthanc opens its port before it is ready: we wait for an answer."""
         import admin_module
 
         self._wire_proxy(monkeypatch, 204)
@@ -398,7 +398,7 @@ class TestRestartOrthanc:
 
     @staticmethod
     def _wire_proxy(monkeypatch, code: int):
-        """Remplace l'appel HTTP au proxy par une reponse au code voulu."""
+        """Replace the HTTP call to the proxy with an answer of the given code."""
         import admin_module
 
         monkeypatch.setattr(admin_module, "DOCKER_PROXY_URL", "http://proxy:2375")
@@ -566,8 +566,8 @@ class TestNonDestructiveWrite:
         assert line.startswith('    "'), repr(line)
 
     def test_missing_parent_refused(self):
-        """Creer une arborescence demanderait de deviner une mise en forme :
-        on prefere le signaler et laisser l'appelant regenerer."""
+        """Creating a tree would mean guessing at formatting: we would rather
+        report it and let the caller regenerate."""
         from admin_module import _apply_text_changes
         with pytest.raises(ValueError, match="parent object missing"):
             _apply_text_changes('{\n  "Name": "Orthanc"\n}',
@@ -591,7 +591,7 @@ class TestNonDestructiveWrite:
         }
 
     def test_scalar_types(self):
-        """booleen, entier, chaine et null doivent se relire a l'identique."""
+        """boolean, integer, string and null must read back identically."""
         from admin_module import _apply_text_changes
         source = '{\n  "A": 1,\n  "B": "x",\n  "C": true,\n  "D": null\n}'
         out = _apply_text_changes(source, {"A": 42, "B": "y", "C": False, "D": "z"})
@@ -764,7 +764,7 @@ class TestSettingsStore:
                              "SHARE_DEFAULT_VIEWER") == "stone-viewer-publication"
 
     def test_file_wins_over_env(self, settings_file, tmp_path):
-        """Apres la premiere ecriture, la ligne du .env devient inerte."""
+        """After the first write, the .env line becomes inert."""
         from admin_module import _write_setting, _read_setting
         (tmp_path / ".env").write_text(
             "SHARE_DEFAULT_VIEWER=stone-viewer-publication\n", encoding="utf-8")
@@ -800,7 +800,7 @@ class TestSettingsStore:
 
 
 # ============================================================================
-# Langue de l'interface
+# Interface language
 # ============================================================================
 
 class TestLanguage:
@@ -835,7 +835,7 @@ class TestLanguage:
         assert auth_service._language() == "fr"
 
     def test_falls_back_to_former_env_var(self, settings_file, tmp_path):
-        """Une installation existante a LANGUAGE dans son .env."""
+        """An existing installation has LANGUAGE in its .env."""
         import auth_service
         (tmp_path / ".env").write_text("LANGUAGE=fr\n", encoding="utf-8")
         assert auth_service._language() == "fr"
@@ -896,7 +896,7 @@ class TestRollback:
 
     @pytest.fixture
     def stack(self, tmp_path, monkeypatch):
-        """Un orthanc.json, une sauvegarde anterieure, et pas d'attente."""
+        """One orthanc.json, an earlier backup, and no waiting."""
         import admin_module
 
         config = tmp_path / "orthanc.json"
@@ -1015,7 +1015,7 @@ class TestRollback:
 
 
 # ============================================================================
-# Contraintes de valeur
+# Value constraints
 # ============================================================================
 
 class TestRangesAndValues:
@@ -1056,7 +1056,7 @@ class TestRangesAndValues:
         assert self._change("LogLevel", "verbose")["LogLevel"] == "verbose"
 
     def test_boolean_refused_on_integer_field(self):
-        """En Python True vaut 1 : sans garde, il passerait pour un port."""
+        """In Python True equals 1: without a guard it would pass for a port."""
         with pytest.raises(ValueError, match="attendu int"):
             self._change("DicomPort", True)
 
@@ -1100,7 +1100,7 @@ class TestExplorerSettings:
         assert field in ORTHANC_EDITABLE_PATHS
 
     @pytest.mark.parametrize("field", [
-        # Se couper l'acces a sa propre interface.
+        # Cutting yourself off from your own interface.
         "OrthancExplorer2.Enable",
         "OrthancExplorer2.IsDefaultOrthancUI",
         # Paths served by nginx: changing them breaks the links.
@@ -1157,7 +1157,7 @@ class TestExplorerSettings:
 
 
 # ============================================================================
-# Reglages de type liste
+# List-typed settings
 # ============================================================================
 
 class TestListSettings:
@@ -1284,7 +1284,7 @@ class TestSetupLock:
 
     @pytest.fixture
     def without_redis(self, tmp_path, monkeypatch):
-        """Redis vide, comme apres la perte de son volume."""
+        """Empty Redis, as after losing its volume."""
         import admin_module
 
         class _RedisEmpty:
@@ -1304,8 +1304,8 @@ class TestSetupLock:
         file.write_text(yaml.safe_dump({"users": users}), encoding="utf-8")
 
     def test_first_run_stays_open(self, without_redis):
-        """Only the bootstrap account exists: this really is an install
-        neuve, l'assistant doit s'ouvrir."""
+        """Only the bootstrap account exists: this really is a fresh
+        install, and the wizard must open."""
         import admin_module
         self._write(without_redis, {
             "bootstrap@localhost": {"disabled": False, "groups": ["admin"]},
@@ -1345,7 +1345,7 @@ class TestSetupLock:
         assert _run(admin_module._setup_completed()) is True
 
     def test_redis_flag_is_enough(self, tmp_path, monkeypatch):
-        """L'ancien mecanisme reste valable quand Redis repond."""
+        """The former mechanism still holds when Redis answers."""
         import admin_module
 
         class _RedisFull:

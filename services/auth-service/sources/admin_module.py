@@ -1024,7 +1024,7 @@ def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
 
 
 def _end_of_string(text: str, start: int) -> int:
-    """Index du guillemet fermant de la chaine ouverte a `debut`."""
+    """Index of the closing quote of the string opened at `start`."""
     i = start + 1
     n = len(text)
     while i < n:
@@ -1530,7 +1530,7 @@ def _read_share_type() -> str:
     """
     try:
         config = _load_orthanc_config()
-    except Exception:  # noqa: BLE001 - fichier absent ou illisible
+    except Exception:  # noqa: BLE001 - file missing or unreadable
         return SHARE_VIEWERS[0]
     value = (config.get("OrthancExplorer2", {})
               .get("Tokens", {})
@@ -1583,7 +1583,7 @@ async def admin_language_put(
 
 @router.get("/api/admin/network")
 async def admin_network_get(admin: AdminUser = Depends(require_admin)):
-    """URL publique actuelle et possibilite de la modifier."""
+    """Current public URL, and whether it can be changed."""
     return {
         "public_url": _read_env_var("PUBLIC_URL"),
         "editable": ENV_FILE.exists(),
@@ -2167,7 +2167,7 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
 
 
 # ============================================================================
-# Route : /api/admin/health (verifie Redis + Orthanc + fichiers config)
+# Route: /api/admin/health (checks Redis + Orthanc + config files)
 # ============================================================================
 
 @router.get("/api/admin/config-effective")
@@ -2200,7 +2200,7 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
     except RedisError as e:
         checks["redis"] = {"ok": False, "detail": f"RedisError: {e}"}
 
-    # Fichiers config lisibles + parseables
+    # Config files readable and parsable
     try:
         _load_authelia()
         checks["authelia_yml"] = {"ok": True, "detail": str(AUTHELIA_YML)}
@@ -2417,7 +2417,7 @@ async def create_backup(admin: AdminUser = Depends(require_admin)):
             try:
                 dest = _backup(path, tag="manuel")
                 applied.append(dest.name)
-            except OSError as e:  # disque plein, droits insuffisants
+            except OSError as e:  # disk full, insufficient rights
                 skipped.append(f"{label} : {e}")
         else:
             skipped.append(f"{label} : fichier absent")
@@ -2458,7 +2458,7 @@ async def restore_backup(
         reload = _reload_orthanc
     elif backup_name.startswith("users_database.yml.bak."):
         dest = AUTHELIA_YML
-        reload = None  # Authelia relit son fichier tout seul
+        reload = None  # Authelia rereads this file on its own
     elif backup_name.startswith(".env.bak."):
         # Restored as-is: variables are only re-read when containers are
         # recreated, which the interface points out.

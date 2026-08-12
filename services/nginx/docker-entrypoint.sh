@@ -64,7 +64,7 @@ if [ ! -f /etc/nginx/ssl/cert.pem ] || [ ! -f /etc/nginx/ssl/key.pem ]; then
     BESOIN_CERT=1
 elif [ "$SSL_MODE" = "selfsigned" ]; then
     # Compare ONLY in self-signed mode: a certificate supplied by
-    # l'exploitant (Let's Encrypt, autorite interne) peut legitimement porter
+    # the operator (Let's Encrypt, internal CA) can legitimately carry
     # a different name -- wildcard, multiple SANs -- and must never be
     # overwritten.
     CURRENT_CN=$(openssl x509 -in /etc/nginx/ssl/cert.pem -noout -subject 2>/dev/null \

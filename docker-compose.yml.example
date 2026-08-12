@@ -234,7 +234,7 @@ services:
       # a privileged container mounting the host root was accepted (201),
       # which is exactly the escape this mount must prevent. With
       # CONTAINERS=0, create and exec answer 403 and the restart
-      # fonctionne toujours.
+      # still works.
       - CONTAINERS=0
       # Explicitly denied, so that reading this file is enough to know what
       # is possible:
@@ -281,8 +281,8 @@ services:
     volumes:
       # Directory, not file: auth-service rewrites orthanc.json through
       # write-tmp + rename, which creates a new inode. A file bind-mount
-      # fichier resterait colle a l'ancien inode et POST /tools/reset
-      # rechargerait l'ancienne config. Orthanc scanne /etc/orthanc/*.json.
+      # would stay stuck on the old inode and POST /tools/reset would
+      # reload the old config. Orthanc scans /etc/orthanc/*.json.
       - ./services/orthanc/config:/etc/orthanc:ro
     networks:
       - orthanc-network
@@ -305,8 +305,8 @@ services:
       # CAREFUL: after changing AUTH_PASSWORD in .env, you must
       #   docker compose up -d --force-recreate orthanc
       # A plain `restart` replays the container's frozen environment: the
-      # plugin garde l'ancien mot de passe, /user/get-profile repond 401 et
-      # toute l'API Orthanc renvoie 403.
+      # plugin keeps the old password, /user/get-profile answers 401 and
+      # the whole Orthanc API returns 403.
       - ORTHANC__AUTHORIZATION__WEB_SERVICE_USERNAME=${AUTH_USERNAME}
       - ORTHANC__AUTHORIZATION__WEB_SERVICE_PASSWORD=${AUTH_PASSWORD}
       # Kept for scripts backward compat (some helpers still read POSTGRES_*)

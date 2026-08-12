@@ -15,8 +15,8 @@ export const lang = source.lang || 'en'
 /**
  * Translate a key.
  *
- * @param cle    key in the "ui" section of the translation files
- * @param repli  text shown when the key is missing -- always provide it as
+ * @param key       key in the "ui" section of the translation files
+ * @param fallback  text shown when the key is missing -- always provide it as
  *               readable French: a missing key must degrade to an
  *               understandable sentence, never to a technical identifier nor
  *               to a blank in the middle of the screen.
