@@ -86,67 +86,31 @@ The LibOrthancAuthorization plugin:
 
 ## User Management
 
-### Adding Users
+Users are managed **from the administration panel**, under
+`https://<your-domain>/console/`, Users tab. The panel is the only path that
+enforces the invariants: an argon2id hash, at least one active administrator,
+and an audit trail entry for every change.
 
-#### Method 1: Using Default Setup Script (Recommended)
-```bash
-./setup.sh
-```
-The default setup script will prompt for three users with predefined roles:
-- Admin user with `admin` role
-- Doctor user with `doctor` role  
-- External user with `external` role
+### Adding, changing, removing
 
-The script automatically generates the `users_database.yml` file with hashed passwords.
+Everything happens in the Users tab: create an account, change its display
+name, its email or its groups, disable it, reset its password, delete it.
 
-#### Method 2: Using Management Script
-```bash
-cd services/authelia/scripts
-python3 manage_users.py add user@example.com password123 --name "Dr. Smith" --groups doctor
-```
+Two refusals are deliberate and cannot be worked around:
 
+- the last active administrator can be neither deleted, nor disabled, nor
+  removed from the `admin` group -- the stack would be left with nobody able
+  to administer it;
+- the first-run wizard closes for good once finalised, so it cannot be used
+  to create a second administrator.
 
-### Removing Users
+### If the panel is unreachable
 
-#### Method 1: Using Management Script
-```bash
-python3 manage_users.py delete user@example.com
-```
+`./manage-authelia-users.sh`, at the root of the repository, does the same
+work from a console on the host. It edits `users_database.yml` directly and
+enforces none of the invariants above: keep it for the case where you are
+locked out, not for day-to-day management.
 
-#### Method 2: Manual Configuration
-1. Remove user entry from `users_database.yml`
-2. Restart Authelia container
-
-### Changing Passwords
-
-#### Method 1: Using Management Script
-```bash
-python3 manage_users.py password user@example.com newpassword123
-```
-
-#### Method 2: Manual Configuration
-1. Generate new password hash:
-```bash
-docker run --rm authelia/authelia:latest authelia crypto hash generate argon2 --password "newpassword"
-```
-
-2. Update password in `users_database.yml`
-3. Restart Authelia container
-
-## Management Commands
-
-### List All Users
-```bash
-python3 manage_users.py list
-```
-
-### Initialize Default Users
-```bash
-python3 manage_users.py init
-```
-
-### User Management Script Help
-```bash
-python3 manage_users.py --help
-```
-
+Editing `users_database.yml` by hand is the last resort. Authelia refuses to
+start on a password that is not a valid argon2id hash ("argon2 decode
+error"), and on a file without users ("users: non zero value required").

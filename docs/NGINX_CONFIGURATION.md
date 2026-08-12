@@ -63,8 +63,9 @@ We have **prepared** the infrastructure for self-hosted SSL certificates:
 ## Configuration Files
 
 ### Main Configuration
-- `services/reverse-proxy/nginx.conf` - Main HTTP configuration (current)
-- `services/reverse-proxy/nginx.ssl.conf` - SSL configuration (prepared)
+- `services/nginx/nginx.ssl.conf` - the configuration, bind-mounted as a
+  template and rendered by the entrypoint
+- `services/nginx/conf.d/` - the fragments it includes
 
 ### Include Files
 - `conf.d/auth_request.conf` - Authelia authentication

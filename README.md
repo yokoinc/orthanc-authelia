@@ -262,10 +262,16 @@ See [SSL Setup Guide](docs/SSL_SETUP.md) for detailed configuration.
 
 ## User Management
 
-Create or modify users:
-```bash
-./manage-authelia-users.sh
+Accounts are managed from the administration panel, Users tab:
+
 ```
+https://<your-domain>/console/
+```
+
+The panel is the only path that enforces the invariants -- argon2id hash, at
+least one active administrator, an audit entry per change. Should it become
+unreachable, `./manage-authelia-users.sh` does the same work from a console
+on the host, without any of those guarantees.
 
 Available user groups:
 - **`admin`**: Full access including token management
@@ -414,7 +420,8 @@ To validate a complete installation without touching the running one:
   exception. Purge it through `chrome://net-internals/#hsts`. Check the
   server side first with `curl -k https://your-domain/auth/`: if it answers
   200, the problem is indeed in the browser.
-- **Can't login**: Run `./manage-authelia-users.sh` and restart Authelia
+- **Can't login**: check the account in the panel (Users tab); if the panel
+  itself is unreachable, `./manage-authelia-users.sh` works from a console
 - **Database connection failed**: Verify PostgreSQL is on `database` network
 - **Port conflicts**: Change ports in `docker-compose.yml`
 - **SSL warnings**: Normal for self-signed certificates

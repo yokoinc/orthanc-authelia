@@ -70,8 +70,9 @@ docker logs <container-name>
 **Possible causes and solutions**:
 
 1. **Passwords not hashed correctly**:
+Reset the password from the panel (Users tab), which always writes an
+argon2id hash. From a console, when the panel is unreachable:
 ```bash
-# Regenerate users with proper hashing
 ./manage-authelia-users.sh
 
 # Restart Authelia
@@ -465,10 +466,10 @@ docker volume rm orthanc_nginx_ssl
 rm services/authelia/config/users_database.yml
 rm services/authelia/config/db.sqlite3
 
-# Recreate configuration
-./manage-authelia-users.sh
+# Recreate the bootstrap account and the configuration
+./bootstrap.sh
 
-# Start fresh
+# Start fresh, then create the administrator through the wizard
 docker compose up -d
 ```
 
@@ -488,8 +489,8 @@ docker volume rm orthanc_postgres_data  # If using local PostgreSQL
 rm services/authelia/config/users_database.yml
 rm services/authelia/config/db.sqlite3
 
-# Recreate
-./manage-authelia-users.sh
+# Recreate, then go through the wizard again
+./bootstrap.sh
 docker compose up -d
 ```
 
