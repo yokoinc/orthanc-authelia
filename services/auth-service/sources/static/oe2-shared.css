@@ -279,11 +279,6 @@ body {
     gap: 6px;
 }
 
-/* The KPI cards were removed from the UI (the user found them of little
-   use). The #totalTokens/#expiringSoonTokens/#highUsageTokens IDs are kept as
-   hidden <span>s in the template to avoid a JS crash at
-   document.getElementById('totalTokens').textContent = ... */
-
 /* -----------------------------------------------------------------------------
    SECTION TITLE
    ----------------------------------------------------------------------------- */

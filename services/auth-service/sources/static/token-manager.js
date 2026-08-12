@@ -45,7 +45,6 @@ const CONFIG = {
     ENDPOINTS: {
         TOKENS: '/auth/tokens',
         EXPIRED_TOKENS: '/auth/tokens/expired',
-        STATS: '/auth/tokens/stats',
         REVOKE: '/auth/tokens'
     }
 };
@@ -196,10 +195,6 @@ async function fetchExpiredTokens() {
     }
 }
 
-async function fetchStatistics() {
-    return await apiCall(CONFIG.ENDPOINTS.STATS);
-}
-
 async function revokeToken(tokenId) {
     return await apiCall(`${CONFIG.ENDPOINTS.REVOKE}/${tokenId}`, 'DELETE');
 }
@@ -244,23 +239,6 @@ function getTokenTypeInfo(tokenType) {
 function filterShareTokens(tokens) {
     if (!tokens) return [];
     return tokens.filter(t => isShareToken(t.token_type));
-}
-
-// Compute stats from a list of share tokens
-function computeStats(tokens) {
-    let total = tokens.length;
-    let expiringSoon = 0;
-    let highUsage = 0;
-    const ONE_DAY = CONFIG.TIME_UNITS.DAY;
-    tokens.forEach(t => {
-        const remaining = t.remaining_seconds || 0;
-        if (remaining > 0 && remaining < ONE_DAY) expiringSoon++;
-        const maxUses = t.max_uses || 1;
-        const currentUses = t.current_uses || 0;
-        const percent = (currentUses / maxUses) * 100;
-        if (percent >= 66) highUsage++;
-    });
-    return { total, expiringSoon, highUsage };
 }
 
 // Build active tokens table
@@ -394,13 +372,6 @@ function createExpiredTokensTableHTML(tokens) {
     `;
 }
 
-// Update statistics (computed client-side from share tokens only)
-function updateStatistics(stats) {
-    document.getElementById('totalTokens').textContent = stats.total;
-    document.getElementById('expiringSoonTokens').textContent = stats.expiringSoon;
-    document.getElementById('highUsageTokens').textContent = stats.highUsage;
-}
-
 // Copy share link to clipboard
 async function copyShareLink(tokenId, btn) {
     const shareUrl = `${window.location.origin}/share/?token=${encodeURIComponent(tokenId)}`;
@@ -498,7 +469,6 @@ async function loadData() {
             console.log('Expired share tokens (filtered):', expiredTokens.length);
         }
 
-        updateStatistics(computeStats(tokens));
         container.innerHTML = createTokensTableHTML(tokens);
         expiredContainer.innerHTML = createExpiredTokensTableHTML(expiredTokens);
         document.getElementById('expiredTokensCount').textContent = `(${expiredTokens.length})`;
