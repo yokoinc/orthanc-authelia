@@ -133,18 +133,19 @@
 
             <!-- ===== CF ACCESS ===== -->
             <div class="admin-panel" id="panel-cf" hidden>
-                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 12px">Rotation Cloudflare Access</h2>
-                <div id="cf-status" style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin-bottom:16px">Chargement…</div>
-                <form id="cf-form" style="max-width:520px">
-                    <div class="form-row"><label>Nouveau Client ID</label><input name="client_id" required minlength="10"></div>
-                    <div class="form-row"><label>Nouveau Secret</label><input type="password" name="client_secret" required minlength="32"></div>
-                    <button type="submit" class="oe2-btn oe2-btn--primary" style="margin-top:12px">
-                        <i class="fa-solid fa-floppy-disk"></i> Enregistrer
-                    </button>
-                </form>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 4px">Cloudflare Access</h2>
+                <p style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
+                    Cloudflare valide le jeton de service à sa frontière et ne le transmet
+                    pas : il relaie une assertion signée, que ce serveur vérifie contre les
+                    clés publiques de l'équipe. Il n'y a donc rien à saisir ici — la rotation
+                    d'un jeton se fait dans Cloudflare, et rien de ce côté n'a à suivre.
+                </p>
+                <div id="cf-status" style="font-size:var(--oe2-fs-small)">Chargement…</div>
+                <button class="oe2-btn oe2-btn--secondary" style="margin-top:12px" onclick="loadCF()">
+                    <i class="fa-solid fa-rotate"></i> Rafraîchir
+                </button>
             </div>
 
-            <!-- ===== HEALTH ===== -->
             <div class="admin-panel" id="panel-session" hidden>
                 <h2 style="font-size:var(--oe2-fs-small);margin:0 0 4px">Durées de session</h2>
                 <p style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin:0 0 12px;max-width:640px">

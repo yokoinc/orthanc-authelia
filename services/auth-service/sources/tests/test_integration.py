@@ -270,37 +270,6 @@ class TestSetupWizard:
 
 
 # ============================================================================
-# Test 2: CF Access rotate + verify pipeline
-# ============================================================================
-
-class TestCFAccess:
-
-    def test_rotate_snapshots_old_to_history(
-        self, client, fake_redis, redis_sync, csrf_headers,
-    ):
-        """The old pair is pushed to cf_access:history on rotate."""
-        # 1st rotate (client_id min 10 chars)
-        r1 = client.post("/api/admin/cf-access/rotate", json={
-            "client_id": "id-one-abc.access",
-            "client_secret": "1" * 64,
-        }, headers=csrf_headers)
-        assert r1.status_code == 200, r1.text
-        # 2nd rotate
-        r2 = client.post("/api/admin/cf-access/rotate", json={
-            "client_id": "id-two-abc.access",
-            "client_secret": "2" * 64,
-        }, headers=csrf_headers)
-        assert r2.status_code == 200, r2.text
-
-        # History holds at least the old pair
-        length = redis_sync.llen("cf_access:history")
-        assert length >= 1
-        first = redis_sync.lindex("cf_access:history", 0)
-        assert "id-one-abc.access" in first
-        assert "1" * 64 in first
-
-
-# ============================================================================
 # Test 3: Orthanc config change + reload
 # ============================================================================
 
@@ -1025,6 +994,40 @@ class TestSessionDurations:
 # ============================================================================
 # Test 14: Cloudflare Access assertion (JWT)
 # ============================================================================
+
+class TestCFAccessStatus:
+
+    def test_status_reports_the_verification_state(
+        self, client, fake_redis, monkeypatch,
+    ):
+        """The tab reports, it no longer offers a pair to store.
+
+        Cloudflare rotates its own tokens and relays a signed assertion; there
+        is nothing on this side to keep in step, so the endpoint exposes what is
+        pinned and whether nginx enforces it.
+        """
+        monkeypatch.setattr(admin_module, "CF_ACCESS_TEAM_DOMAIN", "team.cloudflareaccess.com")
+        monkeypatch.setattr(admin_module, "CF_ACCESS_AUD", "a" * 40)
+        monkeypatch.setattr(admin_module, "CF_ACCESS_ENFORCED", True)
+
+        body = client.get("/api/admin/cf-access").json()
+        assert body["team_domain"] == "team.cloudflareaccess.com"
+        assert body["configured"] is True
+        assert body["enforced"] is True
+        assert "…" in body["aud_masked"], "the audience is shortened, not dumped"
+
+    def test_status_flags_an_unconfigured_verification(self, client, fake_redis, monkeypatch):
+        monkeypatch.setattr(admin_module, "CF_ACCESS_TEAM_DOMAIN", "")
+        body = client.get("/api/admin/cf-access").json()
+        assert body["configured"] is False
+
+    def test_rotate_endpoint_is_gone(self, client, fake_redis, csrf_headers):
+        """Storing a pair could never have gated anything: it is not offered."""
+        r = client.post("/api/admin/cf-access/rotate", json={
+            "client_id": "id-one-abc.access", "client_secret": "1" * 64,
+        }, headers=csrf_headers)
+        assert r.status_code in (404, 405)
+
 
 class TestCFAccessJWT:
     """Cloudflare consumes the service token at its edge and relays a signed

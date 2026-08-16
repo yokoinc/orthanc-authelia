@@ -805,14 +805,6 @@ CF_ACCESS_ENFORCED = os.getenv("CF_ACCESS_ENFORCED", "false").lower() == "true"
 CF_ACCESS_TEAM_DOMAIN = os.getenv("CF_ACCESS_TEAM_DOMAIN", "")
 CF_ACCESS_AUD = os.getenv("CF_ACCESS_AUD", "")
 
-CF_ID_KEY = "cf_access:client_id"
-CF_SECRET_KEY = "cf_access:secret"
-CF_HISTORY_KEY = "cf_access:history"
-
-
-class CFRotatePayload(BaseModel):
-    client_id: str = Field(..., min_length=10, max_length=200)
-    client_secret: str = Field(..., min_length=32, max_length=200)
 
 
 # ============================================================================
@@ -1090,46 +1082,29 @@ async def update_orthanc_config(
 
 @router.get("/api/admin/cf-access")
 async def cf_status(admin: AdminUser = Depends(require_admin)):
-    cid = await _r().get(CF_ID_KEY) or ""
-    secret_exists = bool(await _r().get(CF_SECRET_KEY))
-    history_len = await _r().llen(CF_HISTORY_KEY)
+    """State of the Cloudflare Access verification.
+
+    There is nothing to set here. Cloudflare validates the service token at its
+    edge and relays a signed assertion; the origin checks that signature against
+    the team's published keys. Rotating a token is done in the Cloudflare
+    dashboard, and nothing on this side has to follow -- which is why the tab
+    reports rather than offers.
+    """
+    checks = 0
+    try:
+        checks = int(await _r().get("cf_access:checks_ok:24h") or 0)
+    except (RedisError, ValueError):
+        pass
+
     return {
-        "client_id_masked": (cid[:8] + "…" + cid[-6:]) if len(cid) > 20 else cid,
-        "secret_configured": secret_exists,
-        "history_length": history_len,
-        "enforced": CF_ACCESS_ENFORCED,
-    }
-
-
-@router.post("/api/admin/cf-access/rotate")
-async def cf_rotate(
-    payload: CFRotatePayload,
-    admin: AdminUser = Depends(require_admin),
-):
-    """Atomic rotation: snapshot the old pair to history, set the new, audit."""
-    old_id = await _r().get(CF_ID_KEY) or ""
-    old_secret = await _r().get(CF_SECRET_KEY) or ""
-    if old_secret:
-        entry = f"{int(time.time())}|{old_id}|{old_secret}"
-        await _r().lpush(CF_HISTORY_KEY, entry)
-        await _r().ltrim(CF_HISTORY_KEY, 0, 9)
-
-    async with _r().pipeline(transaction=True) as pipe:
-        pipe.set(CF_ID_KEY, payload.client_id)
-        pipe.set(CF_SECRET_KEY, payload.client_secret)
-        await pipe.execute()
-
-    await _audit("cf_access.rotated", admin.username, id_prefix=payload.client_id[:8])
-    return {
-        "ok": True,
-        "rotated_at": int(time.time()),
-        "enforced": CF_ACCESS_ENFORCED,
-        "detail": (
-            "Pair stored and effective on the next upload."
-            if CF_ACCESS_ENFORCED else
-            "Pair stored, but nothing enforces it yet: nginx does not gate "
-            "/api-upload/ on it. Uploads are unaffected either way."
+        "team_domain": CF_ACCESS_TEAM_DOMAIN,
+        "aud_masked": (
+            CF_ACCESS_AUD[:8] + "…" + CF_ACCESS_AUD[-6:]
+            if len(CF_ACCESS_AUD) > 20 else CF_ACCESS_AUD
         ),
+        "configured": bool(CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD),
+        "enforced": CF_ACCESS_ENFORCED,
+        "checks_ok": checks,
     }
 
 

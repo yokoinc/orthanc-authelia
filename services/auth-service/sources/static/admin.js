@@ -200,47 +200,27 @@ document.getElementById('orthanc-form').addEventListener('submit', async (e) => 
 
 // ============ CF ACCESS ============
 async function loadCF() {
+    const el = document.getElementById('cf-status');
     try {
-        const data = await api('/api/admin/cf-access');
-        const banner = data.enforced ? '' : `
+        const d = await api('/api/admin/cf-access');
+        const yes = '<span style="color:var(--oe2-success)">oui</span>';
+        const no = '<span style="color:var(--oe2-danger)">non</span>';
+        const warn = d.configured && d.enforced ? '' : `
             <div class="msg msg--err" style="display:block;margin-bottom:12px">
-                Rotation sans effet pour l'instant : nginx ne filtre pas encore
-                /api-upload/ sur ce couple. Ce que tu enregistres ici est bien
-                stocke, mais aucun upload n'en depend.
+                La verification n'est pas active : les uploads ne dependent que du
+                filtrage Cloudflare, sans controle a l'origine.
             </div>`;
-        document.getElementById('cf-status').innerHTML = banner + `
-            Client ID actuel : <code>${data.client_id_masked || '(non configure)'}</code><br>
-            Secret configure : ${data.secret_configured ? '<span style="color:var(--oe2-success)">oui</span>' : '<span style="color:var(--oe2-danger)">non</span>'}<br>
-            Rotations historisees : ${data.history_length}<br>
-            Applique par nginx : ${data.enforced ? '<span style="color:var(--oe2-success)">oui</span>' : '<span style="color:var(--oe2-danger)">non</span>'}
+        el.innerHTML = warn + `
+            Domaine d'equipe : <code>${d.team_domain || '(non configure)'}</code><br>
+            Application (aud) : <code>${d.aud_masked || '(non configure)'}</code><br>
+            Verification a l'origine : ${d.configured ? yes : no}<br>
+            Appliquee par nginx sur /api-upload/ : ${d.enforced ? yes : no}<br>
+            Assertions acceptees : ${d.checks_ok}
         `;
     } catch (e) {
-        document.getElementById('cf-status').textContent = 'Erreur : ' + e.message;
+        el.textContent = 'Erreur : ' + e.message;
     }
 }
-
-document.getElementById('cf-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const ok = await confirmDialog(
-        'Rotation atomique des identifiants CF Access. Effet immediat sur la prochaine '
-        + 'requete /api-upload/ : tout client utilisant l\'ancien secret sera refuse.',
-        'Effectuer la rotation',
-    );
-    if (!ok) return;
-    const fd = new FormData(e.target);
-    try {
-        const data = await api('/api/admin/cf-access/rotate', {
-            method: 'POST',
-            body: {
-                client_id: fd.get('client_id'),
-                client_secret: fd.get('client_secret'),
-            },
-        });
-        showMsg(data.detail || 'Rotation enregistree', true);
-        e.target.reset();
-        loadCF();
-    } catch (err) { showMsg(err.message, false); }
-});
 
 // ============ SESSION ============
 async function loadSession() {
