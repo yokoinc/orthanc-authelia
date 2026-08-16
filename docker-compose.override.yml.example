@@ -1,12 +1,12 @@
 # Additions au docker-compose.yml existant.
-# A merger ou renommer en docker-compose.override.yml pour surcharge automatique.
+# A copier en docker-compose.override.yml (gitignore) pour surcharge automatique.
 #
 # Paths adaptes a la structure reelle du repo :
 #   services/orthanc/config/orthanc.json         (deja bind-mounte cote orthanc)
 #   services/authelia/config/                    (bind-mount du dossier entier cote authelia)
 #
 # ============================================================================
-# Prerequis one-shot sur le NAS avant premier up
+# Prerequis one-shot avant premier up
 # ============================================================================
 #
 # 1) Compte Orthanc dedie a auth-service (dans .env, non-editable via UI)
@@ -15,67 +15,73 @@
 #   ORTHANC_ADMIN_PASS=$(openssl rand -hex 32)
 #   EOF
 #
-# 2) Permissions bind-mounts (UID 1000)
+# 2) Dossier des backups
+#   mkdir -p ./data/admin-backups
 #
-# --- Linux natif / Docker Desktop / la plupart des NAS :
-#   sudo chown -R 1000:1000 ./services/orthanc/config ./services/authelia/config ./data/admin-backups
+# 3) Routes nginx du panneau
+#   Sans elles, /auth/admin et /api/admin/ tombent dans les locations /auth/
+#   et /api/ qui pointent sur Authelia, et repondent 404. Les trois blocs sont
+#   dans services/nginx/nginx.ssl.conf, section "ADMIN / SETUP PANEL".
 #
-# --- Synology DSM (specifique) :
-#   DSM utilise des ACL Btrfs. `chown` classique peut etre partiellement
-#   ecrase par l'ACL par defaut du partage. Deux options :
+# ============================================================================
+# Pourquoi des bind-mounts de DOSSIERS et pas de fichiers
+# ============================================================================
 #
-#   a) Le plus simple : creer les dossiers depuis File Station en tant que
-#      l'utilisateur qui execute Docker (souvent 'docker' ou ton user perso),
-#      puis via SSH :
-#        sudo synoacltool -del ./services/orthanc/config/orthanc.json
-#        sudo synoacltool -del ./services/authelia/config/users_database.yml
-#        sudo chown 1000:1000 ./services/orthanc/config/orthanc.json
-#        sudo chown 1000:1000 ./services/authelia/config/users_database.yml
-#        sudo chmod 660 ./services/orthanc/config/orthanc.json
-#        sudo chmod 660 ./services/authelia/config/users_database.yml
+# On ne peut pas ecrire dans un fichier bind-mounte individuellement par un
+# rename : la cible est un point de montage, le rename rend EBUSY
+#   OSError [Errno 16] Device or resource busy: '/host/orthanc.json.tmp' -> '/host/orthanc.json'
+# Et meme dans le cas ou il aboutirait, Docker monte par inode : orthanc, qui
+# lit orthanc.json en :ro, continuerait de voir l'ancien fichier apres
+# /tools/reset -- echec silencieux.
 #
-#   b) Plus propre : mettre les fichiers dans un volume Docker natif (pas
-#      un partage DSM). Perd la commodite du File Station mais aucun probleme
-#      d'ACL.
+# admin_module ecrit donc dans l'inode existant (_atomic_write), ce qui exige
+# que le DOSSIER parent soit monte. Verification apres un up :
+#   ls -i services/orthanc/config/orthanc.json
+#   docker exec orthanc-server ls -i /etc/orthanc/orthanc.json   # meme inode
 #
-#   Verification :
-#     docker exec orthanc-server id       # doit sortir uid=1000
-#     docker exec orthanc-auth-service id # doit sortir uid=1000
-#     docker exec orthanc-auth-service ls -l /host/orthanc.json
-#     # -> -rw-rw---- 1 1000 1000
+# ============================================================================
+# Deux options volontairement absentes
+# ============================================================================
+#
+# - `user: "1000:1000"` : a n'ajouter que si les conteneurs tournent deja sous
+#   cet UID. Basculer un stack en service de root vers 1000 casse les
+#   permissions des donnees existantes. Verifier d'abord :
+#     docker exec orthanc-server id
+#   Sur Synology, les ACL Btrfs peuvent en plus ecraser un chown classique :
+#     sudo synoacltool -del ./services/orthanc/config/orthanc.json
+#     sudo chown 1000:1000 ./services/orthanc/config/orthanc.json
+#     sudo chmod 660 ./services/orthanc/config/orthanc.json
+#
+# - `ORTHANC__AUTHENTICATION_ENABLED=true` : a n'activer que si nginx envoie un
+#   header Authorization vers l'upstream orthanc. Par defaut il n'en envoie
+#   aucun (l'auth passe par Authelia et le plugin Authorization) : activer
+#   l'auth Basic d'Orthanc renvoie alors 401 sur l'UI, OHIF, dicom-web et
+#   /api-upload/. auth-service envoie ses creds de toute facon, ils sont prets
+#   pour le jour ou l'auth sera activee proprement.
 
 services:
-  orthanc:
-    user: "1000:1000"
-    # (le bind-mount orthanc.json existe deja dans le compose principal,
-    # rien a rajouter ici cote volumes)
-    environment:
-      # Compte Basic auth utilise par auth-service pour POST /tools/reset,
-      # /modalities, /dicom-web/servers. Injecte via env vars pour rester
-      # hors du orthanc.json edite par UI.
-      - ORTHANC__REGISTERED_USERS={"${ORTHANC_ADMIN_USER}":"${ORTHANC_ADMIN_PASS}"}
-      - ORTHANC__AUTHENTICATION_ENABLED=true
-
-  authelia:
-    user: "1000:1000"
-    # (le bind-mount services/authelia/config existe deja, dossier entier)
-
   auth-service:
-    user: "1000:1000"
+    # Tag dedie a la branche : ne pas reutiliser un numero deja publie, deux
+    # images differentes sous un meme numero est precisement ce qu'on evite.
+    image: registry.yokoinc.ovh/orthanc-auth-service:1.1.0-rc1
     volumes:
-      # Bind-mount croise : le meme fichier host que orthanc/authelia,
-      # monte en RW cote auth-service pour edition depuis l'admin panel.
-      - ./services/orthanc/config/orthanc.json:/host/orthanc.json:rw
-      - ./services/authelia/config/users_database.yml:/host/authelia.yml:rw
-      # Volume dedie aux backups rotatifs (10 derniers par fichier)
+      # Dossiers, pas fichiers -- cf. en-tete.
+      - ./services/orthanc/config:/host/orthanc:rw
+      - ./services/authelia/config:/host/authelia:rw
       - ./data/admin-backups:/host/backups:rw
     environment:
-      # Credentials pour parler a Orthanc en Basic auth
+      # Nom du groupe Authelia qui ouvre le panneau. Doit concorder avec le
+      # users_database.yml, le `subject: "group:..."` de la configuration
+      # Authelia et la map $groups de nginx. Defaut du module : "admins".
+      # Une install existante utilise souvent "admin" au singulier.
+      - ADMIN_GROUP=admins
+      - ADMIN_ORTHANC_PATH=/host/orthanc/orthanc.json
+      - ADMIN_AUTHELIA_PATH=/host/authelia/users_database.yml
+      - ADMIN_BACKUPS_DIR=/host/backups
+      # Basic auth pour /tools/reset et le health check /system
       - ORTHANC_ADMIN_USER=${ORTHANC_ADMIN_USER}
       - ORTHANC_ADMIN_PASS=${ORTHANC_ADMIN_PASS}
       - ORTHANC_URL=http://orthanc:8042
-      # Redis
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
       # Versions (deja injectees dans le chantier precedent)
       - IMAGE_VERSION=${IMAGE_VERSION}
       - ASSET_VERSION=${ASSET_VERSION}
