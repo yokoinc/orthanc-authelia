@@ -95,9 +95,8 @@
                 <details style="margin-top:20px">
                     <summary style="font-size:13px;cursor:pointer;color:var(--oe2-accent-soft)">+ Ajouter un utilisateur</summary>
                     <form id="add-user-form" style="margin-top:12px;max-width:520px">
-                        <div class="form-row"><label>Login</label><input name="username" required pattern="[a-zA-Z0-9._-]{3,32}"></div>
-                        <div class="form-row"><label>Nom affiché</label><input name="displayname" required></div>
                         <div class="form-row"><label>Email</label><input type="email" name="email" required></div>
+                        <div class="form-row"><label>Nom affiché</label><input name="displayname" required></div>
                         <div class="form-row"><label>Mot de passe</label><input type="password" name="password" required minlength="12"></div>
                         <div class="form-row"><label>Groupes</label>
                             <select name="groups" multiple size="3" style="height:auto">
@@ -154,6 +153,25 @@
             </div>
         </main>
     </div>
+
+<!-- Confirmation dialog. Replaces window.confirm(), whose native box ignores the
+     page styling and cannot be worded properly. Driven by confirmDialog() in
+     admin.js. -->
+<div id="confirm-backdrop" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.55);
+     display:flex;align-items:center;justify-content:center;z-index:1000">
+    <div role="dialog" aria-modal="true" aria-labelledby="confirm-text"
+         style="background:var(--oe2-nav-bg);border:1px solid var(--oe2-border);border-radius:8px;
+                padding:22px 24px;max-width:440px;box-shadow:0 10px 40px rgba(0,0,0,.5)">
+        <p id="confirm-text" style="margin:0 0 18px;font-size:14px;line-height:1.5"></p>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button type="button" id="confirm-cancel" class="oe2-btn oe2-btn--sm">Annuler</button>
+            <button type="button" id="confirm-ok" class="oe2-btn oe2-btn--sm"
+                    style="background:var(--oe2-danger);border-color:var(--oe2-danger);color:#fff">
+                Confirmer
+            </button>
+        </div>
+    </div>
+</div>
 
 <script src="/auth/static/admin.js?v={asset_version}"></script>
 <script>

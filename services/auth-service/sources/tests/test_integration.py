@@ -185,6 +185,40 @@ class TestSetupWizard:
         }, follow_redirects=False)
         assert r.status_code == 404, "the wizard must be gone, not redirecting"
 
+    def test_email_is_the_identity_when_no_login_given(
+        self, client, tmp_paths, fake_redis,
+    ):
+        """No login field: the e-mail becomes the key in users_database.yml.
+
+        Authelia matches accounts on that key, and this deployment uses e-mail
+        addresses there. The former pattern forbade "@" outright, so the panel
+        could not create an account in the very format the file already used.
+        """
+        r = client.post("/auth/setup/create-admin", json={
+            "displayname": "Gregory Cuffel",
+            "email": "cuffel.gregory@gmail.com",
+            "password": "premier-admin-12345",
+            "groups": ["admins"],
+        })
+        assert r.status_code == 200, r.text
+        assert r.json()["username"] == "cuffel.gregory@gmail.com"
+
+        yml = yaml.safe_load(tmp_paths["authelia"].read_text())
+        assert "cuffel.gregory@gmail.com" in yml["users"]
+        assert yml["users"]["cuffel.gregory@gmail.com"]["password"].startswith("$argon2id$")
+
+    def test_explicit_login_still_accepted(self, client, tmp_paths, fake_redis):
+        """A separate login remains possible for installs that use one."""
+        r = client.post("/auth/setup/create-admin", json={
+            "username": "cuffel.gregory",
+            "displayname": "Gregory Cuffel",
+            "email": "cuffel.gregory@gmail.com",
+            "password": "premier-admin-12345",
+        })
+        assert r.status_code == 200, r.text
+        yml = yaml.safe_load(tmp_paths["authelia"].read_text())
+        assert "cuffel.gregory" in yml["users"]
+
     def test_finalize_refused_without_admin(self, client, tmp_paths, fake_redis):
         """Finalizing without an active admin = 400 (lockout invariant)."""
         # No POST create-admin beforehand

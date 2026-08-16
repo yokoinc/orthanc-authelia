@@ -28,7 +28,7 @@ from argon2 import PasswordHasher
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from filelock import FileLock, Timeout
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 from redis.exceptions import RedisError
 
 
@@ -303,23 +303,76 @@ async def setup_gate(request: Request, call_next):
 # Middleware : CSRF (double-submit token + origin check)
 # ============================================================================
 
+# Extra origins accepted by the check, comma separated. Needed when the panel is
+# reached under a name the proxy does not forward, e.g. a LAN address or an
+# alternate domain.
+CSRF_ALLOWED_ORIGINS = {
+    o.strip().rstrip("/")
+    for o in os.getenv("CSRF_ALLOWED_ORIGINS", "").split(",")
+    if o.strip()
+}
+
+
+def _acceptable_origins(request: Request) -> set[str]:
+    """Origins that count as same-site for this request.
+
+    Comparing Origin against the Host header alone is not enough here: nginx
+    rewrites Host to the configured DOMAIN, so a browser reaching the panel
+    under any other name (a LAN address, a second domain) sends an Origin that
+    can never match the rewritten Host, and every write is refused. We therefore
+    accept the forwarded host as well, plus anything listed explicitly.
+    """
+    origins = set(CSRF_ALLOWED_ORIGINS)
+    for header in ("host", "x-forwarded-host"):
+        host = request.headers.get(header, "").split(",")[0].strip()
+        if host:
+            origins.add(f"https://{host}")
+            origins.add(f"http://{host}")
+    return origins
+
+
 async def csrf_gate(request: Request, call_next):
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return await call_next(request)
     if not request.url.path.startswith("/api/admin/"):
         return await call_next(request)
 
-    # 1. Origin match
-    origin = request.headers.get("origin", "")
-    host = request.headers.get("host", "")
-    if origin and origin != f"https://{host}":
-        return JSONResponse({"error": "csrf.origin"}, status_code=403)
+    # 1. Origin match. Absent Origin is allowed through: non-browser clients do
+    #    not send it, and the double-submit token below is the real barrier.
+    origin = request.headers.get("origin", "").rstrip("/")
+    if origin:
+        acceptable = _acceptable_origins(request)
+        if origin not in acceptable:
+            # The detail is spelled out because this route is already behind
+            # Authelia and the group check: only an administrator sees it, and
+            # without it a proxy misconfiguration is undiagnosable from the UI.
+            return JSONResponse(
+                {
+                    "error": "csrf.origin",
+                    "detail": (
+                        f"Origin {origin} is not accepted. Expected one of "
+                        f"{sorted(acceptable)}. Add it to CSRF_ALLOWED_ORIGINS "
+                        "if the panel is legitimately reached under that name."
+                    ),
+                },
+                status_code=403,
+            )
 
     # 2. Double-submit token
     cookie_tok = request.cookies.get(CSRF_COOKIE, "")
     header_tok = request.headers.get("x-csrf-token", "")
     if not cookie_tok or not header_tok or not pysecrets.compare_digest(cookie_tok, header_tok):
-        return JSONResponse({"error": "csrf.token"}, status_code=403)
+        return JSONResponse(
+            {
+                "error": "csrf.token",
+                "detail": (
+                    "CSRF cookie and header do not match. Reload the page: the "
+                    f"{CSRF_COOKIE} cookie is set when /auth/admin is rendered "
+                    "and expires after one hour."
+                ),
+            },
+            status_code=403,
+        )
 
     return await call_next(request)
 
@@ -559,12 +612,32 @@ def _write_authelia(data: dict) -> None:
         raise HTTPException(423, "file locked by another admin, retry in 5s") from e
 
 
+# An account's identity is the key it has in users_database.yml -- that is what
+# Authelia matches at login. Many deployments, this one included, use e-mail
+# addresses as those keys, so the pattern has to allow a domain part. The old
+# expression forbade "@" outright, which made it impossible to create an account
+# in the very format the file already used.
+_USERNAME_RE = re.compile(r"^[a-zA-Z0-9._%+-]{3,64}(@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})?$")
+
+
 class UserCreatePayload(BaseModel):
-    username: str = Field(..., pattern=r"^[a-zA-Z0-9._-]{3,32}$")
+    # Optional: with no explicit login, the e-mail address is the identity.
+    username: str | None = Field(default=None, max_length=100)
     displayname: str = Field(..., min_length=1, max_length=100)
     email: EmailStr
     password: str = Field(..., min_length=12)
     groups: list[str] = Field(default_factory=lambda: ["doctors"])
+
+    @model_validator(mode="after")
+    def _resolve_identity(self):
+        if not self.username:
+            self.username = str(self.email)
+        if not _USERNAME_RE.match(self.username):
+            raise ValueError(
+                "username: 3 to 64 characters among letters, digits and . _ % + - "
+                "optionally followed by an e-mail domain"
+            )
+        return self
 
 
 class PasswordChangePayload(BaseModel):

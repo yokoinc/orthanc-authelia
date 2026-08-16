@@ -23,6 +23,42 @@ function api(path, opts) {
     });
 }
 
+/**
+ * In-page confirmation. Replaces window.confirm(), whose native box ignores the
+ * page styling and cannot be worded properly. Resolves true/false.
+ * Escape and the backdrop both cancel, so the destructive path always needs an
+ * explicit click.
+ */
+function confirmDialog(message, okLabel) {
+    const backdrop = document.getElementById('confirm-backdrop');
+    const ok = document.getElementById('confirm-ok');
+    const cancel = document.getElementById('confirm-cancel');
+    document.getElementById('confirm-text').textContent = message;
+    ok.textContent = okLabel || 'Confirmer';
+    backdrop.hidden = false;
+    ok.focus();
+
+    return new Promise(resolve => {
+        function close(result) {
+            backdrop.hidden = true;
+            ok.removeEventListener('click', onOk);
+            cancel.removeEventListener('click', onCancel);
+            backdrop.removeEventListener('click', onBackdrop);
+            document.removeEventListener('keydown', onKey);
+            resolve(result);
+        }
+        function onOk() { close(true); }
+        function onCancel() { close(false); }
+        function onBackdrop(e) { if (e.target === backdrop) close(false); }
+        function onKey(e) { if (e.key === 'Escape') close(false); }
+
+        ok.addEventListener('click', onOk);
+        cancel.addEventListener('click', onCancel);
+        backdrop.addEventListener('click', onBackdrop);
+        document.addEventListener('keydown', onKey);
+    });
+}
+
 function showMsg(text, ok) {
     const el = document.getElementById('global-msg');
     el.textContent = text;
@@ -73,7 +109,11 @@ async function loadUsers() {
 }
 
 async function deleteUser(username) {
-    if (!confirm(`Supprimer l'utilisateur "${username}" ?`)) return;
+    const ok = await confirmDialog(
+        `Supprimer definitivement l'utilisateur "${username}" ? Un backup du fichier est conserve.`,
+        'Supprimer',
+    );
+    if (!ok) return;
     try {
         await api(`/api/admin/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
         showMsg(`User ${username} supprime`, true);
@@ -86,10 +126,11 @@ document.getElementById('add-user-form').addEventListener('submit', async (e) =>
     const fd = new FormData(e.target);
     const groups = Array.from(e.target.groups.selectedOptions).map(o => o.value);
     try {
+        // No login field: the e-mail is the identity, it is the key Authelia
+        // matches in users_database.yml. The server derives it.
         await api('/api/admin/users', {
             method: 'POST',
             body: {
-                username: fd.get('username'),
                 displayname: fd.get('displayname'),
                 email: fd.get('email'),
                 password: fd.get('password'),
@@ -142,7 +183,15 @@ document.getElementById('orthanc-form').addEventListener('submit', async (e) => 
             method: 'PATCH',
             body: { changes },
         });
-        showMsg(`Applique. Backup : ${data.backup}`, true);
+        // The server tells us whether Orthanc actually picked the change up.
+        // Saying "applied" when it only got written would be a lie.
+        showMsg(
+            data.restart_required
+                ? `Ecrit (backup ${data.backup}). Orthanc lit une copie faite a son demarrage : `
+                  + `relancer le conteneur pour appliquer — docker compose restart orthanc`
+                : `Applique. Backup : ${data.backup}`,
+            true,
+        );
     } catch (err) { showMsg(err.message, false); }
 });
 
@@ -162,7 +211,12 @@ async function loadCF() {
 
 document.getElementById('cf-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (!confirm('Rotation atomique. Effet immediat sur la prochaine requete /api-upload/. Continuer ?')) return;
+    const ok = await confirmDialog(
+        'Rotation atomique des identifiants CF Access. Effet immediat sur la prochaine '
+        + 'requete /api-upload/ : tout client utilisant l\'ancien secret sera refuse.',
+        'Effectuer la rotation',
+    );
+    if (!ok) return;
     const fd = new FormData(e.target);
     try {
         await api('/api/admin/cf-access/rotate', {
