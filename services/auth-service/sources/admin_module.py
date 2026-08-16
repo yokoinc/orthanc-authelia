@@ -799,6 +799,12 @@ class OrthancConfigPayload(BaseModel):
 # into -- so the state is declared here and shown as-is in the UI.
 CF_ACCESS_ENFORCED = os.getenv("CF_ACCESS_ENFORCED", "false").lower() == "true"
 
+# Cloudflare Access, origin-side verification. The team domain pins the issuer
+# and provides the signing keys; the audience identifies this application and is
+# the cf-access-aud header Cloudflare returns on a refused request.
+CF_ACCESS_TEAM_DOMAIN = os.getenv("CF_ACCESS_TEAM_DOMAIN", "")
+CF_ACCESS_AUD = os.getenv("CF_ACCESS_AUD", "")
+
 CF_ID_KEY = "cf_access:client_id"
 CF_SECRET_KEY = "cf_access:secret"
 CF_HISTORY_KEY = "cf_access:history"
@@ -1131,30 +1137,87 @@ async def cf_rotate(
 # Internal route: verify-cf (called by nginx auth_request)
 # ============================================================================
 
+# Cloudflare's signing keys, cached. Refetched when a token carries an unknown
+# kid (Cloudflare rotates them) and, failing that, once the TTL has run out.
+_jwks_cache: dict[str, Any] = {"keys": {}, "fetched_at": 0.0}
+_JWKS_TTL = 3600
+
+
+async def _cf_signing_key(kid: str):
+    """Public key for a kid, fetched from the team's JWKS endpoint.
+
+    The issuer is NOT taken from the token: a forged assertion would simply
+    name its own team, whose JWKS would then validate it happily. It comes from
+    CF_ACCESS_TEAM_DOMAIN, which is the whole point of pinning it.
+    """
+    import jwt  # noqa: PLC0415 -- optional at import time, see verify_cf
+
+    fresh = (time.time() - _jwks_cache["fetched_at"]) < _JWKS_TTL
+    if kid in _jwks_cache["keys"] and fresh:
+        return _jwks_cache["keys"][kid]
+
+    url = f"https://{CF_ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs"
+    async with httpx.AsyncClient(timeout=5) as client:
+        r = await client.get(url)
+        r.raise_for_status()
+        jwks = r.json()
+
+    _jwks_cache["keys"] = {
+        k["kid"]: jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(k))
+        for k in jwks.get("keys", [])
+        if k.get("kid")
+    }
+    _jwks_cache["fetched_at"] = time.time()
+    return _jwks_cache["keys"].get(kid)
+
+
 @router.get("/api/internal/verify-cf", include_in_schema=False)
 async def verify_cf(
-    x_cf_client_id: str = Header(default=""),
-    x_cf_client_secret: str = Header(default=""),
+    cf_access_jwt_assertion: str = Header(default=""),
 ):
     """
-    Compare the CF headers against the values stored in Redis.
+    Verify the assertion Cloudflare Access puts on a request it let through.
 
-    Fail closed: if Redis is unavailable we return 403 (not 500) so that nginx
-    blocks the upload. Better to refuse a legitimate upload during a Redis
-    outage than to let a secret through during a blackout.
+    Cloudflare consumes the service token at its edge and does NOT relay
+    CF-Access-Client-Id / CF-Access-Client-Secret to the origin -- measured on
+    this stack, the headers simply never arrive. What it does relay is a signed
+    assertion, so that is what gets checked here: RS256 signature against the
+    team's published keys, expiry, issuer and audience.
+
+    Pinning both issuer and audience is what makes this worth anything. A token
+    signed by any other Cloudflare team would otherwise verify perfectly well
+    against that team's own keys.
+
+    Fail closed throughout: anything unexpected answers 403 so nginx refuses
+    the upload. 503 is reserved for "not configured", which nginx must never
+    reach in the first place -- the auth_request line and CF_ACCESS_TEAM_DOMAIN
+    belong together.
     """
-    try:
-        expected_id = await _r().get(CF_ID_KEY)
-        expected_secret = await _r().get(CF_SECRET_KEY)
-    except RedisError:
-        return Response(status_code=403)  # fail closed
-
-    if not expected_id or not expected_secret:
+    if not CF_ACCESS_TEAM_DOMAIN or not CF_ACCESS_AUD:
         return Response(status_code=503)  # not configured
-
-    if not pysecrets.compare_digest(x_cf_client_id, expected_id):
+    if not cf_access_jwt_assertion:
         return Response(status_code=403)
-    if not pysecrets.compare_digest(x_cf_client_secret, expected_secret):
+
+    try:
+        import jwt
+    except ImportError:
+        # The image was built without the dependency: refuse rather than let
+        # everything through unverified.
+        return Response(status_code=403)
+
+    try:
+        kid = jwt.get_unverified_header(cf_access_jwt_assertion).get("kid", "")
+        key = await _cf_signing_key(kid)
+        if key is None:
+            return Response(status_code=403)
+        jwt.decode(
+            cf_access_jwt_assertion,
+            key=key,
+            algorithms=["RS256"],
+            audience=CF_ACCESS_AUD,
+            issuer=f"https://{CF_ACCESS_TEAM_DOMAIN}",
+        )
+    except (jwt.InvalidTokenError, httpx.HTTPError, ValueError, KeyError):
         return Response(status_code=403)
 
     # Hit counter metric — silent failure if Redis is flaky here, not critical

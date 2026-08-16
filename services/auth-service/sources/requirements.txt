@@ -7,3 +7,5 @@ pyyaml==6.0.1
 filelock==3.13.1
 httpx==0.25.1
 pydantic[email]==2.5.0
+# Cloudflare Access assertion verification (RS256 + JWKS)
+pyjwt[crypto]==2.8.0

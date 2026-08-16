@@ -275,44 +275,6 @@ class TestSetupWizard:
 
 class TestCFAccess:
 
-    def test_rotate_then_verify_matches(self, client, fake_redis, csrf_headers):
-        """POST rotate -> GET verify-cf with the new headers = 204."""
-        r = client.post("/api/admin/cf-access/rotate", json={
-            "client_id": "new-id-ec87a9cb.access",
-            "client_secret": "s" * 64,
-        }, headers=csrf_headers)
-        assert r.status_code == 200
-
-        # Verify with the new headers
-        r = client.get("/api/internal/verify-cf", headers={
-            "x-cf-client-id": "new-id-ec87a9cb.access",
-            "x-cf-client-secret": "s" * 64,
-        })
-        assert r.status_code == 204
-
-    def test_verify_wrong_secret_rejected(self, client, fake_redis, csrf_headers):
-        """Verify with a wrong secret = 403."""
-        # Rotate first (client_id min 10 chars per Field validation)
-        client.post("/api/admin/cf-access/rotate", json={
-            "client_id": "id-abc-with-length.access",
-            "client_secret": "s" * 64,
-        }, headers=csrf_headers)
-
-        # Wrong secret
-        r = client.get("/api/internal/verify-cf", headers={
-            "x-cf-client-id": "id-abc-with-length.access",
-            "x-cf-client-secret": "w" * 64,
-        })
-        assert r.status_code == 403
-
-    def test_verify_no_config_returns_503(self, client, fake_redis):
-        """Verify against an empty Redis = 503 (not configured)."""
-        r = client.get("/api/internal/verify-cf", headers={
-            "x-cf-client-id": "any",
-            "x-cf-client-secret": "any",
-        })
-        assert r.status_code == 503
-
     def test_rotate_snapshots_old_to_history(
         self, client, fake_redis, redis_sync, csrf_headers,
     ):
@@ -768,13 +730,19 @@ class TestSetupLockout:
 
 
 # ============================================================================
-# Test 9: Redis down = fail closed on verify-cf
+# Test 9: Redis down does not stand between a valid assertion and an upload
 # ============================================================================
 
 class TestRedisResilience:
 
-    def test_verify_cf_fail_closed_on_redis_error(self, app, tmp_paths, monkeypatch):
-        """If Redis raises RedisError, verify-cf returns 403 not 500."""
+    def test_verify_cf_survives_a_redis_blackout(self, app, tmp_paths, monkeypatch):
+        """A Redis outage no longer blocks uploads.
+
+        Verification used to compare a pair held in Redis, so losing Redis meant
+        refusing every upload. It now rests on Cloudflare's signature, and Redis
+        is only touched for a hit counter -- whose failure is swallowed on
+        purpose. Losing Redis costs a metric, not the ingestion path.
+        """
         from redis.exceptions import RedisError
 
         class BrokenRedis:
@@ -785,11 +753,23 @@ class TestRedisResilience:
                 raise RedisError("simulated blackout")
 
         admin_module.set_redis(BrokenRedis())
-        c = TestClient(app)
-        r = c.get("/api/internal/verify-cf", headers={
-            "x-cf-client-id": "any", "x-cf-client-secret": "any",
-        })
-        assert r.status_code == 403
+
+        team = TestCFAccessJWT.TEAM
+        monkeypatch.setattr(admin_module, "CF_ACCESS_TEAM_DOMAIN", team)
+        monkeypatch.setattr(admin_module, "CF_ACCESS_AUD", TestCFAccessJWT.AUD)
+        monkeypatch.setattr(admin_module, "_jwks_cache", {"keys": {}, "fetched_at": 0.0})
+
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        jwks = TestCFAccessJWT.jwks_for(key)
+        token = TestCFAccessJWT().make_token(key)
+
+        with TestClient(app) as c, respx.mock:
+            respx.get(f"https://{team}/cdn-cgi/access/certs").mock(
+                return_value=httpx.Response(200, json=jwks))
+            r = c.get("/api/internal/verify-cf",
+                      headers={"cf-access-jwt-assertion": token})
+        assert r.status_code == 204
 
 
 # ============================================================================
@@ -1040,3 +1020,119 @@ class TestSessionDurations:
         backup = tmp_paths["backups"] / r.json()["backup"]
         assert backup.exists()
         assert backup.read_text() == before
+
+
+# ============================================================================
+# Test 14: Cloudflare Access assertion (JWT)
+# ============================================================================
+
+class TestCFAccessJWT:
+    """Cloudflare consumes the service token at its edge and relays a signed
+    assertion instead -- measured on this stack: cf_id=no, cf_secret=no,
+    cf_jwt=yes. So the origin verifies that assertion, and both issuer and
+    audience are pinned: a token signed by any other Cloudflare team would
+    verify perfectly well against that team's own keys.
+    """
+
+    TEAM = "example.cloudflareaccess.com"
+    AUD = "3a423c8b4e8dcf314759c36218857a0a"
+    KID = "test-key-1"
+
+    @pytest.fixture
+    def signing_key(self):
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        return rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    @staticmethod
+    def jwks_for(signing_key):
+        """The team's published key set, as Cloudflare would serve it."""
+        import json as _json
+        import jwt
+        jwk = _json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(signing_key.public_key()))
+        jwk.update({"kid": TestCFAccessJWT.KID, "alg": "RS256", "use": "sig"})
+        return {"keys": [jwk]}
+
+    @pytest.fixture
+    def cf_configured(self, monkeypatch, signing_key):
+        """Pin the team and audience, and publish the matching JWKS."""
+        monkeypatch.setattr(admin_module, "CF_ACCESS_TEAM_DOMAIN", self.TEAM)
+        monkeypatch.setattr(admin_module, "CF_ACCESS_AUD", self.AUD)
+        # The cache is module-level: a stale entry would leak between tests.
+        monkeypatch.setattr(admin_module, "_jwks_cache", {"keys": {}, "fetched_at": 0.0})
+        return self.jwks_for(signing_key)
+
+    def make_token(self, signing_key, **overrides):
+        import jwt
+        claims = {
+            "aud": self.AUD,
+            "iss": f"https://{self.TEAM}",
+            "exp": int(time.time()) + 300,
+            "iat": int(time.time()),
+            "email": "uploader@example.com",
+        }
+        claims.update(overrides)
+        return jwt.encode(claims, signing_key, algorithm="RS256",
+                          headers={"kid": overrides.pop("kid", self.KID)})
+
+    def _call(self, client, token):
+        return client.get("/api/internal/verify-cf",
+                          headers={"cf-access-jwt-assertion": token})
+
+    def test_valid_assertion_accepted(self, client, fake_redis, signing_key, cf_configured):
+        with respx.mock:
+            respx.get(f"https://{self.TEAM}/cdn-cgi/access/certs").mock(
+                return_value=httpx.Response(200, json=cf_configured))
+            r = self._call(client, self.make_token(signing_key))
+        assert r.status_code == 204
+
+    def test_token_from_another_team_refused(self, client, fake_redis, signing_key, cf_configured):
+        """The whole point of pinning the issuer."""
+        with respx.mock:
+            respx.get(f"https://{self.TEAM}/cdn-cgi/access/certs").mock(
+                return_value=httpx.Response(200, json=cf_configured))
+            token = self.make_token(signing_key, iss="https://attacker.cloudflareaccess.com")
+            r = self._call(client, token)
+        assert r.status_code == 403
+
+    def test_token_for_another_application_refused(self, client, fake_redis, signing_key, cf_configured):
+        with respx.mock:
+            respx.get(f"https://{self.TEAM}/cdn-cgi/access/certs").mock(
+                return_value=httpx.Response(200, json=cf_configured))
+            r = self._call(client, self.make_token(signing_key, aud="some-other-app"))
+        assert r.status_code == 403
+
+    def test_expired_assertion_refused(self, client, fake_redis, signing_key, cf_configured):
+        with respx.mock:
+            respx.get(f"https://{self.TEAM}/cdn-cgi/access/certs").mock(
+                return_value=httpx.Response(200, json=cf_configured))
+            r = self._call(client, self.make_token(signing_key, exp=int(time.time()) - 10))
+        assert r.status_code == 403
+
+    def test_assertion_signed_by_an_unpublished_key_refused(self, client, fake_redis, cf_configured):
+        """A correctly shaped token whose key is not in the JWKS."""
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        with respx.mock:
+            respx.get(f"https://{self.TEAM}/cdn-cgi/access/certs").mock(
+                return_value=httpx.Response(200, json=cf_configured))
+            r = self._call(client, self.make_token(other))
+        assert r.status_code == 403
+
+    def test_missing_assertion_refused(self, client, fake_redis, cf_configured):
+        r = client.get("/api/internal/verify-cf")
+        assert r.status_code == 403
+
+    def test_unreachable_jwks_fails_closed(self, client, fake_redis, signing_key, cf_configured):
+        with respx.mock:
+            respx.get(f"https://{self.TEAM}/cdn-cgi/access/certs").mock(
+                side_effect=httpx.ConnectError("down"))
+            r = self._call(client, self.make_token(signing_key))
+        assert r.status_code == 403
+
+    def test_not_configured_returns_503(self, client, fake_redis, monkeypatch):
+        """nginx must never reach this: the auth_request line and the team
+        domain are enabled together."""
+        monkeypatch.setattr(admin_module, "CF_ACCESS_TEAM_DOMAIN", "")
+        r = client.get("/api/internal/verify-cf",
+                       headers={"cf-access-jwt-assertion": "whatever"})
+        assert r.status_code == 503
