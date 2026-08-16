@@ -1,25 +1,25 @@
 """
-Benchmark charge de /api/internal/verify-cf.
+Load benchmark for /api/internal/verify-cf.
 
-Utile pour valider que la chaine nginx → auth_request → auth-service → Redis
-ne devient pas un goulot d'etranglement avec beaucoup d'uploads simultanes.
+Useful to confirm that the nginx -> auth_request -> auth-service -> Redis chain
+does not become a bottleneck under many simultaneous uploads.
 
-Usage :
-    # Contre un staging avec auth-service demarre
+Usage:
+    # Against a staging setup with auth-service running
     python bench_verify_cf.py --url http://localhost:8000 --n 1000 --concurrency 10
 
-    # Sortie exemple :
-    # Requetes : 1000
-    # Reussies : 1000
-    # Duree totale : 1.83s
-    # p50 : 1.4ms
-    # p95 : 3.1ms
-    # p99 : 5.7ms
-    # RPS : 547
+    # Example output:
+    # Requests: 1000
+    # Successful: 1000
+    # Total time: 1.83s
+    # p50: 1.4ms
+    # p95: 3.1ms
+    # p99: 5.7ms
+    # RPS: 547
 
-Pas execute automatiquement dans pytest (necessite un vrai serveur), c'est
-juste un utilitaire ponctuel. Pour l'usage de l'utilisateur (~10 uploads/jour)
-c'est evidemment overkill, mais dispo si un jour il y a un doute.
+Not run automatically by pytest (it needs a real server), it is just an
+occasional utility. For this user's volume (~10 uploads/day) it is obviously
+overkill, but it is here should a doubt ever arise.
 """
 
 import argparse
@@ -67,9 +67,9 @@ async def main(url: str, n: int, concurrency: int) -> None:
     def pct(p: float) -> float:
         return statistics.quantiles(latencies, n=100)[int(p) - 1]
 
-    print(f"Requetes   : {len(results)}")
-    print(f"Reussies   : {success}")
-    print(f"Duree      : {elapsed:.2f}s")
+    print(f"Requests   : {len(results)}")
+    print(f"Successful : {success}")
+    print(f"Total time : {elapsed:.2f}s")
     print(f"p50        : {statistics.median(latencies):.1f} ms")
     print(f"p95        : {pct(95):.1f} ms")
     print(f"p99        : {pct(99):.1f} ms")

@@ -1,15 +1,16 @@
 """
-Module admin/setup pour auth-service (FastAPI).
+Admin/setup module for auth-service (FastAPI).
 
-A monter dans le auth_service.py principal via :
+Mount it in the main auth_service.py with:
     from admin_module import router as admin_router, setup_gate
     app.include_router(admin_router)
     app.middleware("http")(setup_gate)
 
-Depends : fastapi, redis.asyncio, pyyaml, argon2-cffi, httpx, filelock, pydantic
-Prerequis env vars : ORTHANC_ADMIN_USER, ORTHANC_ADMIN_PASS, ORTHANC_URL, REDIS_URL
+Depends: fastapi, redis.asyncio, pyyaml, argon2-cffi, httpx, filelock, pydantic
+Required env vars: ORTHANC_ADMIN_USER, ORTHANC_ADMIN_PASS, ORTHANC_URL, REDIS_URL
 """
 
+import copy
 import json
 import os
 import re
@@ -36,32 +37,43 @@ from redis.exceptions import RedisError
 # ============================================================================
 
 ORTHANC_URL = os.environ.get("ORTHANC_URL", "http://orthanc:8042")
-# Ces creds ne sont VRAIMENT necessaires que pour les endpoints qui parlent
-# a Orthanc (reload, health check). Lecture non-stricte pour eviter un crash
-# a l'import si le container demarre sans que le compose n'ait ete mis a jour.
-# Les endpoints qui les utilisent verifient et retournent 503 si vides.
+# These credentials are only REALLY needed by the endpoints that talk to
+# Orthanc (reload, health check). Read leniently to avoid crashing at import
+# time if the container starts before the compose file has been updated.
+# The endpoints that use them check and return 503 when they are empty.
 ORTHANC_USER = os.environ.get("ORTHANC_ADMIN_USER", "")
 ORTHANC_PASS = os.environ.get("ORTHANC_ADMIN_PASS", "")
+
+# Orthanc's Authorization plugin identifies the caller through a token carried
+# by one of its TokenHttpHeaders (X-Auth-User, Remote-User, auth-token), then
+# asks auth-service -- that is, us -- for the matching profile. Without that
+# header our calls are seen as anonymous, a profile that only holds the
+# "upload" permission: POST /tools/reset then answers 403 and every config
+# change fails at reload time.
+# The default value mirrors what nginx injects for the admin group
+# (map $groups -> $auth_token in nginx.ssl.conf).
+ORTHANC_AUTH_TOKEN = os.environ.get("ORTHANC_AUTH_TOKEN", "admin-token")
+ORTHANC_AUTH_HEADERS = {"auth-token": ORTHANC_AUTH_TOKEN}
 
 
 def _require_orthanc_creds():
     if not ORTHANC_USER or not ORTHANC_PASS:
         raise HTTPException(
             503,
-            "ORTHANC_ADMIN_USER/ORTHANC_ADMIN_PASS non configures dans .env — "
-            "l'endpoint est disponible mais ne peut pas appeler Orthanc",
+            "ORTHANC_ADMIN_USER/ORTHANC_ADMIN_PASS not configured in .env — "
+            "the endpoint is available but cannot call Orthanc",
         )
 
 AUTHELIA_YML = Path(os.getenv("ADMIN_AUTHELIA_PATH", "/host/authelia.yml"))
 ORTHANC_JSON = Path(os.getenv("ADMIN_ORTHANC_PATH", "/host/orthanc.json"))
 BACKUPS_DIR = Path(os.getenv("ADMIN_BACKUPS_DIR", "/host/backups"))
 
-# Nom du groupe Authelia qui donne acces au panneau. Configurable parce que
-# le nom n'est pas normalise : ce depot livre ses exemples en "admins", mais
-# une installation existante peut tres bien utiliser "admin" -- il doit alors
-# concorder avec le users_database.yml, le `subject: "group:..."` de la
-# configuration Authelia et la map $groups de nginx, sous peine de 403 sur
-# tout le panneau.
+# Name of the Authelia group that grants access to the panel. Configurable
+# because the name is not standardised: this repo ships its examples with
+# "admins", but an existing install may well use "admin" -- it then has to
+# match users_database.yml, the `subject: "group:..."` of the Authelia
+# configuration and nginx's $groups map, otherwise the whole panel answers
+# 403.
 ADMIN_GROUP = os.getenv("ADMIN_GROUP", "admins")
 
 SETUP_KEY = "orthanc_authelia:setup_completed"
@@ -77,8 +89,8 @@ _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
 def _render(template_name: str, **kwargs) -> str:
     """
-    Rendu minimal {placeholder} → valeur, meme convention que auth_service.py.
-    Les placeholders inconnus sont laisses tels quels (utile pour du JS avec {}).
+    Minimal {placeholder} -> value rendering, same convention as auth_service.py.
+    Unknown placeholders are left as-is (handy for JS using {}).
     """
     kwargs.setdefault("asset_version", ASSET_VERSION)
     kwargs.setdefault("image_version", IMAGE_VERSION)
@@ -88,40 +100,40 @@ def _render(template_name: str, **kwargs) -> str:
         content,
     )
 
-# argon2id parametres = defaults Authelia (compatibles avec ce qu'il verifie)
+# argon2id parameters = Authelia defaults (compatible with what it verifies)
 _hasher = PasswordHasher(
     time_cost=3, memory_cost=65536, parallelism=4,
     hash_len=32, salt_len=16,
 )
 
-# Client Redis global (a injecter depuis auth_service.py)
+# Global Redis client (injected from auth_service.py)
 _redis: aioredis.Redis | None = None
 
 
 def set_redis(client: aioredis.Redis) -> None:
-    """Appelé au startup de auth_service.py pour injecter la connexion Redis."""
+    """Called at auth_service.py startup to inject the Redis connection."""
     global _redis
     _redis = client
 
 
 def _r() -> aioredis.Redis:
     if _redis is None:
-        raise RuntimeError("Redis pas initialise. Appeler set_redis() au startup.")
+        raise RuntimeError("Redis not initialised. Call set_redis() at startup.")
     return _redis
 
 
 # ============================================================================
-# Helpers : backups + audit + atomic write
+# Helpers: backups + audit + atomic write
 # ============================================================================
 
 def _backup(path: Path, tag: str = "") -> Path:
-    """Copie path vers backups/{name}.bak.{ts}[.tag], rotation 10 derniers."""
+    """Copy path to backups/{name}.bak.{ts}[.tag], keeping the last 10."""
     BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
     suffix = f".bak.{ts}" + (f".{tag}" if tag else "")
     dest = BACKUPS_DIR / (path.name + suffix)
     shutil.copy2(path, dest)
-    # Rotation : garder les 10 derniers backups de ce fichier
+    # Rotation: keep the 10 most recent backups of this file
     prefix = path.name + ".bak."
     backups = sorted(BACKUPS_DIR.glob(prefix + "*"), reverse=True)
     for old in backups[10:]:
@@ -130,20 +142,20 @@ def _backup(path: Path, tag: str = "") -> Path:
 
 
 def _atomic_write(path: Path, content: str) -> None:
-    """Ecrit content dans path en conservant l'inode.
+    """Write content to path while keeping the inode.
 
-    Surtout pas de tmp.replace(path) ici : ces fichiers sont bind-mountes dans
-    les autres conteneurs, et Docker monte par inode.
-      - orthanc.json est monte en :ro sur /etc/orthanc/orthanc.json cote
-        orthanc ; un rename creerait un nouvel inode et orthanc continuerait
-        de lire l'ancien, meme apres /tools/reset (echec silencieux) ;
-      - si la cible est elle-meme le point de montage, le rename echoue
-        carrement : OSError [Errno 16] Device or resource busy.
+    Definitely no tmp.replace(path) here: these files are bind-mounted into
+    the other containers, and Docker mounts by inode.
+      - orthanc.json is mounted :ro on /etc/orthanc/orthanc.json on the
+        orthanc side; a rename would create a new inode and orthanc would
+        keep reading the old one, even after /tools/reset (silent failure);
+      - if the target is the mount point itself, the rename plainly fails:
+        OSError [Errno 16] Device or resource busy.
 
-    On ecrit donc dans l'inode existant. Le passage par un temporaire reste
-    utile : il valide que le contenu s'ecrit entierement sur le disque avant
-    qu'on touche au fichier reel, ce qui evite de laisser une config tronquee
-    derriere soi si le disque est plein.
+    So we write into the existing inode. Going through a temporary file is
+    still worth it: it proves the content writes out in full before we touch
+    the real file, which avoids leaving a truncated config behind if the disk
+    is full.
     """
     data = content.encode("utf-8")
 
@@ -164,7 +176,7 @@ def _atomic_write(path: Path, content: str) -> None:
 
 
 async def _audit(event: str, actor: str, **fields: Any) -> None:
-    """Ajoute une entree au stream Redis admin:audit."""
+    """Append an entry to the admin:audit Redis stream."""
     entry = {"event": event, "actor": actor, "ts": str(int(time.time()))}
     for k, v in fields.items():
         entry[k] = str(v)
@@ -172,7 +184,7 @@ async def _audit(event: str, actor: str, **fields: Any) -> None:
 
 
 # ============================================================================
-# Authentification admin (dependance FastAPI)
+# Admin authentication (FastAPI dependency)
 # ============================================================================
 
 class AdminUser(BaseModel):
@@ -182,17 +194,17 @@ class AdminUser(BaseModel):
 
 async def require_admin(request: Request) -> AdminUser:
     """
-    Depends injecte dans les routes /api/admin/*. Utilise les headers propages
-    par nginx auth_request (Authelia met Remote-User + Remote-Groups apres
-    verification de la session).
+    Dependency injected into the /api/admin/* routes. Uses the headers relayed
+    by nginx auth_request (Authelia sets Remote-User + Remote-Groups after it
+    has verified the session).
     """
     username = request.headers.get("remote-user", "")
     groups_raw = request.headers.get("remote-groups", "")
     if not username:
-        raise HTTPException(401, "auth requise")
+        raise HTTPException(401, "authentication required")
     groups = [g.strip() for g in groups_raw.split(",") if g.strip()]
     if ADMIN_GROUP not in groups:
-        raise HTTPException(403, f"groupe {ADMIN_GROUP} requis")
+        raise HTTPException(403, f"group {ADMIN_GROUP} required")
     return AdminUser(username=username, groups=groups)
 
 
@@ -201,31 +213,30 @@ async def require_admin(request: Request) -> AdminUser:
 # ============================================================================
 
 async def _setup_is_done() -> bool:
-    """Le premier demarrage a-t-il deja eu lieu ?
+    """Has first-time setup already happened?
 
-    Le flag Redis fait foi, mais il est absent de toute installation anterieure
-    au panneau : la clef n'existait pas. Sans rattrapage, deployer cette
-    version sur un stack deja en service rouvre l'assistant de premier
-    demarrage -- qui est volontairement hors SSO, puisqu'au tout premier
-    lancement aucun compte n'existe pour s'authentifier -- et laisse donc
-    n'importe qui se creer un compte admin.
+    The Redis flag is authoritative, but it is absent from any install predating
+    the panel: the key did not exist. Without a catch-up, deploying this version
+    onto a stack already in service reopens the first-run wizard -- which is
+    deliberately outside SSO, since at the very first launch no account exists
+    to authenticate with -- and thus lets anyone create an admin account.
 
-    Un users_database.yml contenant deja un admin actif vaut donc setup
-    termine. On fige alors le flag pour ne pas relire le fichier a chaque
-    requete.
+    A users_database.yml that already holds an active admin therefore counts as
+    setup done. We then freeze the flag so we do not re-read the file on every
+    request.
 
-    En cas de YAML present mais illisible on ferme l'assistant (fail-closed) :
-    une vraie premiere installation n'a pas de fichier du tout, un fichier
-    casse est un incident a reparer via /api/admin/backups/restore, pas une
-    raison de rouvrir la porte.
+    When the YAML is present but unreadable we close the wizard (fail-closed):
+    a genuine first install has no file at all, whereas a broken file is an
+    incident to repair through /api/admin/backups/restore, not a reason to
+    reopen the door.
     """
     if (await _r().get(SETUP_KEY)) == "1":
         return True
 
-    # Assistant en cours : l'admin present dans le YAML est celui que
-    # create-admin vient d'ecrire, pas la trace d'une install anterieure.
-    # Sans ce garde-fou l'assistant se fermerait sur son propre passage et
-    # /auth/setup/finalize deviendrait injoignable.
+    # Wizard in progress: the admin present in the YAML is the one create-admin
+    # just wrote, not the trace of an earlier install. Without this guard the
+    # wizard would close on its own pass and /auth/setup/finalize would become
+    # unreachable.
     if await _r().get(SETUP_FIRST_ADMIN_KEY):
         return False
 
@@ -247,9 +258,9 @@ async def _setup_is_done() -> bool:
 
 async def setup_gate(request: Request, call_next):
     """
-    - /auth/setup/* accessible seulement si setup_completed absent
-    - /auth/admin/* accessible seulement si setup_completed present (+ auth admin)
-    - autres chemins : bypass
+    - /auth/setup/* reachable only while setup_completed is absent
+    - /auth/admin/* reachable only once setup_completed is present (+ admin auth)
+    - any other path: bypass
     """
     path = request.url.path
     if not (path.startswith("/auth/setup") or path.startswith("/auth/admin")):
@@ -291,7 +302,7 @@ async def csrf_gate(request: Request, call_next):
 
 
 def issue_csrf_cookie(response: Response) -> str:
-    """A appeler dans la route qui rend admin.html pour poser le cookie."""
+    """Call from the route rendering admin.html to set the cookie."""
     token = pysecrets.token_urlsafe(32)
     response.set_cookie(
         CSRF_COOKIE, token,
@@ -301,50 +312,191 @@ def issue_csrf_cookie(response: Response) -> str:
 
 
 # ============================================================================
-# Authelia : validation + CRUD users
+# Authelia: validation + user CRUD
 # ============================================================================
 
 def _load_authelia() -> dict:
     """
-    Charge users_database.yml. Leve HTTPException 500 lisible si le YAML est
-    corrompu (edite manuellement de travers) : pointe vers /api/admin/backups
-    pour restaurer un backup connu bon.
+    Load users_database.yml. Raises a readable HTTPException 500 when the YAML
+    is corrupt (hand-edited badly): points at /api/admin/backups to restore a
+    known-good backup.
     """
     if not AUTHELIA_YML.exists():
         return {"users": {}}
     try:
         raw = AUTHELIA_YML.read_text(encoding="utf-8")
     except OSError as e:
-        raise HTTPException(500, f"authelia yml illisible : {e}") from e
+        raise HTTPException(500, f"authelia yml unreadable: {e}") from e
     try:
         data = yaml.safe_load(raw)
     except yaml.YAMLError as e:
         raise HTTPException(
             500,
-            f"authelia yml corrompu : {e}. Restaurer un backup via "
+            f"authelia yml corrupt: {e}. Restore a backup through "
             "POST /api/admin/backups/restore.",
         ) from e
     return data or {"users": {}}
 
 
+# ============================================================================
+# JSONC: orthanc.json is commented JSON
+# ============================================================================
+# Orthanc accepts // and /* */ comments in its configuration, and its reference
+# configuration is full of them -- this repo's own file carries 128 comment
+# lines. json.loads refuses them.
+#
+# So we mask them to read, and above all we NEVER re-serialise the whole file
+# to write: a json.dumps(config) would produce a valid file but would wipe out
+# every bit of documentation the administrator wrote in it. Writing replaces
+# only the text of the modified value, in place.
+
+_JSON_DECODER = json.JSONDecoder()
+_JSON_WS = " \t\r\n"
+
+
+def _mask_jsonc_comments(raw: str) -> str:
+    """Replace comments with spaces, preserving offsets.
+
+    The masked text has exactly the same length as the original: an index
+    found in one designates the same character in the other, which lets us
+    locate a value while ignoring comments, then edit the original text.
+    Newlines are kept so line numbers in parsing errors stay accurate.
+    """
+    out = list(raw)
+    i, n = 0, len(raw)
+    in_string = False
+    while i < n:
+        c = raw[i]
+        if in_string:
+            if c == "\\":
+                i += 2
+                continue
+            if c == '"':
+                in_string = False
+            i += 1
+            continue
+        if c == '"':
+            in_string = True
+            i += 1
+            continue
+        if c == "/" and i + 1 < n and raw[i + 1] == "/":
+            while i < n and raw[i] != "\n":
+                out[i] = " "
+                i += 1
+            continue
+        if c == "/" and i + 1 < n and raw[i + 1] == "*":
+            while i + 1 < n and not (raw[i] == "*" and raw[i + 1] == "/"):
+                if raw[i] != "\n":
+                    out[i] = " "
+                i += 1
+            out[i] = out[min(i + 1, n - 1)] = " "
+            i += 2
+            continue
+        i += 1
+    return "".join(out)
+
+
+def _jsonc_member_spans(masked: str, obj_start: int) -> dict[str, tuple[int, int]]:
+    """Text bounds of every value of the object opening at obj_start."""
+    spans: dict[str, tuple[int, int]] = {}
+    i, n = obj_start + 1, len(masked)
+    while i < n:
+        while i < n and masked[i] in _JSON_WS + ",":
+            i += 1
+        if i >= n or masked[i] == "}":
+            break
+        key, i = _JSON_DECODER.raw_decode(masked, i)
+        while i < n and masked[i] in _JSON_WS:
+            i += 1
+        if i >= n or masked[i] != ":":
+            break
+        i += 1
+        while i < n and masked[i] in _JSON_WS:
+            i += 1
+        start = i
+        _, i = _JSON_DECODER.raw_decode(masked, i)
+        spans[str(key)] = (start, i)
+    return spans
+
+
+def _jsonc_locate(masked: str, dotted: str) -> tuple[int, int] | None:
+    """Bounds of a dotted path's value, None when the path is absent."""
+    try:
+        spans = _jsonc_member_spans(masked, masked.index("{"))
+    except (ValueError, json.JSONDecodeError):
+        return None
+    keys = dotted.split(".")
+    for depth, key in enumerate(keys):
+        if key not in spans:
+            return None
+        start, end = spans[key]
+        if depth == len(keys) - 1:
+            return start, end
+        if masked[start] != "{":
+            return None  # a scalar blocks the way down the path
+        spans = _jsonc_member_spans(masked, start)
+    return None
+
+
+def _jsonc_insert(raw: str, dotted: str, value: Any) -> str:
+    """Add a missing key at the head of its parent object."""
+    keys = dotted.split(".")
+    masked = _mask_jsonc_comments(raw)
+    if len(keys) == 1:
+        obj_start = masked.index("{")
+    else:
+        parent = _jsonc_locate(masked, ".".join(keys[:-1]))
+        if parent is None or masked[parent[0]] != "{":
+            raise ValueError(
+                f"{dotted}: section {'.'.join(keys[:-1])!r} missing from the "
+                "file, add it manually first"
+            )
+        obj_start = parent[0]
+
+    line_start = raw.rfind("\n", 0, obj_start) + 1
+    indent = " " * (len(raw[line_start:obj_start]) - len(raw[line_start:obj_start].lstrip()) + 2)
+    member = f'\n{indent}{json.dumps(keys[-1])}: {json.dumps(value, ensure_ascii=False)},'
+    return raw[: obj_start + 1] + member + raw[obj_start + 1 :]
+
+
+def _patch_jsonc(raw: str, changes: dict[str, Any]) -> str:
+    """Rewrite only the modified values, comments and layout untouched."""
+    masked = _mask_jsonc_comments(raw)
+    found, missing = [], {}
+    for dotted, value in changes.items():
+        span = _jsonc_locate(masked, dotted)
+        if span is None:
+            missing[dotted] = value
+        else:
+            found.append((span, value))
+
+    # Backwards: a substitution late in the file cannot shift the earlier ones.
+    for (start, end), value in sorted(found, key=lambda item: item[0][0], reverse=True):
+        raw = raw[:start] + json.dumps(value, ensure_ascii=False) + raw[end:]
+
+    for dotted, value in missing.items():
+        raw = _jsonc_insert(raw, dotted, value)
+    return raw
+
+
 def _load_orthanc_config() -> dict:
-    """Idem pour orthanc.json — meme strategie d'erreur explicite."""
+    """Same for orthanc.json -- same explicit error strategy."""
     try:
         raw = ORTHANC_JSON.read_text(encoding="utf-8")
     except OSError as e:
-        raise HTTPException(500, f"orthanc.json illisible : {e}") from e
+        raise HTTPException(500, f"orthanc.json unreadable: {e}") from e
     try:
-        return json.loads(raw)
+        return json.loads(_mask_jsonc_comments(raw))
     except json.JSONDecodeError as e:
         raise HTTPException(
             500,
-            f"orthanc.json corrompu : {e}. Restaurer un backup via "
+            f"orthanc.json corrupt: {e}. Restore a backup through "
             "POST /api/admin/backups/restore.",
         ) from e
 
 
 def _active_admins(data: dict) -> list[str]:
-    """Comptes du groupe admins non desactives presents dans le YAML."""
+    """Non-disabled accounts of the admin group present in the YAML."""
     return [
         u for u, info in (data.get("users") or {}).items()
         if not info.get("disabled") and ADMIN_GROUP in (info.get("groups") or [])
@@ -352,21 +504,21 @@ def _active_admins(data: dict) -> list[str]:
 
 
 def _validate_authelia(data: dict) -> None:
-    """Invariants qui empechent un YAML lockant tout le monde dehors."""
+    """Invariants preventing a YAML that would lock everybody out."""
     if not isinstance(data.get("users"), dict) or not data["users"]:
-        raise ValueError("users: section vide ou absente")
+        raise ValueError("users: section empty or missing")
     if not _active_admins(data):
-        raise ValueError("au moins 1 admin actif requis (invariant lockout)")
+        raise ValueError("at least 1 active admin required (lockout invariant)")
     for name, info in data["users"].items():
         for field in ("password", "email", "displayname"):
             if not info.get(field):
-                raise ValueError(f"{name}: champ {field!r} manquant")
+                raise ValueError(f"{name}: field {field!r} missing")
         if not info["password"].startswith("$argon2id$"):
-            raise ValueError(f"{name}: password doit etre argon2id (start with $argon2id$)")
+            raise ValueError(f"{name}: password must be argon2id (start with $argon2id$)")
 
 
 def _write_authelia(data: dict) -> None:
-    """Backup + validate + atomic write. Verrouille via FileLock."""
+    """Backup + validate + atomic write. Guarded by a FileLock."""
     lock = FileLock(str(AUTHELIA_YML) + ".lock", timeout=5)
     try:
         with lock:
@@ -376,12 +528,12 @@ def _write_authelia(data: dict) -> None:
             serialized = yaml.safe_dump(
                 data, default_flow_style=False, sort_keys=False, allow_unicode=True,
             )
-            # Dry-run parse pour attraper les bugs de serialisation avant remplacement
+            # Dry-run parse to catch serialisation bugs before replacing anything
             reloaded = yaml.safe_load(serialized) or {}
             _validate_authelia(reloaded)
             _atomic_write(AUTHELIA_YML, serialized)
     except Timeout as e:
-        raise HTTPException(423, "fichier verrouille par un autre admin, retry dans 5s") from e
+        raise HTTPException(423, "file locked by another admin, retry in 5s") from e
 
 
 class UserCreatePayload(BaseModel):
@@ -397,10 +549,10 @@ class PasswordChangePayload(BaseModel):
 
 
 # ============================================================================
-# Orthanc config : validation + edit + reload
+# Orthanc config: validation + edit + reload
 # ============================================================================
 
-# Whitelist des chemins editables via UI. Refuse tout ce qui n'est pas ici.
+# Whitelist of paths editable through the UI. Anything absent is refused.
 ORTHANC_EDITABLE_PATHS = {
     "Name": str,
     "DicomAet": str,
@@ -444,19 +596,19 @@ ORTHANC_EDITABLE_PATHS = {
     "DicomWeb.StowMaxSize": int,
     "DicomWeb.EnableMetadata": bool,
     "DicomWeb.PublicRoot": str,
-    "AcceptedTransferSyntaxes": list,  # cas special : liste de strings
+    "AcceptedTransferSyntaxes": list,  # special case: list of strings
 }
 
 
 def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
-    """Set config[a][b][c] = value. Refuse si le path ecrase un dict/array."""
+    """Set config[a][b][c] = value. Refuses if the path overwrites a dict/array."""
     if dotted not in ORTHANC_EDITABLE_PATHS:
-        raise ValueError(f"{dotted}: non editable via UI")
+        raise ValueError(f"{dotted}: not editable through the UI")
     expected_type = ORTHANC_EDITABLE_PATHS[dotted]
     if not isinstance(value, expected_type):
-        raise ValueError(f"{dotted}: attendu {expected_type.__name__}, recu {type(value).__name__}")
+        raise ValueError(f"{dotted}: expected {expected_type.__name__}, got {type(value).__name__}")
     if dotted == "DicomAet" and len(value) > 16:
-        raise ValueError("DicomAet: max 16 caracteres (norme DICOM)")
+        raise ValueError("DicomAet: 16 characters max (DICOM standard)")
 
     keys = dotted.split(".")
     node = config
@@ -465,31 +617,75 @@ def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
     node[keys[-1]] = value
 
 
-def _validate_orthanc(config: dict) -> None:
-    """Invariants critiques a preserver."""
-    # Flags de persistance sinon les modalites saisies via UI disparaissent
-    if not config.get("DicomModalitiesInDatabase"):
-        raise ValueError("DicomModalitiesInDatabase doit rester true (perdrait les modalites au restart)")
-    if not config.get("OrthancPeersInDatabase"):
-        raise ValueError("OrthancPeersInDatabase doit rester true")
+def _validate_orthanc(config: dict, before: dict | None = None) -> None:
+    """Critical invariants to preserve.
+
+    The two persistence flags are not required in absolute terms: they are
+    absent from many existing configurations, and imposing them would fail any
+    unrelated change with a 400. What we forbid is turning them off when they
+    were on -- modalities and peers entered through the UI would then fall back
+    into the file and be lost on restart.
+    """
+    before = before or {}
+    for flag, perte in (
+        ("DicomModalitiesInDatabase", "les modalites"),
+        ("OrthancPeersInDatabase", "les peers"),
+    ):
+        if before.get(flag) and not config.get(flag):
+            raise ValueError(
+                f"{flag} ne peut pas repasser a false : {perte} saisis via l'UI "
+                "seraient perdus au redemarrage"
+            )
     # DicomAet max 16 chars
     if len(config.get("DicomAet", "")) > 16:
-        raise ValueError("DicomAet: max 16 caracteres")
+        raise ValueError("DicomAet: 16 characters max")
 
 
 async def _reload_orthanc() -> None:
-    """POST /tools/reset : Orthanc re-parse le JSON et applique la nouvelle config."""
+    """POST /tools/reset: Orthanc re-parses the JSON and applies the new config."""
     _require_orthanc_creds()
     async with httpx.AsyncClient(timeout=10) as client:
         r = await client.post(
             f"{ORTHANC_URL}/tools/reset",
             auth=(ORTHANC_USER, ORTHANC_PASS),
+            headers=ORTHANC_AUTH_HEADERS,
         )
         r.raise_for_status()
 
 
+async def _orthanc_runs_our_file(config: dict) -> bool | None:
+    """Is Orthanc really running on the file we just wrote?
+
+    orthancteam images do not start on /etc/orthanc/orthanc.json: their
+    entrypoint merges that file with the environment variables into
+    /tmp/orthanc.json when the container starts, and that copy is what POST
+    /tools/reset re-reads. An edit to the mounted file is therefore only
+    applied when the container restarts -- and the reset answers 200 without
+    changing anything, which would have the panel report a misleading success.
+
+    The witness: /system exposes the effective Name. If it does not match the
+    file's after a reset, Orthanc is reading another source.
+    Returns None when the comparison is inconclusive (no Name, or /system
+    unreachable).
+    """
+    expected = config.get("Name")
+    if not isinstance(expected, str):
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get(
+                f"{ORTHANC_URL}/system",
+                auth=(ORTHANC_USER, ORTHANC_PASS),
+                headers=ORTHANC_AUTH_HEADERS,
+            )
+            r.raise_for_status()
+            return r.json().get("Name") == expected
+    except (httpx.HTTPError, ValueError):
+        return None
+
+
 class OrthancConfigPayload(BaseModel):
-    """Body de PATCH : {"changes": {"Name": "Foo", "DicomAet": "BAR"}}"""
+    """PATCH body: {"changes": {"Name": "Foo", "DicomAet": "BAR"}}"""
     changes: dict[str, Any]
 
 
@@ -508,7 +704,7 @@ class CFRotatePayload(BaseModel):
 
 
 # ============================================================================
-# Routes : setup wizard (unauthenticated)
+# Routes: setup wizard (unauthenticated)
 # ============================================================================
 
 router = APIRouter()
@@ -516,13 +712,13 @@ router = APIRouter()
 
 @router.get("/auth/setup", response_class=HTMLResponse)
 async def setup_page():
-    """Wizard HTML. setup_gate bloque si deja finalise."""
+    """Wizard HTML. setup_gate blocks it once setup is finalised."""
     return HTMLResponse(_render("setup.html"))
 
 
 @router.get("/auth/admin", response_class=HTMLResponse)
 async def admin_page(response: Response, admin: AdminUser = Depends(require_admin)):
-    """Hub admin HTML. Pose le cookie CSRF au meme moment."""
+    """Admin hub HTML. Sets the CSRF cookie at the same time."""
     csrf = pysecrets.token_urlsafe(32)
     html = _render("admin.html", admin_username=admin.username)
     resp = HTMLResponse(html)
@@ -536,25 +732,25 @@ async def admin_page(response: Response, admin: AdminUser = Depends(require_admi
 @router.post("/auth/setup/create-admin")
 async def setup_create_admin(payload: UserCreatePayload):
     """
-    Etape 1 : cree LE premier admin. Un seul appel autorise jusqu'a finalize.
+    Step 1: create THE first admin. A single call is allowed until finalize.
 
-    Verrouille apres le 1er succes via SETUP_FIRST_ADMIN_KEY pour empecher un
-    tiers de creer un deuxieme admin en profitant de la fenetre ouverte du wizard.
-    Pour ajouter d'autres admins ensuite : POST /api/admin/users (auth requise).
+    Locked after the first success through SETUP_FIRST_ADMIN_KEY, to stop a
+    third party creating a second admin through the wizard's open window.
+    To add further admins afterwards: POST /api/admin/users (auth required).
     """
     if (await _r().get(SETUP_KEY)) == "1":
-        raise HTTPException(409, "setup deja finalise, utiliser /api/admin/users")
+        raise HTTPException(409, "setup already finalised, use /api/admin/users")
     if (await _r().get(SETUP_FIRST_ADMIN_KEY)) == "1":
         raise HTTPException(
             409,
-            "un admin a deja ete cree — finaliser le setup (POST /auth/setup/finalize) "
-            "puis utiliser /api/admin/users pour en ajouter d'autres",
+            "an admin has already been created — finalise the setup (POST "
+            "/auth/setup/finalize) then use /api/admin/users to add more",
         )
     if ADMIN_GROUP not in payload.groups:
         payload.groups.append(ADMIN_GROUP)
     data = _load_authelia()
     if payload.username in data.get("users", {}):
-        raise HTTPException(409, f"user {payload.username} existe deja")
+        raise HTTPException(409, f"user {payload.username} already exists")
     data.setdefault("users", {})[payload.username] = {
         "disabled": False,
         "displayname": payload.displayname,
@@ -571,26 +767,26 @@ async def setup_create_admin(payload: UserCreatePayload):
 
 @router.post("/auth/setup/finalize")
 async def setup_finalize():
-    """Etape finale : verifie invariant admin actif puis flip le flag."""
+    """Final step: check the active-admin invariant, then flip the flag."""
     if (await _r().get(SETUP_KEY)) == "1":
-        raise HTTPException(409, "setup deja finalise")
+        raise HTTPException(409, "setup already finalised")
     admins = _active_admins(_load_authelia())
     if not admins:
-        raise HTTPException(400, "creer d'abord un admin (POST /auth/setup/create-admin)")
+        raise HTTPException(400, "create an admin first (POST /auth/setup/create-admin)")
     await _r().set(SETUP_KEY, "1")
-    await _r().delete(SETUP_FIRST_ADMIN_KEY)  # verrou setup levee, ne sert plus
+    await _r().delete(SETUP_FIRST_ADMIN_KEY)  # setup lock lifted, no longer useful
     await _audit("setup.finalized", actor="wizard", admin_count=len(admins))
     return {"ok": True, "admins": admins}
 
 
 # ============================================================================
-# Routes : /api/admin/users/* (auth requise)
+# Routes: /api/admin/users/* (auth required)
 # ============================================================================
 
 @router.get("/api/admin/users")
 async def list_users(admin: AdminUser = Depends(require_admin)):
     data = _load_authelia()
-    # Ne jamais renvoyer les hashes
+    # Never return the hashes
     return {
         "users": [
             {
@@ -609,7 +805,7 @@ async def list_users(admin: AdminUser = Depends(require_admin)):
 async def add_user(payload: UserCreatePayload, admin: AdminUser = Depends(require_admin)):
     data = _load_authelia()
     if payload.username in data.get("users", {}):
-        raise HTTPException(409, "user existe deja")
+        raise HTTPException(409, "user already exists")
     data.setdefault("users", {})[payload.username] = {
         "disabled": False,
         "displayname": payload.displayname,
@@ -630,7 +826,7 @@ async def change_password(
 ):
     data = _load_authelia()
     if username not in data.get("users", {}):
-        raise HTTPException(404, "user inconnu")
+        raise HTTPException(404, "unknown user")
     data["users"][username]["password"] = _hasher.hash(payload.new_password)
     _write_authelia(data)
     await _audit("authelia.password.changed", admin.username, target=username)
@@ -640,24 +836,24 @@ async def change_password(
 @router.delete("/api/admin/users/{username}")
 async def delete_user(username: str, admin: AdminUser = Depends(require_admin)):
     if username == admin.username:
-        raise HTTPException(400, "impossible de te supprimer toi-meme")
+        raise HTTPException(400, "you cannot delete yourself")
     data = _load_authelia()
     if username not in data.get("users", {}):
-        raise HTTPException(404, "user inconnu")
+        raise HTTPException(404, "unknown user")
     del data["users"][username]
-    _write_authelia(data)  # valide invariant "au moins 1 admin actif"
+    _write_authelia(data)  # enforces the "at least 1 active admin" invariant
     await _audit("authelia.user.deleted", admin.username, target=username)
     return {"ok": True}
 
 
 # ============================================================================
-# Routes : /api/admin/orthanc/config
+# Routes: /api/admin/orthanc/config
 # ============================================================================
 
 @router.get("/api/admin/orthanc/config")
 async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
     config = _load_orthanc_config()
-    # Renvoie uniquement les valeurs editables (whitelist)
+    # Return only the editable values (whitelist)
     result = {}
     for dotted in ORTHANC_EDITABLE_PATHS:
         node = config
@@ -675,19 +871,41 @@ async def update_orthanc_config(
     payload: OrthancConfigPayload,
     admin: AdminUser = Depends(require_admin),
 ):
-    """Applique une batch de changements, backup, /tools/reset, audit."""
+    """Apply a batch of changes: backup, /tools/reset, audit."""
     lock = FileLock(str(ORTHANC_JSON) + ".lock", timeout=5)
     try:
         with lock:
-            config = _load_orthanc_config()  # gere JSON corrompu
+            before = _load_orthanc_config()  # gere JSON corrompu
+            config = copy.deepcopy(before)
             for path, value in payload.changes.items():
                 _apply_scalar_change(config, path, value)
-            _validate_orthanc(config)
+            _validate_orthanc(config, before)
             backup = _backup(ORTHANC_JSON)
-            serialized = json.dumps(config, indent=2, ensure_ascii=False) + "\n"
+
+            # In-place text edit: re-serialising the whole file would wipe out
+            # the administrator's comments.
+            raw = ORTHANC_JSON.read_text(encoding="utf-8")
+            serialized = _patch_jsonc(raw, payload.changes)
+
+            # Guard: the rewritten text must re-parse to exactly the expected
+            # config. An offset slip or a substitution in the wrong section
+            # would show up here, before anything is written.
+            try:
+                reparsed = json.loads(_mask_jsonc_comments(serialized))
+            except json.JSONDecodeError as e:
+                raise HTTPException(
+                    500, f"invalid orthanc.json edit, nothing written: {e}",
+                ) from e
+            if reparsed != config:
+                raise HTTPException(
+                    500,
+                    "orthanc.json edit inconsistent with the requested changes, "
+                    "nothing written",
+                )
+
             _atomic_write(ORTHANC_JSON, serialized)
     except Timeout as e:
-        raise HTTPException(423, "orthanc.json verrouille, retry") from e
+        raise HTTPException(423, "orthanc.json locked, retry") from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -695,7 +913,7 @@ async def update_orthanc_config(
     try:
         await _reload_orthanc()
     except httpx.HTTPError as e:
-        # Auto-rollback : restaurer le backup et retenter le reset
+        # Auto-rollback: restore the backup and retry the reset
         reset_error = str(e)
         try:
             shutil.copy2(backup, ORTHANC_JSON)
@@ -710,8 +928,8 @@ async def update_orthanc_config(
             )
             raise HTTPException(
                 502,
-                f"reload Orthanc echoue ({reset_error}). Rollback auto echoue aussi "
-                f"({rollback_err}). Etat incoherent, restauration manuelle requise : "
+                f"Orthanc reload failed ({reset_error}). Auto-rollback failed too "
+                f"({rollback_err}). Inconsistent state, manual restore required: "
                 f"backup={backup.name}",
             ) from e
         await _audit(
@@ -722,8 +940,8 @@ async def update_orthanc_config(
         )
         raise HTTPException(
             502,
-            f"reload Orthanc echoue ({reset_error}). Rollback automatique effectue "
-            f"depuis {backup.name}. Config restee dans l'etat precedent.",
+            f"Orthanc reload failed ({reset_error}). Automatic rollback performed "
+            f"from {backup.name}. Config left in its previous state.",
         ) from e
 
     await _audit(
@@ -736,7 +954,7 @@ async def update_orthanc_config(
 
 
 # ============================================================================
-# Routes : /api/admin/cf-access
+# Routes: /api/admin/cf-access
 # ============================================================================
 
 @router.get("/api/admin/cf-access")
@@ -756,7 +974,7 @@ async def cf_rotate(
     payload: CFRotatePayload,
     admin: AdminUser = Depends(require_admin),
 ):
-    """Rotation atomique : snapshot old vers history, set new, audit."""
+    """Atomic rotation: snapshot the old pair to history, set the new, audit."""
     old_id = await _r().get(CF_ID_KEY) or ""
     old_secret = await _r().get(CF_SECRET_KEY) or ""
     if old_secret:
@@ -774,7 +992,7 @@ async def cf_rotate(
 
 
 # ============================================================================
-# Route interne : verify-cf (appelee par nginx auth_request)
+# Internal route: verify-cf (called by nginx auth_request)
 # ============================================================================
 
 @router.get("/api/internal/verify-cf", include_in_schema=False)
@@ -783,11 +1001,11 @@ async def verify_cf(
     x_cf_client_secret: str = Header(default=""),
 ):
     """
-    Compare les headers CF avec les valeurs stockees en Redis.
+    Compare the CF headers against the values stored in Redis.
 
-    Fail closed : si Redis est indisponible, on renvoie 403 (pas 500) pour que
-    nginx bloque l'upload. Mieux vaut refuser un upload legitime pendant une
-    panne Redis que laisser passer un secret pendant un blackout.
+    Fail closed: if Redis is unavailable we return 403 (not 500) so that nginx
+    blocks the upload. Better to refuse a legitimate upload during a Redis
+    outage than to let a secret through during a blackout.
     """
     try:
         expected_id = await _r().get(CF_ID_KEY)
@@ -796,14 +1014,14 @@ async def verify_cf(
         return Response(status_code=403)  # fail closed
 
     if not expected_id or not expected_secret:
-        return Response(status_code=503)  # pas configure
+        return Response(status_code=503)  # not configured
 
     if not pysecrets.compare_digest(x_cf_client_id, expected_id):
         return Response(status_code=403)
     if not pysecrets.compare_digest(x_cf_client_secret, expected_secret):
         return Response(status_code=403)
 
-    # Metrique compte-tour — echec silencieux si Redis flaky ici, pas critique
+    # Hit counter metric — silent failure if Redis is flaky here, not critical
     try:
         await _r().incr("cf_access:checks_ok:24h")
     except RedisError:
@@ -812,17 +1030,17 @@ async def verify_cf(
 
 
 # ============================================================================
-# Route : /api/admin/health (verifie Redis + Orthanc + fichiers config)
+# Route: /api/admin/health (checks Redis + Orthanc + config files)
 # ============================================================================
 
 @router.get("/api/admin/health")
 async def admin_health(admin: AdminUser = Depends(require_admin)):
     """
-    Diagnostic pour l'onglet Health : etat des dependances de auth-service.
+    Diagnostics for the Health tab: state of auth-service's dependencies.
 
-    Retourne 200 avec un dict par composant ({ok: bool, detail: str}), meme
-    si certains composants sont KO — c'est le job de l'UI de decider quoi
-    montrer. On evite 503 global qui masquerait quel composant est en cause.
+    Returns 200 with one dict per component ({ok: bool, detail: str}), even
+    when some components are down — it is the UI's job to decide what to show.
+    We avoid a global 503, which would hide which component is at fault.
     """
     checks = {}
 
@@ -833,28 +1051,32 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
     except RedisError as e:
         checks["redis"] = {"ok": False, "detail": f"RedisError: {e}"}
 
-    # Fichiers config lisibles + parseables
+    # Config files readable + parseable
     try:
         _load_authelia()
         checks["authelia_yml"] = {"ok": True, "detail": str(AUTHELIA_YML)}
     except FileNotFoundError:
-        checks["authelia_yml"] = {"ok": False, "detail": "fichier absent"}
+        checks["authelia_yml"] = {"ok": False, "detail": "file missing"}
     except (yaml.YAMLError, OSError) as e:
         checks["authelia_yml"] = {"ok": False, "detail": f"parse error: {e}"}
 
     try:
         if ORTHANC_JSON.exists():
-            json.loads(ORTHANC_JSON.read_text(encoding="utf-8"))
+            json.loads(_mask_jsonc_comments(ORTHANC_JSON.read_text(encoding="utf-8")))
             checks["orthanc_json"] = {"ok": True, "detail": str(ORTHANC_JSON)}
         else:
-            checks["orthanc_json"] = {"ok": False, "detail": "fichier absent"}
+            checks["orthanc_json"] = {"ok": False, "detail": "file missing"}
     except (json.JSONDecodeError, OSError) as e:
         checks["orthanc_json"] = {"ok": False, "detail": f"parse error: {e}"}
 
-    # Orthanc API accessible (endpoint /system, moins invasif que /tools/reset)
+    # Orthanc API reachable (/system endpoint, less invasive than /tools/reset)
     try:
         async with httpx.AsyncClient(timeout=3) as c:
-            r = await c.get(f"{ORTHANC_URL}/system", auth=(ORTHANC_USER, ORTHANC_PASS))
+            r = await c.get(
+                f"{ORTHANC_URL}/system",
+                auth=(ORTHANC_USER, ORTHANC_PASS),
+                headers=ORTHANC_AUTH_HEADERS,
+            )
             checks["orthanc_api"] = {"ok": r.status_code == 200, "detail": f"HTTP {r.status_code}"}
     except httpx.HTTPError as e:
         checks["orthanc_api"] = {"ok": False, "detail": f"HTTPError: {e}"}
@@ -863,7 +1085,7 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
 
 
 # ============================================================================
-# Route : rollback backup
+# Route: backup rollback
 # ============================================================================
 
 @router.post("/api/admin/backups/restore")
@@ -871,10 +1093,10 @@ async def restore_backup(
     backup_name: str,
     admin: AdminUser = Depends(require_admin),
 ):
-    """Restaure un backup depuis /host/backups/ vers son fichier d'origine."""
+    """Restore a backup from /host/backups/ onto its original file."""
     src = BACKUPS_DIR / backup_name
     if not src.exists() or ".bak." not in backup_name:
-        raise HTTPException(404, "backup introuvable ou nom invalide")
+        raise HTTPException(404, "backup not found or invalid name")
 
     if backup_name.startswith("orthanc.json.bak."):
         dest = ORTHANC_JSON
@@ -883,7 +1105,7 @@ async def restore_backup(
         dest = AUTHELIA_YML
         reload = None  # Authelia watch
     else:
-        raise HTTPException(400, "type de backup non gere")
+        raise HTTPException(400, "unsupported backup type")
 
     _backup(dest, tag="pre-restore")
     shutil.copy2(src, dest)

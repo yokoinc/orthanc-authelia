@@ -1,13 +1,13 @@
 """
-Tests unitaires pour admin_module.py.
+Unit tests for admin_module.py.
 
-Focus sur les invariants qui protegent contre le lockout / la corruption :
-  - _validate_authelia refuse un YAML sans admin actif
-  - _apply_scalar_change refuse d'ecraser un dict/array
-  - _validate_orthanc refuse la desactivation des flags *InDatabase
+Focused on the invariants that guard against lockout / corruption:
+  - _validate_authelia refuses a YAML without an active admin
+  - _apply_scalar_change refuses to overwrite a dict/array
+  - _validate_orthanc refuses turning the *InDatabase flags off
   - argon2 round-trip hash + verify
 
-Executer avec :
+Run with:
     cd services/auth-service/sources
     python -m pytest tests/test_admin_module.py -v
 """
@@ -46,7 +46,7 @@ def valid_orthanc_config():
 
 
 # ============================================================================
-# _validate_authelia : invariants anti-lockout
+# _validate_authelia: anti-lockout invariants
 # ============================================================================
 
 class TestValidateAuthelia:
@@ -57,30 +57,30 @@ class TestValidateAuthelia:
 
     def test_empty_users_refused(self):
         from admin_module import _validate_authelia
-        with pytest.raises(ValueError, match="vide ou absente"):
+        with pytest.raises(ValueError, match="empty or missing"):
             _validate_authelia({"users": {}})
 
     def test_missing_users_key_refused(self):
         from admin_module import _validate_authelia
-        with pytest.raises(ValueError, match="vide ou absente"):
+        with pytest.raises(ValueError, match="empty or missing"):
             _validate_authelia({})
 
     def test_no_admin_refused(self, valid_authelia_data):
         from admin_module import _validate_authelia
         valid_authelia_data["users"]["cuffel.gregory"]["groups"] = ["doctors"]
-        with pytest.raises(ValueError, match="admin actif requis"):
+        with pytest.raises(ValueError, match="active admin required"):
             _validate_authelia(valid_authelia_data)
 
     def test_disabled_admin_doesnt_count(self, valid_authelia_data):
         from admin_module import _validate_authelia
         valid_authelia_data["users"]["cuffel.gregory"]["disabled"] = True
-        with pytest.raises(ValueError, match="admin actif requis"):
+        with pytest.raises(ValueError, match="active admin required"):
             _validate_authelia(valid_authelia_data)
 
     def test_missing_password_field(self, valid_authelia_data):
         from admin_module import _validate_authelia
         del valid_authelia_data["users"]["cuffel.gregory"]["password"]
-        with pytest.raises(ValueError, match="password.*manquant"):
+        with pytest.raises(ValueError, match="password.*missing"):
             _validate_authelia(valid_authelia_data)
 
     def test_password_must_be_argon2id(self, valid_authelia_data):
@@ -91,7 +91,7 @@ class TestValidateAuthelia:
 
 
 # ============================================================================
-# _apply_scalar_change : refuse d'ecraser dict/array
+# _apply_scalar_change: refuses to overwrite dict/array
 # ============================================================================
 
 class TestApplyScalarChange:
@@ -117,19 +117,19 @@ class TestApplyScalarChange:
     def test_refuses_non_whitelisted_path(self):
         from admin_module import _apply_scalar_change
         cfg = {}
-        with pytest.raises(ValueError, match="non editable"):
+        with pytest.raises(ValueError, match="not editable"):
             _apply_scalar_change(cfg, "PostgreSQL.Password", "secret")
 
     def test_refuses_wrong_type(self):
         from admin_module import _apply_scalar_change
         cfg = {}
-        with pytest.raises(ValueError, match="attendu"):
+        with pytest.raises(ValueError, match="expected"):
             _apply_scalar_change(cfg, "DicomPort", "not_an_int")
 
     def test_dicomaet_max_16_chars(self):
         from admin_module import _apply_scalar_change
         cfg = {}
-        with pytest.raises(ValueError, match="max 16"):
+        with pytest.raises(ValueError, match="16 characters max"):
             _apply_scalar_change(cfg, "DicomAet", "TOOLONGAETLABEL_XX")
 
     def test_dicomaet_16_chars_ok(self):
@@ -140,7 +140,7 @@ class TestApplyScalarChange:
 
 
 # ============================================================================
-# _validate_orthanc : flags critiques
+# _validate_orthanc: critical flags
 # ============================================================================
 
 class TestValidateOrthanc:
@@ -150,16 +150,31 @@ class TestValidateOrthanc:
         _validate_orthanc(valid_orthanc_config)  # no raise
 
     def test_disabling_modalities_in_db_refused(self, valid_orthanc_config):
+        """Turning the flag off when it was on = refused."""
         from admin_module import _validate_orthanc
-        valid_orthanc_config["DicomModalitiesInDatabase"] = False
+        before = dict(valid_orthanc_config)
+        after = dict(valid_orthanc_config, DicomModalitiesInDatabase=False)
         with pytest.raises(ValueError, match="DicomModalitiesInDatabase"):
-            _validate_orthanc(valid_orthanc_config)
+            _validate_orthanc(after, before)
 
     def test_disabling_peers_in_db_refused(self, valid_orthanc_config):
         from admin_module import _validate_orthanc
-        valid_orthanc_config["OrthancPeersInDatabase"] = False
+        before = dict(valid_orthanc_config)
+        after = dict(valid_orthanc_config, OrthancPeersInDatabase=False)
         with pytest.raises(ValueError, match="OrthancPeersInDatabase"):
-            _validate_orthanc(valid_orthanc_config)
+            _validate_orthanc(after, before)
+
+    def test_flags_absent_before_are_not_imposed(self, valid_orthanc_config):
+        """Flags absent from the original config: we do not require them.
+
+        Many installs never set these two keys. Making them mandatory would
+        fail any unrelated change with a 400 -- a simple Name change, say.
+        """
+        from admin_module import _validate_orthanc
+        before = {k: v for k, v in valid_orthanc_config.items()
+                  if k not in ("DicomModalitiesInDatabase", "OrthancPeersInDatabase")}
+        after = dict(before, Name="New Name")
+        _validate_orthanc(after, before)  # does not raise
 
     def test_dicomaet_too_long_refused(self, valid_orthanc_config):
         from admin_module import _validate_orthanc
@@ -169,7 +184,7 @@ class TestValidateOrthanc:
 
 
 # ============================================================================
-# argon2 round-trip (bibliotheque tierce mais verifions notre wiring)
+# argon2 round-trip (third-party library, but let us check our wiring)
 # ============================================================================
 
 class TestArgon2:
@@ -192,7 +207,7 @@ class TestArgon2:
             _hasher.verify(h, "wrong")
 
     def test_two_hashes_of_same_password_differ(self):
-        """Salt aleatoire = chaque hash unique meme pour le meme password."""
+        """Random salt = every hash unique even for the same password."""
         from admin_module import _hasher
         h1 = _hasher.hash("test")
         h2 = _hasher.hash("test")
@@ -207,7 +222,7 @@ class TestCSRF:
 
     def test_token_length(self):
         import secrets
-        # Simule ce que fait issue_csrf_cookie
+        # Mimics what issue_csrf_cookie does
         token = secrets.token_urlsafe(32)
         assert len(token) >= 40  # 32 bytes urlsafe = ~43 chars
 

@@ -1,13 +1,13 @@
 """
-Tests d'integration : endpoints FastAPI + Redis + fichiers YAML/JSON + mocks httpx.
+Integration tests: FastAPI endpoints + Redis + YAML/JSON files + httpx mocks.
 
-Utilise :
-- TestClient (starlette) pour appeler les endpoints
-- fakeredis.aioredis pour simuler Redis en memoire
-- respx pour mocker les appels a http://orthanc:8042/tools/reset
-- tmp_path pour isoler les fichiers authelia.yml + orthanc.json + backups
+Uses:
+- TestClient (starlette) to call the endpoints
+- fakeredis.aioredis to simulate Redis in memory
+- respx to mock the calls to http://orthanc:8042/tools/reset
+- tmp_path to isolate the authelia.yml + orthanc.json + backups files
 
-Executer :
+Run:
     cd services/auth-service/sources
     python -m pytest tests/test_integration.py -v
 """
@@ -33,7 +33,7 @@ import admin_module
 
 @pytest.fixture
 def tmp_paths(tmp_path, monkeypatch):
-    """Redirige les 3 chemins module-level vers un tmp_path per-test."""
+    """Redirect the 3 module-level paths to a per-test tmp_path."""
     authelia = tmp_path / "authelia.yml"
     orthanc = tmp_path / "orthanc.json"
     backups = tmp_path / "backups"
@@ -45,14 +45,14 @@ def tmp_paths(tmp_path, monkeypatch):
 
 @pytest.fixture
 def fake_server():
-    """Backend partage : le client async du module et le client sync des
-    assertions tapent dans le meme datastore."""
+    """Shared backend: the module's async client and the assertions' sync
+    client hit the same datastore."""
     return fakeredis.FakeServer()
 
 
 @pytest.fixture
 def fake_redis(fake_server):
-    """Injecte un Redis fake dans le module (synchrone pour TestClient)."""
+    """Inject a fake Redis into the module (synchronous for TestClient)."""
     r = fakeredis.aioredis.FakeRedis(decode_responses=True, server=fake_server)
     admin_module.set_redis(r)
     return r
@@ -60,11 +60,11 @@ def fake_redis(fake_server):
 
 @pytest.fixture
 def redis_sync(fake_server):
-    """Client synchrone pour inspecter l'etat Redis dans les assertions.
+    """Synchronous client to inspect Redis state in the assertions.
 
-    On ne peut pas faire asyncio.run(fake_redis.get(...)) : ca ouvrirait un
-    2eme event loop alors que la connexion async est deja liee a celui du
-    TestClient (RuntimeError: bound to a different event loop).
+    We cannot use asyncio.run(fake_redis.get(...)): that would open a second
+    event loop while the async connection is already bound to the TestClient's
+    (RuntimeError: bound to a different event loop).
     """
     return fakeredis.FakeStrictRedis(server=fake_server, decode_responses=True)
 
@@ -76,34 +76,35 @@ def admin_user():
 
 @pytest.fixture
 def app(admin_user):
-    """FastAPI app avec le router + middlewares wire-up."""
+    """FastAPI app with the router + middlewares wired up."""
     app = FastAPI()
     app.include_router(admin_module.router)
     app.middleware("http")(admin_module.setup_gate)
     app.middleware("http")(admin_module.csrf_gate)
-    # Override du dependency : pas de vraie auth Authelia en test
+    # Dependency override: no real Authelia auth in tests
     app.dependency_overrides[admin_module.require_admin] = lambda: admin_user
     return app
 
 
 @pytest.fixture
 def client(app, tmp_paths, fake_redis):
-    # Context manager obligatoire : sinon TestClient ouvre un event loop par
-    # requete et la connexion fakeredis, liee au premier, casse des la 2eme.
+    # Context manager is mandatory: otherwise TestClient opens one event loop
+    # per request and the fakeredis connection, bound to the first, breaks on
+    # the second.
     with TestClient(app) as c:
         yield c
 
 
 @pytest.fixture
 def csrf_headers(client):
-    """Setup double-submit cookie + header pour passer csrf_gate."""
+    """Set up the double-submit cookie + header to get past csrf_gate."""
     client.cookies.set("orthanc_admin_csrf", "test-token")
     return {"x-csrf-token": "test-token"}
 
 
 @pytest.fixture
 def valid_orthanc_json(tmp_paths):
-    """Pre-cree un orthanc.json valide (avec les flags DB critiques)."""
+    """Pre-create a valid orthanc.json (with the critical DB flags)."""
     initial = {
         "Name": "Cuffel PACS",
         "DicomAet": "YOKOINC",
@@ -118,7 +119,7 @@ def valid_orthanc_json(tmp_paths):
 
 @pytest.fixture
 def valid_authelia_yml(tmp_paths):
-    """Pre-cree un users_database.yml valide (1 admin actif, argon2id)."""
+    """Pre-create a valid users_database.yml (1 active admin, argon2id)."""
     hasher = admin_module._hasher
     data = {
         "users": {
@@ -138,17 +139,17 @@ def valid_authelia_yml(tmp_paths):
 
 
 # ============================================================================
-# Test 1 : Setup wizard end-to-end
+# Test 1: setup wizard end-to-end
 # ============================================================================
 
 class TestSetupWizard:
 
     def test_full_flow(self, client, tmp_paths, fake_redis, redis_sync):
-        """Redis vide → create admin → finalize → 2eme create bloque par middleware."""
-        # Etat initial : setup_completed absent
-        # (fake_redis est frais, aucune clef)
+        """Empty Redis -> create admin -> finalize -> 2nd create blocked by middleware."""
+        # Initial state: setup_completed absent
+        # (fake_redis is fresh, no keys at all)
 
-        # Etape 1 : creer le premier admin
+        # Step 1: create the first admin
         r = client.post("/auth/setup/create-admin", json={
             "username": "cuffel.gregory",
             "displayname": "Gregory Cuffel",
@@ -159,23 +160,23 @@ class TestSetupWizard:
         assert r.status_code == 200, r.text
         assert r.json()["ok"] is True
 
-        # Le YAML doit exister, contenir l'user avec un hash argon2id
+        # The YAML must exist and hold the user with an argon2id hash
         assert tmp_paths["authelia"].exists()
         yml = yaml.safe_load(tmp_paths["authelia"].read_text())
         assert "cuffel.gregory" in yml["users"]
         assert yml["users"]["cuffel.gregory"]["password"].startswith("$argon2id$")
         assert "admins" in yml["users"]["cuffel.gregory"]["groups"]
 
-        # Etape 2 : finaliser
+        # Step 2: finalize
         r = client.post("/auth/setup/finalize")
         assert r.status_code == 200
         assert r.json()["admins"] == ["cuffel.gregory"]
 
-        # Redis a bien le flag maintenant
+        # Redis now carries the flag
         val = redis_sync.get("orthanc_authelia:setup_completed")
         assert val == "1"
 
-        # Etape 3 : 2eme appel bloque par setup_gate (redirect vers /auth/admin)
+        # Step 3: 2nd call blocked by setup_gate (redirect to /auth/admin)
         r = client.post("/auth/setup/create-admin", json={
             "username": "someone.else",
             "displayname": "Someone Else",
@@ -186,20 +187,20 @@ class TestSetupWizard:
         assert r.headers["location"] == "/auth/admin"
 
     def test_finalize_refused_without_admin(self, client, tmp_paths, fake_redis):
-        """Finaliser sans admin actif = 400 (invariant lockout)."""
-        # Pas de POST create-admin avant
+        """Finalizing without an active admin = 400 (lockout invariant)."""
+        # No POST create-admin beforehand
         r = client.post("/auth/setup/finalize")
         assert r.status_code == 400
         assert "admin" in r.text.lower()
 
     def test_create_admin_forces_admins_group(self, client, tmp_paths, fake_redis):
-        """Meme si l'user oublie 'admins' dans groups, on l'ajoute."""
+        """Even if the user forgets 'admins' in groups, we add it."""
         r = client.post("/auth/setup/create-admin", json={
             "username": "cuffel.gregory",
             "displayname": "Gregory",
             "email": "cuffel@example.com",
             "password": "long-password-1234",
-            "groups": ["doctors"],  # PAS admins
+            "groups": ["doctors"],  # NOT admins
         })
         assert r.status_code == 200
         yml = yaml.safe_load(tmp_paths["authelia"].read_text())
@@ -207,20 +208,20 @@ class TestSetupWizard:
 
 
 # ============================================================================
-# Test 2 : CF Access rotate + verify pipeline
+# Test 2: CF Access rotate + verify pipeline
 # ============================================================================
 
 class TestCFAccess:
 
     def test_rotate_then_verify_matches(self, client, fake_redis, csrf_headers):
-        """POST rotate → GET verify-cf avec nouveaux headers = 204."""
+        """POST rotate -> GET verify-cf with the new headers = 204."""
         r = client.post("/api/admin/cf-access/rotate", json={
             "client_id": "new-id-ec87a9cb.access",
             "client_secret": "s" * 64,
         }, headers=csrf_headers)
         assert r.status_code == 200
 
-        # Verify avec les nouveaux headers
+        # Verify with the new headers
         r = client.get("/api/internal/verify-cf", headers={
             "x-cf-client-id": "new-id-ec87a9cb.access",
             "x-cf-client-secret": "s" * 64,
@@ -228,14 +229,14 @@ class TestCFAccess:
         assert r.status_code == 204
 
     def test_verify_wrong_secret_rejected(self, client, fake_redis, csrf_headers):
-        """Verify avec mauvais secret = 403."""
-        # Rotate d'abord (client_id min 10 chars par Field validation)
+        """Verify with a wrong secret = 403."""
+        # Rotate first (client_id min 10 chars per Field validation)
         client.post("/api/admin/cf-access/rotate", json={
             "client_id": "id-abc-with-length.access",
             "client_secret": "s" * 64,
         }, headers=csrf_headers)
 
-        # Mauvais secret
+        # Wrong secret
         r = client.get("/api/internal/verify-cf", headers={
             "x-cf-client-id": "id-abc-with-length.access",
             "x-cf-client-secret": "w" * 64,
@@ -243,7 +244,7 @@ class TestCFAccess:
         assert r.status_code == 403
 
     def test_verify_no_config_returns_503(self, client, fake_redis):
-        """Verify sur Redis vide = 503 (pas configure)."""
+        """Verify against an empty Redis = 503 (not configured)."""
         r = client.get("/api/internal/verify-cf", headers={
             "x-cf-client-id": "any",
             "x-cf-client-secret": "any",
@@ -253,21 +254,21 @@ class TestCFAccess:
     def test_rotate_snapshots_old_to_history(
         self, client, fake_redis, redis_sync, csrf_headers,
     ):
-        """Ancien couple pousse dans cf_access:history au moment du rotate."""
-        # 1er rotate (client_id min 10 chars)
+        """The old pair is pushed to cf_access:history on rotate."""
+        # 1st rotate (client_id min 10 chars)
         r1 = client.post("/api/admin/cf-access/rotate", json={
             "client_id": "id-one-abc.access",
             "client_secret": "1" * 64,
         }, headers=csrf_headers)
         assert r1.status_code == 200, r1.text
-        # 2eme rotate
+        # 2nd rotate
         r2 = client.post("/api/admin/cf-access/rotate", json={
             "client_id": "id-two-abc.access",
             "client_secret": "2" * 64,
         }, headers=csrf_headers)
         assert r2.status_code == 200, r2.text
 
-        # History contient au moins l'ancien couple
+        # History holds at least the old pair
         length = redis_sync.llen("cf_access:history")
         assert length >= 1
         first = redis_sync.lindex("cf_access:history", 0)
@@ -276,7 +277,7 @@ class TestCFAccess:
 
 
 # ============================================================================
-# Test 3 : Orthanc config change + reload
+# Test 3: Orthanc config change + reload
 # ============================================================================
 
 class TestOrthancConfig:
@@ -295,19 +296,19 @@ class TestOrthancConfig:
             assert r.status_code == 200, r.text
             assert reset_route.called
 
-        # Le fichier a ete mis a jour
+        # The file has been updated
         new = json.loads(tmp_paths["orthanc"].read_text())
         assert new["Name"] == "New PACS Name"
         assert new["HttpCompressionEnabled"] is True
-        # Flags critiques preserves
+        # Critical flags preserved
         assert new["DicomModalitiesInDatabase"] is True
         assert new["OrthancPeersInDatabase"] is True
 
-        # Un backup a ete cree
+        # A backup has been created
         backups = list(tmp_paths["backups"].glob("orthanc.json.bak.*"))
         assert len(backups) == 1
 
-        # Audit stream a une entree
+        # The audit stream has an entry
         entries = redis_sync.xrange("admin:audit")
         assert len(entries) >= 1
         _, fields = entries[-1]
@@ -317,17 +318,17 @@ class TestOrthancConfig:
     def test_patch_refuses_non_whitelisted_path(
         self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
     ):
-        """Un chemin hors whitelist renvoie 400."""
+        """A path outside the whitelist returns 400."""
         r = client.patch("/api/admin/orthanc/config", json={
             "changes": {"PostgreSQL.Password": "hack"},
         }, headers=csrf_headers)
         assert r.status_code == 400
-        assert "non editable" in r.text.lower()
+        assert "not editable" in r.text.lower()
 
     def test_patch_refuses_disabling_critical_flag(
         self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
     ):
-        """Desactiver DicomModalitiesInDatabase = 400."""
+        """Disabling DicomModalitiesInDatabase = 400."""
         r = client.patch("/api/admin/orthanc/config", json={
             "changes": {"DicomModalitiesInDatabase": False},
         }, headers=csrf_headers)
@@ -335,7 +336,7 @@ class TestOrthancConfig:
 
 
 # ============================================================================
-# Test 4 : Rollback via /api/admin/backups/restore
+# Test 4: rollback through /api/admin/backups/restore
 # ============================================================================
 
 class TestBackupRestore:
@@ -343,17 +344,17 @@ class TestBackupRestore:
     def test_orthanc_rollback(
         self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
     ):
-        """PATCH puis restore = fichier remis a l'etat initial."""
+        """PATCH then restore = file put back to its initial state."""
         with respx.mock(base_url="http://orthanc:8042") as mock:
             mock.post("/tools/reset").respond(status_code=200, json={})
 
-            # Modif
+            # Change it
             client.patch("/api/admin/orthanc/config", json={
                 "changes": {"Name": "Modified"},
             }, headers=csrf_headers)
             assert json.loads(tmp_paths["orthanc"].read_text())["Name"] == "Modified"
 
-            # Recuperer le nom du backup cree
+            # Fetch the name of the backup that was created
             backups = sorted(tmp_paths["backups"].glob("orthanc.json.bak.*"))
             assert backups
             backup_name = backups[0].name
@@ -365,12 +366,12 @@ class TestBackupRestore:
             )
             assert r.status_code == 200, r.text
 
-        # Le fichier est bien revenu au Name initial
+        # The file is back to its initial Name
         restored = json.loads(tmp_paths["orthanc"].read_text())
         assert restored["Name"] == valid_orthanc_json["Name"]
 
     def test_restore_rejects_bad_name(self, client, tmp_paths, fake_redis, csrf_headers):
-        """Nom sans .bak. dedans = 404."""
+        """A name without .bak. in it = 404."""
         r = client.post(
             "/api/admin/backups/restore?backup_name=evil_traversal",
             headers=csrf_headers,
@@ -379,13 +380,13 @@ class TestBackupRestore:
 
 
 # ============================================================================
-# Test 5 : CSRF rejection
+# Test 5: CSRF rejection
 # ============================================================================
 
 class TestCSRF:
 
     def test_post_without_token_refused(self, client, tmp_paths, fake_redis):
-        """POST /api/admin/* sans cookie + header CSRF = 403."""
+        """POST /api/admin/* without the CSRF cookie + header = 403."""
         r = client.post("/api/admin/cf-access/rotate", json={
             "client_id": "any-id-here",
             "client_secret": "s" * 64,
@@ -404,22 +405,22 @@ class TestCSRF:
         assert "csrf.token" in r.text
 
     def test_get_bypass_csrf(self, client, tmp_paths, fake_redis):
-        """GET n'est jamais soumis a CSRF (idempotent)."""
-        # GET /api/admin/cf-access sans cookie
+        """GET is never subject to CSRF (idempotent)."""
+        # GET /api/admin/cf-access without a cookie
         r = client.get("/api/admin/cf-access")
         assert r.status_code == 200  # OK, csrf_gate laisse passer
 
     def test_internal_verify_bypass_csrf(self, client, fake_redis):
-        """/api/internal/* n'est pas /api/admin/* et bypasse."""
+        """/api/internal/* is not /api/admin/* and bypasses the gate."""
         r = client.get("/api/internal/verify-cf", headers={
             "x-cf-client-id": "x", "x-cf-client-secret": "y",
         })
-        # 503 (pas configure) prouve qu'on a atteint l'endpoint, pas 403 CSRF
+        # 503 (not configured) proves we reached the endpoint, not a 403 CSRF
         assert r.status_code == 503
 
 
 # ============================================================================
-# Test 6 : File lock — concurrence write orthanc.json
+# Test 6: file lock — concurrent orthanc.json writes
 # ============================================================================
 
 class TestFileLock:
@@ -429,14 +430,14 @@ class TestFileLock:
         valid_orthanc_json, monkeypatch,
     ):
         """
-        Un thread externe tient le lock, la requete API attend puis timeout → 423.
-        Reduit le timeout admin_module a 1s pour ne pas ralentir le test.
+        An outside thread holds the lock, the API request waits then times out -> 423.
+        Lowers the admin_module timeout to 1s so the test stays fast.
         """
-        # Patch le timeout FileLock pour aller vite
+        # Patch the FileLock timeout to keep this quick
         orig_flock = admin_module.FileLock
 
         def fast_flock(path, timeout=None):
-            return orig_flock(path, timeout=1)  # 1s au lieu de 5s
+            return orig_flock(path, timeout=1)  # 1s instead of 5s
 
         monkeypatch.setattr(admin_module, "FileLock", fast_flock)
 
@@ -453,22 +454,22 @@ class TestFileLock:
         try:
             barrier.wait()  # attend que hold_lock ait le lock
 
-            # Maintenant tente d'ecrire via l'API
+            # Now try to write through the API
             r = client.patch("/api/admin/orthanc/config", json={
                 "changes": {"Name": "should not succeed"},
             }, headers=csrf_headers)
             assert r.status_code == 423
-            assert "verrouille" in r.text.lower()
+            assert "locked" in r.text.lower()
         finally:
             holder.join()
 
-        # Le fichier n'a PAS ete modifie (le lock a empeche l'ecriture)
+        # The file was NOT modified (the lock prevented the write)
         content = json.loads(tmp_paths["orthanc"].read_text())
         assert content["Name"] == valid_orthanc_json["Name"]
 
 
 # ============================================================================
-# Test 7 : Auto-rollback Orthanc quand /tools/reset echoue
+# Test 7: Orthanc auto-rollback when /tools/reset fails
 # ============================================================================
 
 class TestAutoRollback:
@@ -477,8 +478,8 @@ class TestAutoRollback:
         self, client, tmp_paths, fake_redis, redis_sync, csrf_headers,
         valid_orthanc_json,
     ):
-        """PATCH → /tools/reset renvoie 500 → rollback auto → 502 mais fichier restore."""
-        # 1er reset (celui qui echoue) puis 2eme (celui du rollback qui reussit)
+        """PATCH -> /tools/reset returns 500 -> auto-rollback -> 502 but file restored."""
+        # 1st reset (the failing one) then 2nd (the rollback one, succeeding)
         with respx.mock(base_url="http://orthanc:8042") as mock:
             reset_route = mock.post("/tools/reset").mock(
                 side_effect=[
@@ -493,21 +494,21 @@ class TestAutoRollback:
 
             assert r.status_code == 502
             assert "rollback" in r.text.lower()
-            # Le mock a bien ete appele 2 fois (initial + rollback)
+            # The mock was indeed called twice (initial + rollback)
             assert reset_route.call_count == 2
 
-        # Le fichier est bien revenu au Name initial (rollback effectue)
+        # The file is back to its initial Name (rollback done)
         current = json.loads(tmp_paths["orthanc"].read_text())
         assert current["Name"] == valid_orthanc_json["Name"]
 
-        # Audit trail montre le rollback
+        # The audit trail shows the rollback
         entries = redis_sync.xrange("admin:audit")
         events = [f["event"] for _, f in entries]
         assert "orthanc.config.rolled_back" in events
 
 
 # ============================================================================
-# Test 8 : Setup wizard verrouille apres 1er create-admin
+# Test 8: setup wizard locked after the first create-admin
 # ============================================================================
 
 class TestSetupLockout:
@@ -515,12 +516,11 @@ class TestSetupLockout:
     def test_existing_install_without_flag_closes_the_wizard(
         self, client, tmp_paths, fake_redis, redis_sync, valid_authelia_yml,
     ):
-        """Stack deja en service, flag Redis absent : l'assistant reste ferme.
+        """Stack already in service, Redis flag absent: the wizard stays shut.
 
-        C'est le cas de la montee de version : la clef setup_completed n'existe
-        pas dans le Redis d'une install anterieure au panneau. Si l'assistant
-        se rouvrait, il est hors SSO -- n'importe qui pourrait se creer un
-        compte admin sur un PACS en production.
+        This is the upgrade case: the setup_completed key does not exist in the
+        Redis of an install predating the panel. If the wizard reopened, it sits
+        outside SSO -- anyone could create an admin account on a production PACS.
         """
         assert redis_sync.get("orthanc_authelia:setup_completed") is None
 
@@ -528,13 +528,13 @@ class TestSetupLockout:
         assert r.status_code == 302
         assert r.headers["location"] == "/auth/admin"
 
-        # Le flag est fige au passage, plus besoin de relire le YAML ensuite
+        # The flag is frozen on the way, no need to re-read the YAML afterwards
         assert redis_sync.get("orthanc_authelia:setup_completed") == "1"
 
     def test_fresh_install_keeps_the_wizard_open(
         self, client, tmp_paths, fake_redis, redis_sync,
     ):
-        """Aucun users_database.yml : vraie premiere install, assistant ouvert."""
+        """No users_database.yml: genuine first install, wizard open."""
         assert not tmp_paths["authelia"].exists()
 
         r = client.get("/auth/setup", follow_redirects=False)
@@ -544,7 +544,7 @@ class TestSetupLockout:
     def test_corrupt_yaml_closes_the_wizard(
         self, client, tmp_paths, fake_redis, redis_sync,
     ):
-        """YAML present mais casse : fail-closed, on ne rouvre pas l'assistant."""
+        """YAML present but broken: fail-closed, we do not reopen the wizard."""
         tmp_paths["authelia"].write_text("users:\n  x: {not: valid: yaml")
 
         r = client.get("/auth/setup", follow_redirects=False)
@@ -554,12 +554,11 @@ class TestSetupLockout:
     def test_admin_group_name_is_configurable(
         self, client, tmp_paths, fake_redis, redis_sync, monkeypatch,
     ):
-        """Le nom du groupe admin suit ADMIN_GROUP, pas un "admins" en dur.
+        """The admin group name follows ADMIN_GROUP, not a hardcoded "admins".
 
-        Les installations existantes n'utilisent pas toutes le meme nom : ce
-        stack est en "admin" au singulier. Si le module reste sur "admins",
-        aucun admin n'est reconnu -- l'assistant se rouvre et le panneau
-        repond 403 a tout le monde.
+        Existing installs do not all use the same name: this stack uses "admin"
+        in the singular. If the module stays on "admins", no admin is
+        recognised -- the wizard reopens and the panel answers 403 to everyone.
         """
         monkeypatch.setattr(admin_module, "ADMIN_GROUP", "admin")
         tmp_paths["authelia"].write_text(yaml.safe_dump({
@@ -575,11 +574,11 @@ class TestSetupLockout:
         }))
 
         r = client.get("/auth/setup", follow_redirects=False)
-        assert r.status_code == 302, "un groupe 'admin' doit fermer l'assistant"
+        assert r.status_code == 302, "an 'admin' group must close the wizard"
         assert redis_sync.get("orthanc_authelia:setup_completed") == "1"
 
     def test_second_create_admin_refused(self, client, tmp_paths, fake_redis, redis_sync):
-        """Apres 1 create-admin, un 2e appel = 409 tant que non-finalize."""
+        """After one create-admin, a 2nd call = 409 until finalize."""
         r1 = client.post("/auth/setup/create-admin", json={
             "username": "first.admin",
             "displayname": "First",
@@ -595,12 +594,12 @@ class TestSetupLockout:
             "password": "second-admin-12345",
         })
         assert r2.status_code == 409
-        assert "deja ete cree" in r2.text.lower()
+        assert "already been created" in r2.text.lower()
 
     def test_finalize_clears_lock_next_setup_impossible_anyway(
         self, client, tmp_paths, fake_redis, redis_sync,
     ):
-        """Apres finalize, le verrou first_admin est supprime (mais setup_gate ferme tout)."""
+        """After finalize the first_admin lock is removed (but setup_gate shuts everything)."""
         client.post("/auth/setup/create-admin", json={
             "username": "admin.one",
             "displayname": "Admin",
@@ -616,13 +615,13 @@ class TestSetupLockout:
 
 
 # ============================================================================
-# Test 9 : Redis down = fail closed sur verify-cf
+# Test 9: Redis down = fail closed on verify-cf
 # ============================================================================
 
 class TestRedisResilience:
 
     def test_verify_cf_fail_closed_on_redis_error(self, app, tmp_paths, monkeypatch):
-        """Si Redis leve RedisError, verify-cf retourne 403 pas 500."""
+        """If Redis raises RedisError, verify-cf returns 403 not 500."""
         from redis.exceptions import RedisError
 
         class BrokenRedis:
@@ -641,7 +640,7 @@ class TestRedisResilience:
 
 
 # ============================================================================
-# Test 10 : YAML/JSON corrompu → 500 lisible avec hint restore
+# Test 10: corrupt YAML/JSON -> readable 500 hinting at restore
 # ============================================================================
 
 class TestCorruptConfig:
@@ -649,28 +648,28 @@ class TestCorruptConfig:
     def test_corrupt_authelia_yml_returns_readable_500(
         self, client, tmp_paths, fake_redis, csrf_headers,
     ):
-        """YAML syntaxiquement casse → 500 avec message qui hint le restore."""
+        """Syntactically broken YAML -> 500 with a message hinting at restore."""
         tmp_paths["authelia"].write_text("users:\n  cuffel: {this is: not: valid: yaml")
 
         r = client.get("/api/admin/users")
         assert r.status_code == 500
-        assert "corrompu" in r.text.lower()
+        assert "corrupt" in r.text.lower()
         assert "backups" in r.text.lower()
 
     def test_corrupt_orthanc_json_returns_readable_500(
         self, client, tmp_paths, fake_redis, csrf_headers,
     ):
-        """JSON syntaxiquement casse → 500 avec message restore."""
+        """Syntactically broken JSON -> 500 with a restore message."""
         tmp_paths["orthanc"].write_text('{"Name": "unclosed')
 
         r = client.get("/api/admin/orthanc/config")
         assert r.status_code == 500
-        assert "corrompu" in r.text.lower()
+        assert "corrupt" in r.text.lower()
         assert "backups" in r.text.lower()
 
 
 # ============================================================================
-# Test 11 : Health endpoint
+# Test 11: health endpoint
 # ============================================================================
 
 class TestHealth:
@@ -678,7 +677,7 @@ class TestHealth:
     def test_health_reports_component_status(
         self, client, tmp_paths, fake_redis, valid_authelia_yml, valid_orthanc_json,
     ):
-        """/api/admin/health renvoie l'etat de chaque composant."""
+        """/api/admin/health returns the state of every component."""
         with respx.mock(base_url="http://orthanc:8042") as mock:
             mock.get("/system").respond(status_code=200, json={"Version": "26.4.2"})
 
@@ -694,8 +693,8 @@ class TestHealth:
     def test_setup_page_renders_when_setup_not_done(
         self, client, tmp_paths, fake_redis,
     ):
-        """GET /auth/setup avant finalize = HTML avec formulaire."""
-        # ADMIN_TEMPLATES_DIR est defini par le lanceur de tests. Si absent, skip.
+        """GET /auth/setup before finalize = HTML with the form."""
+        # ADMIN_TEMPLATES_DIR is set by the test runner. If absent, skip.
         if not (admin_module.TEMPLATES_DIR / "setup.html").exists():
             import pytest
             pytest.skip("templates/setup.html absent dans le layout de test")
@@ -708,7 +707,7 @@ class TestHealth:
     def test_setup_page_redirects_when_setup_done(
         self, client, tmp_paths, fake_redis, redis_sync,
     ):
-        """GET /auth/setup apres finalize = 302 vers /auth/admin (setup_gate)."""
+        """GET /auth/setup after finalize = 302 to /auth/admin (setup_gate)."""
         redis_sync.set("orthanc_authelia:setup_completed", "1")
 
         r = client.get("/auth/setup", follow_redirects=False)
@@ -718,7 +717,7 @@ class TestHealth:
     def test_admin_page_sets_csrf_cookie(
         self, client, tmp_paths, fake_redis, redis_sync, valid_authelia_yml,
     ):
-        """GET /auth/admin apres setup = HTML + cookie orthanc_admin_csrf pose."""
+        """GET /auth/admin after setup = HTML + orthanc_admin_csrf cookie set."""
         if not (admin_module.TEMPLATES_DIR / "admin.html").exists():
             import pytest
             pytest.skip("templates/admin.html absent dans le layout de test")
@@ -727,14 +726,14 @@ class TestHealth:
 
         r = client.get("/auth/admin")
         assert r.status_code == 200
-        # Cookie CSRF pose
+        # CSRF cookie set
         assert "orthanc_admin_csrf" in r.cookies
         assert len(r.cookies["orthanc_admin_csrf"]) >= 40
 
     def test_health_reports_corrupt_orthanc_json(
         self, client, tmp_paths, fake_redis, valid_authelia_yml,
     ):
-        """orthanc.json corrompu = health signale KO sur ce composant."""
+        """Corrupt orthanc.json = health reports KO on that component."""
         tmp_paths["orthanc"].write_text('{"unclosed')
 
         with respx.mock(base_url="http://orthanc:8042") as mock:
@@ -743,3 +742,90 @@ class TestHealth:
             r = client.get("/api/admin/health")
             assert r.status_code == 200
             assert r.json()["checks"]["orthanc_json"]["ok"] is False
+
+
+# ============================================================================
+# Test 12: commented orthanc.json (JSONC)
+# ============================================================================
+
+class TestJsoncConfig:
+    """Orthanc accepts comments in its config, json.loads does not.
+
+    This repo's orthanc.json carries 128 of them. Re-serialising the whole file
+    through json.dumps would produce a valid file but would strip the
+    administrator's configuration of all its documentation.
+    """
+
+    SAMPLE = """{
+  // =========================================================
+  // CONFIGURATION ORTHANC
+  // =========================================================
+  "Name": "Ancien Nom",          // nom affiche dans l'UI
+  "DicomAet": "OLDAET",
+  /* bloc de commentaire
+     sur plusieurs lignes */
+  "DicomModalitiesInDatabase": true,
+  "OrthancPeersInDatabase": true,
+  "HttpPort": 8042,
+  "NotAComment": "http://example.com/a//b",
+  "DicomWeb": {
+    // sous-section
+    "Enable": true,
+    "Root": "/dicom-web/"
+  }
+}
+"""
+
+    def test_reads_config_with_comments(self, tmp_paths):
+        tmp_paths["orthanc"].write_text(self.SAMPLE)
+        config = admin_module._load_orthanc_config()
+        assert config["Name"] == "Ancien Nom"
+        assert config["DicomWeb"]["Root"] == "/dicom-web/"
+        # A // inside a string is not a comment
+        assert config["NotAComment"] == "http://example.com/a//b"
+
+    def test_patch_preserves_comments(self, tmp_paths):
+        out = admin_module._patch_jsonc(self.SAMPLE, {
+            "Name": "Nouveau Nom",
+            "DicomWeb.Root": "/dw/",
+        })
+
+        assert "CONFIGURATION ORTHANC" in out
+        assert "// nom affiche dans l'UI" in out
+        assert "bloc de commentaire" in out
+        assert "// sous-section" in out
+
+        config = json.loads(admin_module._mask_jsonc_comments(out))
+        assert config["Name"] == "Nouveau Nom"
+        assert config["DicomWeb"]["Root"] == "/dw/"
+        assert config["DicomAet"] == "OLDAET"          # untouched
+        assert config["NotAComment"] == "http://example.com/a//b"
+
+    def test_patch_inserts_missing_key(self, tmp_paths):
+        out = admin_module._patch_jsonc(self.SAMPLE, {"StableAge": 30})
+        config = json.loads(admin_module._mask_jsonc_comments(out))
+        assert config["StableAge"] == 30
+        assert config["Name"] == "Ancien Nom"
+        assert "CONFIGURATION ORTHANC" in out
+
+    def test_patch_endpoint_keeps_comments_end_to_end(
+        self, client, tmp_paths, fake_redis, csrf_headers,
+    ):
+        tmp_paths["orthanc"].write_text(self.SAMPLE)
+        with respx.mock:
+            respx.post("http://orthanc:8042/tools/reset").mock(
+                return_value=httpx.Response(200, json={}),
+            )
+            r = client.patch(
+                "/api/admin/orthanc/config",
+                json={"changes": {"Name": "Nom De Test", "HttpPort": 8043}},
+                headers=csrf_headers,
+            )
+        assert r.status_code == 200, r.text
+
+        written = tmp_paths["orthanc"].read_text()
+        assert "CONFIGURATION ORTHANC" in written
+        assert "// nom affiche dans l'UI" in written
+        config = json.loads(admin_module._mask_jsonc_comments(written))
+        assert config["Name"] == "Nom De Test"
+        assert config["HttpPort"] == 8043

@@ -1,4 +1,4 @@
-"""Configure sys.path pour que pytest trouve admin_module."""
+"""Configure sys.path so pytest can find admin_module."""
 import sys
 from pathlib import Path
 
