@@ -23,14 +23,18 @@
 #   locations that point at Authelia, and answer 404. The three blocks live in
 #   services/nginx/nginx.ssl.conf, section "ADMIN / SETUP PANEL".
 #
-# 4) Permission pattern for POST /tools/reset
-#   The plugin's StandardConfigurations define no pattern for it, so it is
-#   refused for every profile -- auth-service included, which needs it to apply
-#   an edited configuration. Add to the Authorization section of orthanc.json:
-#       "Permissions": [
-#         ["post", "^/tools/reset$", "all|settings"]
-#       ],
-#   Then restart the orthanc container so the plugin loads it.
+# 4) How a configuration change reaches Orthanc (ORTHANC_APPLY_MODE)
+#   Default "restart": the panel writes the file and reports that a restart is
+#   needed. On orthancteam images Orthanc does not run on the mounted file --
+#   the entrypoint merges it with the environment into /tmp/orthanc.json at
+#   container start, and that copy is what POST /tools/reset re-reads. Calling
+#   the reset there answers 200 and changes nothing, reporting a success that
+#   never happened.
+#   Set ORTHANC_APPLY_MODE=reset only where Orthanc is started directly on this
+#   file (command: ["Orthanc", "/etc/orthanc/orthanc.json"]) -- which also needs
+#   Plugins / StorageDirectory / Gdcm copied into it, and a permission pattern
+#   for that route, absent from the plugin's StandardConfigurations:
+#       "Permissions": [["post", "^/tools/reset$", "all|settings"]]
 #
 # ============================================================================
 # Why directory bind-mounts and not file bind-mounts

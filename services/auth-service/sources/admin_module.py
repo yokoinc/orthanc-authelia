@@ -55,6 +55,22 @@ ORTHANC_PASS = os.environ.get("ORTHANC_ADMIN_PASS", "")
 ORTHANC_AUTH_TOKEN = os.environ.get("ORTHANC_AUTH_TOKEN", "admin-token")
 ORTHANC_AUTH_HEADERS = {"auth-token": ORTHANC_AUTH_TOKEN}
 
+# How a configuration change reaches Orthanc.
+#
+#   "restart" (default) -- write the file and say so. On orthancteam images
+#       Orthanc does not run on the mounted file: the entrypoint merges it with
+#       the environment into /tmp/orthanc.json at container start, and that copy
+#       is what POST /tools/reset re-reads. Calling the reset there answers 200
+#       and changes nothing, which is worse than not calling it: it reports a
+#       success that did not happen. The container has to be restarted.
+#
+#   "reset" -- also POST /tools/reset. Only meaningful where Orthanc is started
+#       directly on this file (command: ["Orthanc", "/etc/orthanc/orthanc.json"]),
+#       which additionally needs a permission pattern for that route, absent from
+#       the plugin's StandardConfigurations:
+#           "Permissions": [["post", "^/tools/reset$", "all|settings"]]
+ORTHANC_APPLY_MODE = os.environ.get("ORTHANC_APPLY_MODE", "restart")
+
 
 def _require_orthanc_creds():
     if not ORTHANC_USER or not ORTHANC_PASS:
@@ -261,6 +277,13 @@ async def setup_gate(request: Request, call_next):
     - /auth/setup/* reachable only while setup_completed is absent
     - /auth/admin/* reachable only once setup_completed is present (+ admin auth)
     - any other path: bypass
+
+    Once setup is done the wizard answers 404, it does not redirect. It is the
+    only route of the panel that sits outside SSO -- it has to, since at first
+    run no account exists to authenticate with -- so once it has served its
+    purpose the right thing is for it to stop existing as far as the outside
+    world can tell. A redirect would confirm the endpoint is there and would
+    leave the POST routes one middleware decision away from being reachable.
     """
     path = request.url.path
     if not (path.startswith("/auth/setup") or path.startswith("/auth/admin")):
@@ -270,7 +293,7 @@ async def setup_gate(request: Request, call_next):
     is_setup = path.startswith("/auth/setup")
 
     if is_setup and done:
-        return RedirectResponse("/auth/admin", status_code=302)
+        return Response(status_code=404)
     if not is_setup and not done:
         return RedirectResponse("/auth/setup", status_code=302)
     return await call_next(request)
@@ -908,6 +931,25 @@ async def update_orthanc_config(
         raise HTTPException(423, "orthanc.json locked, retry") from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+
+    if ORTHANC_APPLY_MODE != "reset":
+        await _audit(
+            "orthanc.config.written",
+            admin.username,
+            fields=",".join(payload.changes.keys()),
+            backup=backup.name,
+        )
+        return {
+            "ok": True,
+            "backup": backup.name,
+            "applied": False,
+            "restart_required": True,
+            "detail": (
+                "Configuration written. Orthanc starts on a copy its entrypoint "
+                "builds from this file, so the change applies once the container "
+                "is restarted: docker compose restart orthanc"
+            ),
+        }
 
     reset_error = None
     try:

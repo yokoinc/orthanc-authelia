@@ -183,8 +183,7 @@ class TestSetupWizard:
             "email": "someone@example.com",
             "password": "another-password-12345",
         }, follow_redirects=False)
-        assert r.status_code == 302
-        assert r.headers["location"] == "/auth/admin"
+        assert r.status_code == 404, "the wizard must be gone, not redirecting"
 
     def test_finalize_refused_without_admin(self, client, tmp_paths, fake_redis):
         """Finalizing without an active admin = 400 (lockout invariant)."""
@@ -284,9 +283,14 @@ class TestOrthancConfig:
 
     def test_patch_writes_file_and_calls_reset(
         self, client, tmp_paths, fake_redis, redis_sync, csrf_headers,
-        valid_orthanc_json,
+        valid_orthanc_json, monkeypatch,
     ):
-        """PATCH → JSON updated on disk + POST /tools/reset called + audit."""
+        """PATCH -> JSON updated on disk + POST /tools/reset called + audit.
+
+        Reset mode: only meaningful where Orthanc is started directly on the
+        mounted file. The default is "restart", covered by its own test below.
+        """
+        monkeypatch.setattr(admin_module, "ORTHANC_APPLY_MODE", "reset")
         with respx.mock(base_url="http://orthanc:8042") as mock:
             reset_route = mock.post("/tools/reset").respond(status_code=200, json={})
 
@@ -314,6 +318,37 @@ class TestOrthancConfig:
         _, fields = entries[-1]
         assert fields["event"] == "orthanc.config.updated"
         assert fields["actor"] == "cuffel.gregory"
+
+    def test_default_mode_writes_without_calling_reset(
+        self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
+    ):
+        """Default mode writes the file and reports it, without POSTing a reset.
+
+        On orthancteam images Orthanc runs on a copy built at container start,
+        so a reset answers 200 while changing nothing -- reporting a success
+        that never happened. Better to write and say a restart is needed.
+        """
+        assert admin_module.ORTHANC_APPLY_MODE == "restart"
+
+        # assert_all_called=False: the route is declared precisely so we can
+        # prove it stays untouched.
+        with respx.mock(base_url="http://orthanc:8042", assert_all_called=False) as mock:
+            reset_route = mock.post("/tools/reset").respond(status_code=200, json={})
+
+            r = client.patch("/api/admin/orthanc/config", json={
+                "changes": {"Name": "New Name"},
+            }, headers=csrf_headers)
+
+            assert r.status_code == 200, r.text
+            assert not reset_route.called, "no reset must be sent in restart mode"
+
+        body = r.json()
+        assert body["applied"] is False
+        assert body["restart_required"] is True
+        assert "restart" in body["detail"].lower()
+
+        # The file itself is written all the same
+        assert json.loads(tmp_paths["orthanc"].read_text())["Name"] == "New Name"
 
     def test_patch_refuses_non_whitelisted_path(
         self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
@@ -476,9 +511,10 @@ class TestAutoRollback:
 
     def test_rollback_on_reset_failure(
         self, client, tmp_paths, fake_redis, redis_sync, csrf_headers,
-        valid_orthanc_json,
+        valid_orthanc_json, monkeypatch,
     ):
         """PATCH -> /tools/reset returns 500 -> auto-rollback -> 502 but file restored."""
+        monkeypatch.setattr(admin_module, "ORTHANC_APPLY_MODE", "reset")
         # 1st reset (the failing one) then 2nd (the rollback one, succeeding)
         with respx.mock(base_url="http://orthanc:8042") as mock:
             reset_route = mock.post("/tools/reset").mock(
@@ -525,8 +561,7 @@ class TestSetupLockout:
         assert redis_sync.get("orthanc_authelia:setup_completed") is None
 
         r = client.get("/auth/setup", follow_redirects=False)
-        assert r.status_code == 302
-        assert r.headers["location"] == "/auth/admin"
+        assert r.status_code == 404
 
         # The flag is frozen on the way, no need to re-read the YAML afterwards
         assert redis_sync.get("orthanc_authelia:setup_completed") == "1"
@@ -548,8 +583,7 @@ class TestSetupLockout:
         tmp_paths["authelia"].write_text("users:\n  x: {not: valid: yaml")
 
         r = client.get("/auth/setup", follow_redirects=False)
-        assert r.status_code == 302
-        assert r.headers["location"] == "/auth/admin"
+        assert r.status_code == 404
 
     def test_admin_group_name_is_configurable(
         self, client, tmp_paths, fake_redis, redis_sync, monkeypatch,
@@ -574,7 +608,7 @@ class TestSetupLockout:
         }))
 
         r = client.get("/auth/setup", follow_redirects=False)
-        assert r.status_code == 302, "an 'admin' group must close the wizard"
+        assert r.status_code == 404, "an 'admin' group must close the wizard"
         assert redis_sync.get("orthanc_authelia:setup_completed") == "1"
 
     def test_second_create_admin_refused(self, client, tmp_paths, fake_redis, redis_sync):
@@ -711,8 +745,7 @@ class TestHealth:
         redis_sync.set("orthanc_authelia:setup_completed", "1")
 
         r = client.get("/auth/setup", follow_redirects=False)
-        assert r.status_code == 302
-        assert r.headers["location"] == "/auth/admin"
+        assert r.status_code == 404
 
     def test_admin_page_sets_csrf_cookie(
         self, client, tmp_paths, fake_redis, redis_sync, valid_authelia_yml,
