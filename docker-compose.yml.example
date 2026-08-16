@@ -166,7 +166,7 @@ services:
       - orthanc-network
 
   authelia:
-    image: authelia/authelia:4.39.5
+    image: authelia/authelia:4.39.20
     container_name: orthanc-authelia
     restart: unless-stopped
     # Authelia ecrit dans ./services/authelia/config (base de sessions, liste
@@ -260,7 +260,7 @@ services:
     # Official Orthanc Team image (replaces jodogne/orthanc-plugins). Pin a specific
     # tag to know exactly which plugin versions ship; see release notes at
     # https://github.com/orthanc-server/orthanc-builder/blob/master/release-notes-docker-images.md
-    image: orthancteam/orthanc:26.4.2
+    image: orthancteam/orthanc:26.6.1
     container_name: orthanc-server
     restart: unless-stopped
     depends_on:
