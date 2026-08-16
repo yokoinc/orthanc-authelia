@@ -366,6 +366,15 @@ body {
     transition: background-color 0.15s, border-color 0.15s;
 }
 
+/* Variante compacte, pour les actions posees dans une ligne de tableau. Elle
+   etait deja utilisee par les templates alors qu'elle n'existait pas ici : ces
+   boutons sortaient donc en taille normale, ce qui se voyait. */
+.oe2-btn--sm {
+    padding: 3px 8px;
+    font-size: var(--oe2-fs-tiny);
+    gap: 4px;
+}
+
 .oe2-btn:hover { color: var(--oe2-body-color); }
 .oe2-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .oe2-btn:focus-visible { outline: 2px solid var(--oe2-accent); outline-offset: 1px; }

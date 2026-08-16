@@ -111,7 +111,9 @@
                                 <option value="external">external</option>
                             </select>
                         </div>
-                        <button type="submit" class="oe2-btn oe2-btn--primary">Créer</button>
+                        <button type="submit" class="oe2-btn oe2-btn--primary">
+                            <i class="fa-solid fa-user-plus"></i> Créer le compte
+                        </button>
                     </form>
                 </details>
             </div>
@@ -124,7 +126,7 @@
                         <div style="color:var(--oe2-muted);font-size:var(--oe2-fs-tiny)">Chargement…</div>
                     </div>
                     <button type="submit" class="oe2-btn oe2-btn--primary" style="margin-top:16px">
-                        Appliquer &amp; recharger Orthanc
+                        <i class="fa-solid fa-floppy-disk"></i> Enregistrer
                     </button>
                 </form>
             </div>
@@ -137,7 +139,7 @@
                     <div class="form-row"><label>Nouveau Client ID</label><input name="client_id" required minlength="10"></div>
                     <div class="form-row"><label>Nouveau Secret</label><input type="password" name="client_secret" required minlength="32"></div>
                     <button type="submit" class="oe2-btn oe2-btn--primary" style="margin-top:12px">
-                        Enregistrer le nouveau couple
+                        <i class="fa-solid fa-floppy-disk"></i> Enregistrer
                     </button>
                 </form>
             </div>
@@ -153,7 +155,7 @@
                 </p>
                 <form id="session-form" style="max-width:520px">
                     <div id="session-fields"></div>
-                    <button class="oe2-btn" type="submit" style="margin-top:12px">
+                    <button type="submit" class="oe2-btn oe2-btn--primary" style="margin-top:12px">
                         <i class="fa-solid fa-floppy-disk"></i> Enregistrer
                     </button>
                 </form>
@@ -172,7 +174,7 @@
                     <thead><tr><th>Date</th><th>Fichier</th><th>Contenu</th><th></th></tr></thead>
                     <tbody><tr><td colspan="4" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
                 </table>
-                <button class="oe2-btn" style="margin-top:12px" onclick="loadBackups()">
+                <button class="oe2-btn oe2-btn--secondary" style="margin-top:12px" onclick="loadBackups()">
                     <i class="fa-solid fa-rotate"></i> Rafraîchir
                 </button>
             </div>
@@ -183,7 +185,7 @@
                     <thead><tr><th>Composant</th><th>Statut</th><th>Détail</th></tr></thead>
                     <tbody><tr><td colspan="3" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
                 </table>
-                <button class="oe2-btn" style="margin-top:12px" onclick="loadHealth()">
+                <button class="oe2-btn oe2-btn--secondary" style="margin-top:12px" onclick="loadHealth()">
                     <i class="fa-solid fa-rotate"></i> Rafraîchir
                 </button>
             </div>
@@ -204,11 +206,8 @@
                 padding:22px 24px;max-width:440px;box-shadow:0 10px 40px rgba(0,0,0,.5)">
         <p id="confirm-text" style="margin:0 0 18px;font-size:var(--oe2-fs-small);line-height:1.5"></p>
         <div style="display:flex;gap:10px;justify-content:flex-end">
-            <button type="button" id="confirm-cancel" class="oe2-btn oe2-btn--sm">Annuler</button>
-            <button type="button" id="confirm-ok" class="oe2-btn oe2-btn--sm"
-                    style="background:var(--oe2-danger);border-color:var(--oe2-danger);color:#fff">
-                Confirmer
-            </button>
+            <button type="button" id="confirm-cancel" class="oe2-btn oe2-btn--ghost">Annuler</button>
+            <button type="button" id="confirm-ok" class="oe2-btn oe2-btn--danger">Confirmer</button>
         </div>
     </div>
 </div>

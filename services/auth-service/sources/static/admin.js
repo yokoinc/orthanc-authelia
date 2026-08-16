@@ -99,8 +99,9 @@ async function loadUsers() {
                     `<span class="badge-${g === 'admins' ? 'admin' : 'doctor'}">${g}</span>`
                 ).join(' ')}</td>
                 <td style="text-align:right">
-                    <button class="oe2-btn oe2-btn--sm" onclick="deleteUser('${u.username}')">
-                        <i class="fa-solid fa-trash"></i>
+                    <button class="oe2-btn oe2-btn--danger oe2-btn--sm"
+                            onclick="deleteUser('${u.username}')">
+                        <i class="fa-solid fa-trash"></i> Supprimer
                     </button>
                 </td>
             </tr>
@@ -300,7 +301,8 @@ async function loadBackups() {
                     </span></td>
                 <td style="font-size:12px">${b.detail || ''}</td>
                 <td style="text-align:right;white-space:nowrap">
-                    <button class="oe2-btn oe2-btn--sm" onclick="restoreBackup('${b.name}', '${b.target}')">
+                    <button class="oe2-btn oe2-btn--secondary oe2-btn--sm"
+                            onclick="restoreBackup('${b.name}', '${b.target}')">
                         <i class="fa-solid fa-clock-rotate-left"></i> Restaurer
                     </button>
                 </td>
