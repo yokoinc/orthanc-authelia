@@ -15,19 +15,20 @@ ORTHANC-AUTHELIA is a complete Picture Archiving and Communication System (PACS)
 
 ## Stack & Versions
 
-Component versions as defined in `docker-compose.yml` (keep this table in sync when bumping images):
+Component versions as defined in `docker-compose.yml.example` (keep this table in sync when bumping images):
 
 | Component | Image | Version |
 |-----------|-------|---------|
 | Orthanc PACS | `orthancteam/orthanc` | `26.6.1` |
 | Authelia | `authelia/authelia` | `4.39.20` |
+| PostgreSQL | `postgres` | `16-alpine` |
 | Redis | `redis` | `8.0-alpine` |
 | OHIF Viewer | `registry.yokoinc.ovh/orthanc-ohif` | `3.11.0` |
 | Nginx | `registry.yokoinc.ovh/orthanc-nginx` | `1.2.0` |
 | Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.1.0` |
 | Socket proxy | `tecnativa/docker-socket-proxy` | `0.3.0` |
 
-> **PostgreSQL** is not part of this stack — Orthanc connects to an **external** PostgreSQL instance over the `database` network (see [Database Setup Guide](docs/DATABASE_SETUP.md)).
+> **PostgreSQL est fourni par la stack.** Le compose démarre un conteneur `postgres:16-alpine` dédié : il n'y a aucune base à préparer avant le premier `docker compose up`. Pour brancher Orthanc sur une instance PostgreSQL existante à la place, voir [DB PostgreSQL externe](#advanced--db-postgresql-externe) plus bas et le [guide de la base de données](docs/DATABASE_SETUP.md).
 
 ## Why Authelia over KeyCloak?
 

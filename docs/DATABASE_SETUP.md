@@ -14,14 +14,16 @@ Complete guide for PostgreSQL database setup with ORTHANC-AUTHELIA.
 
 ## Overview
 
-ORTHANC-AUTHELIA requires a PostgreSQL database (12+, 15 recommended) for storing DICOM index and image data. You have two options:
+ORTHANC-AUTHELIA requires a PostgreSQL database (12+, 16 shipped) for storing DICOM index and image data. You have two options:
 
-1. **External Database** (recommended for production) - Connect to an existing PostgreSQL instance
-2. **Local Container** (development/testing) - Run PostgreSQL in a Docker container alongside the stack
+1. **Local Container** — the shipped default. `docker-compose.yml.example` starts a `postgres:16-alpine` container alongside the stack; nothing to prepare before the first `docker compose up`.
+2. **External Database** — connect to an existing PostgreSQL instance instead, via a `docker-compose.override.yml`. Useful when a database is already administered and backed up elsewhere.
+
+> Both options are supported. The choice is about where the database is administered, not about production versus development: the shipped container is a regular PostgreSQL, and an external instance carries no special guarantee of its own.
 
 ## Option 1: External PostgreSQL Database
 
-This is the **default configuration** and is recommended for production deployments.
+This is **not** the default: the stack ships its own PostgreSQL container. Follow this section only to point Orthanc at an instance you already run — see the `docker-compose.override.yml` in the README's *Advanced* section, which disables the bundled container.
 
 ### Requirements
 
@@ -95,11 +97,11 @@ docker network inspect database
 
 ## Option 2: Local PostgreSQL Container
 
-For development or testing, you can run PostgreSQL locally in the same stack.
+**This is what the stack ships**, and nothing has to be done to enable it: `bootstrap.sh` generates a `docker-compose.yml` whose postgres service is already active, with credentials drawn from `.env`.
 
-### Step 1: Uncomment PostgreSQL service
+The section below documents the service for reference — to read what it declares, or to adjust it. It is not a set of steps to follow on a fresh install.
 
-In `docker-compose.yml`, uncomment the postgres service:
+### The shipped PostgreSQL service
 
 ```yaml
 postgres:
@@ -116,7 +118,7 @@ postgres:
     - orthanc-network
 ```
 
-### Step 2: Uncomment the volume
+### Le volume associé
 
 ```yaml
 volumes:
@@ -124,58 +126,15 @@ volumes:
     name: orthanc_postgres_data
 ```
 
-### Step 3: Update Orthanc service
+Les données vivent dans un volume Docker nommé, pas dans le dépôt : `docker compose down` les conserve, `docker compose down -v` les détruit. C'est cette seconde commande que la procédure de remise à zéro du README emploie — elle efface les examens.
 
-**Remove the external database network:**
-```yaml
-orthanc:
-  networks:
-    - orthanc-network
-    # Remove this line: - database
-```
+### Ce que voit Orthanc
 
-**Add postgres dependency:**
-```yaml
-orthanc:
-  depends_on:
-    auth-service:
-      condition: service_started
-    postgres:  # Add this
-      condition: service_started
-```
+Orthanc joint le conteneur par son nom de service sur le réseau interne, `POSTGRES_HOST=postgres`, avec les identifiants du `.env` que `bootstrap.sh` a générés. Aucun port n'est publié sur l'hôte : la base n'est accessible que depuis la stack.
 
-**Change POSTGRES_HOST:**
-```yaml
-orthanc:
-  environment:
-    - POSTGRES_HOST=postgres  # Changed from "database"
-```
+### Passer à une instance externe
 
-### Step 4: Remove external database network
-
-At the bottom of `docker-compose.yml`, remove:
-```yaml
-database:
-  external: true
-  name: database
-```
-
-### Step 5: Update orthanc.json
-
-In `services/orthanc/config/orthanc.json`:
-```json
-"PostgreSQL": {
-  "Host": "postgres",  # Changed from "database"
-  "Username": "orthanc",
-  "Password": "change_this_password"
-}
-```
-
-### Step 6: Start the stack
-
-```bash
-docker compose up -d
-```
+Rien à modifier dans le `docker-compose.yml` généré. Un `docker-compose.override.yml` désactive le conteneur fourni et redirige Orthanc, sans toucher au fichier principal — la recette complète est dans la section *Advanced : DB PostgreSQL externe* du README. L'option 1 ci-dessus décrit alors la préparation à faire côté base existante.
 
 ## Database Configuration
 
@@ -235,7 +194,7 @@ docker compose logs orthanc | grep -i postgres
 
 ```bash
 # Connect to PostgreSQL
-docker exec -it postgres-database psql -U orthanc -d orthanc
+docker exec -it orthanc-postgres psql -U orthanc -d orthanc
 
 # List tables
 \dt
@@ -251,7 +210,7 @@ docker exec -it postgres-database psql -U orthanc -d orthanc
 ### Check database size
 
 ```bash
-docker exec -it postgres-database psql -U orthanc -d orthanc -c \
+docker exec -it orthanc-postgres psql -U orthanc -d orthanc -c \
   "SELECT pg_size_pretty(pg_database_size('orthanc'));"
 ```
 
@@ -261,30 +220,30 @@ docker exec -it postgres-database psql -U orthanc -d orthanc -c \
 
 **Full database backup:**
 ```bash
-docker exec postgres-database pg_dump -U orthanc orthanc > orthanc_backup.sql
+docker exec orthanc-postgres pg_dump -U orthanc orthanc > orthanc_backup.sql
 ```
 
 **Compressed backup:**
 ```bash
-docker exec postgres-database pg_dump -U orthanc orthanc | gzip > orthanc_backup.sql.gz
+docker exec orthanc-postgres pg_dump -U orthanc orthanc | gzip > orthanc_backup.sql.gz
 ```
 
 **Automated daily backups:**
 ```bash
 # Add to crontab
-0 2 * * * docker exec postgres-database pg_dump -U orthanc orthanc | gzip > /backups/orthanc_$(date +\%Y\%m\%d).sql.gz
+0 2 * * * docker exec orthanc-postgres pg_dump -U orthanc orthanc | gzip > /backups/orthanc_$(date +\%Y\%m\%d).sql.gz
 ```
 
 ### Restore
 
 **From SQL file:**
 ```bash
-docker exec -i postgres-database psql -U orthanc orthanc < orthanc_backup.sql
+docker exec -i orthanc-postgres psql -U orthanc orthanc < orthanc_backup.sql
 ```
 
 **From compressed backup:**
 ```bash
-gunzip -c orthanc_backup.sql.gz | docker exec -i postgres-database psql -U orthanc orthanc
+gunzip -c orthanc_backup.sql.gz | docker exec -i orthanc-postgres psql -U orthanc orthanc
 ```
 
 ### Backup Docker volume (alternative)
@@ -309,17 +268,17 @@ docker compose start orthanc
 
 ```bash
 # Check active connections
-docker exec postgres-database psql -U orthanc -d orthanc -c \
+docker exec orthanc-postgres psql -U orthanc -d orthanc -c \
   "SELECT count(*) FROM pg_stat_activity;"
 
 # Check slow queries
-docker exec postgres-database psql -U orthanc -d orthanc -c \
+docker exec orthanc-postgres psql -U orthanc -d orthanc -c \
   "SELECT pid, now() - pg_stat_activity.query_start AS duration, query
    FROM pg_stat_activity
    WHERE state = 'active' AND now() - pg_stat_activity.query_start > interval '5 seconds';"
 
 # Check table sizes
-docker exec postgres-database psql -U orthanc -d orthanc -c \
+docker exec orthanc-postgres psql -U orthanc -d orthanc -c \
   "SELECT relname, pg_size_pretty(pg_total_relation_size(relid))
    FROM pg_catalog.pg_statio_user_tables
    ORDER BY pg_total_relation_size(relid) DESC;"
@@ -331,11 +290,11 @@ Regular maintenance improves performance:
 
 ```bash
 # Manual vacuum
-docker exec postgres-database psql -U orthanc -d orthanc -c "VACUUM ANALYZE;"
+docker exec orthanc-postgres psql -U orthanc -d orthanc -c "VACUUM ANALYZE;"
 
 # Enable autovacuum (should be enabled by default)
 # Check status:
-docker exec postgres-database psql -U orthanc -d orthanc -c "SHOW autovacuum;"
+docker exec orthanc-postgres psql -U orthanc -d orthanc -c "SHOW autovacuum;"
 ```
 
 ### Index optimization
@@ -343,7 +302,7 @@ docker exec postgres-database psql -U orthanc -d orthanc -c "SHOW autovacuum;"
 Orthanc creates necessary indexes automatically, but you can verify:
 
 ```bash
-docker exec postgres-database psql -U orthanc -d orthanc -c \
+docker exec orthanc-postgres psql -U orthanc -d orthanc -c \
   "SELECT tablename, indexname FROM pg_indexes WHERE schemaname = 'public';"
 ```
 
@@ -359,19 +318,19 @@ docker ps | grep postgres
 docker network inspect database
 
 # Test connection from orthanc container
-docker exec orthanc-server ping postgres-database -c 3
+docker exec orthanc-server ping orthanc-postgres -c 3
 ```
 
 ### Authentication failed
 
 - Verify credentials match in `docker-compose.yml` and `orthanc.json`
-- Check PostgreSQL logs: `docker logs postgres-database`
+- Check PostgreSQL logs: `docker logs orthanc-postgres`
 
 ### Disk space issues
 
 ```bash
 # Check database size
-docker exec postgres-database psql -U orthanc -d orthanc -c \
+docker exec orthanc-postgres psql -U orthanc -d orthanc -c \
   "SELECT pg_size_pretty(pg_database_size('orthanc'));"
 
 # Check available disk space
