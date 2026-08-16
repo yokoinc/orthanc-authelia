@@ -15,7 +15,6 @@ const restarting = ref(false)
 // Orthanc restarts, and nothing else would show it -- the panel would keep
 // displaying the new value.
 const restartRequired = ref(false)
-const replies = ref({})
 
 const meta = ref({})
 

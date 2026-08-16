@@ -49,21 +49,6 @@ async function loadPreferences() {
   }
 }
 
-async function saveViewer() {
-  savingViewer.value = true
-  try {
-    await api('/console/api/admin/sharing', {
-      method: 'PUT', body: { default_viewer: viewer.value },
-    })
-    initialViewer.value = viewer.value
-    ui.notify(t('sharing_saved', 'Viewer par défaut enregistré.'), 'ok')
-  } catch (e) {
-    ui.notify(e.message, 'err')
-  } finally {
-    savingViewer.value = false
-  }
-}
-
 // --- Backups ---------------------------------------------------------------
 const backups = ref([])
 const loading = ref(true)
