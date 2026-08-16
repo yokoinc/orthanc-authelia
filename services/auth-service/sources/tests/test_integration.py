@@ -413,8 +413,12 @@ class TestBackupRestore:
     def test_orthanc_rollback(
         self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
     ):
-        """PATCH then restore = file put back to its initial state."""
-        with respx.mock(base_url="http://orthanc:8042") as mock:
+        """PATCH then restore = file put back to its initial state.
+
+        assert_all_called=False: in the default mode nothing posts a reset, the
+        route is only declared so the test stays off the network.
+        """
+        with respx.mock(base_url="http://orthanc:8042", assert_all_called=False) as mock:
             mock.post("/tools/reset").respond(status_code=200, json={})
 
             # Change it
@@ -438,6 +442,58 @@ class TestBackupRestore:
         # The file is back to its initial Name
         restored = json.loads(tmp_paths["orthanc"].read_text())
         assert restored["Name"] == valid_orthanc_json["Name"]
+
+    def test_list_backups_shows_accounts(
+        self, client, tmp_paths, fake_redis, csrf_headers, valid_authelia_yml,
+    ):
+        """The listing names the accounts each backup holds.
+
+        Backups were written on every change but nothing exposed them, so from
+        the panel they might as well not have existed. And picking the right one
+        hinges on what it contains, not on its file name.
+        """
+        admin_module._backup(tmp_paths["authelia"])
+
+        r = client.get("/api/admin/backups")
+        assert r.status_code == 200, r.text
+        backups = r.json()["backups"]
+        assert len(backups) == 1
+        assert backups[0]["target"] == tmp_paths["authelia"].name
+        assert "1 compte(s)" in backups[0]["detail"]
+        assert "cuffel.gregory" in backups[0]["detail"]
+
+    def test_list_backups_ignores_unrestorable_files(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml,
+    ):
+        """Only what restore can actually put back is offered."""
+        admin_module._backup(tmp_paths["authelia"])
+        (tmp_paths["backups"] / "notes.txt").write_text("not a backup")
+        (tmp_paths["backups"] / "users_database.yml.preflight").write_text("manual copy")
+
+        names = [b["name"] for b in client.get("/api/admin/backups").json()["backups"]]
+        assert all(".bak." in n for n in names)
+        assert "notes.txt" not in names
+
+    def test_restore_users_database_puts_the_accounts_back(
+        self, client, tmp_paths, fake_redis, csrf_headers, valid_authelia_yml,
+    ):
+        """Restore returns the file to the backed-up state, keeping the inode."""
+        backup = admin_module._backup(tmp_paths["authelia"])
+        before = tmp_paths["authelia"].read_text()
+        inode_before = tmp_paths["authelia"].stat().st_ino
+
+        # Wipe an account the way a mistaken deletion would
+        tmp_paths["authelia"].write_text("users: {}\n")
+
+        r = client.post(
+            f"/api/admin/backups/restore?backup_name={backup.name}",
+            headers=csrf_headers,
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["target"] == tmp_paths["authelia"].name
+        assert tmp_paths["authelia"].read_text() == before
+        # Same inode: the other containers see the restored file through their mount
+        assert tmp_paths["authelia"].stat().st_ino == inode_before
 
     def test_restore_rejects_bad_name(self, client, tmp_paths, fake_redis, csrf_headers):
         """A name without .bak. in it = 404."""

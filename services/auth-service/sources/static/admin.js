@@ -73,12 +73,13 @@ document.querySelectorAll('.admin-tab').forEach(btn => {
         document.querySelectorAll('.admin-tab').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         const target = btn.dataset.tab;
-        ['users', 'orthanc', 'cf', 'health'].forEach(t => {
+        ['users', 'orthanc', 'cf', 'backups', 'health'].forEach(t => {
             document.getElementById('panel-' + t).hidden = (t !== target);
         });
         if (target === 'users') loadUsers();
         if (target === 'orthanc') loadOrthanc();
         if (target === 'cf') loadCF();
+        if (target === 'backups') loadBackups();
         if (target === 'health') loadHealth();
     });
 });
@@ -137,7 +138,7 @@ document.getElementById('add-user-form').addEventListener('submit', async (e) =>
                 groups,
             },
         });
-        showMsg('User cree, Authelia reload dans ~2s', true);
+        showMsg('Compte cree. Authelia relit le fichier automatiquement.', true);
         e.target.reset();
         loadUsers();
     } catch (err) { showMsg(err.message, false); }
@@ -231,6 +232,66 @@ document.getElementById('cf-form').addEventListener('submit', async (e) => {
         loadCF();
     } catch (err) { showMsg(err.message, false); }
 });
+
+// ============ BACKUPS ============
+function formatBytes(n) {
+    return n < 1024 ? n + ' o' : (n / 1024).toFixed(1) + ' ko';
+}
+
+async function loadBackups() {
+    const tbody = document.querySelector('#backups-table tbody');
+    try {
+        const data = await api('/api/admin/backups');
+        if (!data.backups.length) {
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--oe2-muted)">'
+                + 'Aucune sauvegarde pour le moment</td></tr>';
+            return;
+        }
+        tbody.innerHTML = data.backups.map(b => {
+            const when = new Date(b.modified * 1000).toLocaleString('fr-FR');
+            return `
+            <tr>
+                <td style="white-space:nowrap">${when}</td>
+                <td><strong>${b.target}</strong><br>
+                    <span style="font-family:monospace;font-size:11px;color:var(--oe2-muted)">
+                        ${b.name} — ${formatBytes(b.size)}
+                    </span></td>
+                <td style="font-size:12px">${b.detail || ''}</td>
+                <td style="text-align:right;white-space:nowrap">
+                    <button class="oe2-btn oe2-btn--sm" onclick="restoreBackup('${b.name}', '${b.target}')">
+                        <i class="fa-solid fa-clock-rotate-left"></i> Restaurer
+                    </button>
+                </td>
+            </tr>`;
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="4">Erreur : ${e.message}</td></tr>`;
+    }
+}
+
+async function restoreBackup(name, target) {
+    const ok = await confirmDialog(
+        `Restaurer ${target} depuis ${name} ? Le contenu actuel sera remplace, `
+        + 'mais il est sauvegarde au prealable : l\'operation reste reversible.',
+        'Restaurer',
+    );
+    if (!ok) return;
+    try {
+        const data = await api(
+            `/api/admin/backups/restore?backup_name=${encodeURIComponent(name)}`,
+            { method: 'POST' },
+        );
+        showMsg(
+            data.restart_required
+                ? `${target} restaure. Orthanc lit une copie faite a son demarrage : `
+                  + 'relancer le conteneur pour appliquer — docker compose restart orthanc'
+                : `${target} restaure`,
+            true,
+        );
+        loadBackups();
+        if (target === 'users_database.yml') loadUsers();
+    } catch (e) { showMsg(e.message, false); }
+}
 
 // ============ HEALTH ============
 async function loadHealth() {

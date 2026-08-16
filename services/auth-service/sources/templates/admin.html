@@ -75,6 +75,9 @@
                 <button class="admin-tab" data-tab="cf">
                     <i class="fa-solid fa-cloud"></i> Cloudflare Access
                 </button>
+                <button class="admin-tab" data-tab="backups">
+                    <i class="fa-solid fa-clock-rotate-left"></i> Sauvegardes
+                </button>
                 <button class="admin-tab" data-tab="health">
                     <i class="fa-solid fa-heart-pulse"></i> Health
                 </button>
@@ -137,6 +140,24 @@
             </div>
 
             <!-- ===== HEALTH ===== -->
+            <div class="admin-panel" id="panel-backups" hidden>
+                <h2 style="font-size:14px;margin:0 0 4px">Sauvegardes</h2>
+                <p style="font-size:12px;color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
+                    Une copie est prise avant chaque modification, les 10 dernières sont
+                    conservées par fichier. Pour les comptes, le contenu de chaque sauvegarde
+                    est indiqué : c'est ce qui permet de choisir la bonne. Restaurer remplace
+                    le fichier — l'état actuel est lui aussi sauvegardé au passage, donc
+                    l'opération reste réversible.
+                </p>
+                <table class="data-table" id="backups-table">
+                    <thead><tr><th>Date</th><th>Fichier</th><th>Contenu</th><th></th></tr></thead>
+                    <tbody><tr><td colspan="4" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
+                </table>
+                <button class="oe2-btn" style="margin-top:12px" onclick="loadBackups()">
+                    <i class="fa-solid fa-rotate"></i> Rafraîchir
+                </button>
+            </div>
+
             <div class="admin-panel" id="panel-health" hidden>
                 <h2 style="font-size:14px;margin:0 0 12px">État des composants</h2>
                 <table class="data-table" id="health-table">

@@ -1203,6 +1203,56 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
 # Route: backup rollback
 # ============================================================================
 
+def _backup_target(name: str) -> Path | None:
+    """The file a backup can be restored onto, None if it is not one of ours.
+
+    Derived from the configured paths rather than from hardcoded file names:
+    both are settable through ADMIN_ORTHANC_PATH / ADMIN_AUTHELIA_PATH, and a
+    fixed name would silently refuse every restore on an install that renamed
+    them. This is also what bounds a restore to the two files the panel owns.
+    """
+    for path in (ORTHANC_JSON, AUTHELIA_YML):
+        if name.startswith(path.name + ".bak."):
+            return path
+    return None
+
+
+@router.get("/api/admin/backups")
+async def list_backups(admin: AdminUser = Depends(require_admin)):
+    """List the restorable backups, most recent first.
+
+    Backups were being written on every change but nothing exposed them, so
+    from the panel they might as well not have existed. For account backups the
+    number of accounts is counted: picking the right one to restore hinges on
+    that, not on the file name.
+    """
+    if not BACKUPS_DIR.exists():
+        return {"backups": []}
+
+    items = []
+    for path in sorted(BACKUPS_DIR.iterdir(), reverse=True):
+        target = _backup_target(path.name)
+        if target is None or not path.is_file():
+            continue
+        entry = {
+            "name": path.name,
+            "target": target.name,
+            "size": path.stat().st_size,
+            "modified": int(path.stat().st_mtime),
+            "detail": "",
+        }
+        if target == AUTHELIA_YML:
+            try:
+                data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+                users = data.get("users") or {}
+                entry["detail"] = f"{len(users)} compte(s) : " + ", ".join(sorted(users))
+            except (OSError, yaml.YAMLError) as e:
+                entry["detail"] = f"illisible : {e}"
+        items.append(entry)
+
+    return {"backups": items}
+
+
 @router.post("/api/admin/backups/restore")
 async def restore_backup(
     backup_name: str,
@@ -1213,19 +1263,23 @@ async def restore_backup(
     if not src.exists() or ".bak." not in backup_name:
         raise HTTPException(404, "backup not found or invalid name")
 
-    if backup_name.startswith("orthanc.json.bak."):
-        dest = ORTHANC_JSON
-        reload = _reload_orthanc
-    elif backup_name.startswith("users_database.yml.bak."):
-        dest = AUTHELIA_YML
-        reload = None  # Authelia watch
-    else:
+    dest = _backup_target(backup_name)
+    if dest is None:
         raise HTTPException(400, "unsupported backup type")
 
+    # The state being replaced is itself backed up first: a restore aimed at the
+    # wrong file stays undoable.
     _backup(dest, tag="pre-restore")
-    shutil.copy2(src, dest)
-    if reload:
-        await reload()
+    # copyfile writes into the existing inode rather than replacing it, which is
+    # what the bind-mounts require -- see _atomic_write.
+    shutil.copyfile(src, dest)
+
+    restart_required = False
+    if dest == ORTHANC_JSON:
+        if ORTHANC_APPLY_MODE == "reset":
+            await _reload_orthanc()
+        else:
+            restart_required = True
 
     await _audit("backup.restored", admin.username, backup=backup_name)
-    return {"ok": True}
+    return {"ok": True, "target": dest.name, "restart_required": restart_required}
