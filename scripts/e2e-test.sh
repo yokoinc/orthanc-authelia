@@ -142,10 +142,21 @@ else
     exit 1
 fi
 
-info "attente de la page de connexion (120 s max)"
+# L'attente porte sur /console/setup, et surtout PAS sur /auth/. La page de
+# connexion vit dans la zone de limitation "auth", plafonnee a 5 requetes par
+# minute pour contrarier les attaques par force brute. Un sondage toutes les
+# deux secondes en consomme trente : le credit etait epuise avant meme
+# l'ouverture de session, et nginx rejetait la connexion qui suit. Le test se
+# sabordait donc lui-meme des que le demarrage s'allongeait un peu -- une
+# panne qui se declenche au pire moment, quand la pile est deja lente.
+#
+# /console/setup n'est pas limite, sort du meme nginx et du meme auth-service,
+# et c'est l'etape suivante du test : son accessibilite est exactement la
+# condition utile.
+info "attente du wizard d'installation (120 s max)"
 pret=0
 for _ in $(seq 1 60); do
-    if [[ "$(curl -ks -o /dev/null -m 5 -w '%{http_code}' "${URL}/auth/")" == "200" ]]; then
+    if [[ "$(curl -ks -o /dev/null -m 5 -w '%{http_code}' "${URL}/console/setup")" == "200" ]]; then
         pret=1; break
     fi
     sleep 2
@@ -157,6 +168,17 @@ else
     compose ps
     exit 1
 fi
+
+# Authelia demarre pour son compte : on s'en assure avant la connexion, en
+# quelques requetes seulement pour rester sous le plafond.
+pret=0
+for _ in $(seq 1 6); do
+    if [[ "$(curl -ks -o /dev/null -m 5 -w '%{http_code}' "${URL}/auth/")" == "200" ]]; then
+        pret=1; break
+    fi
+    sleep 10
+done
+[[ $pret -eq 1 ]] && ok "portail Authelia servi" || echec "Authelia ne sert pas /auth/"
 
 # --- Wizard ----------------------------------------------------------------
 etape "Wizard de premiere installation"
