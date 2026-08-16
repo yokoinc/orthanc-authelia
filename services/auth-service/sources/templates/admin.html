@@ -10,30 +10,30 @@
     <style>
         .admin-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--oe2-border-subtle); padding: 0 16px; }
         .admin-tab { background: transparent; border: none; padding: 10px 14px; color: var(--oe2-muted);
-                     font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer;
+                     font-size:var(--oe2-fs-tiny); text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer;
                      border-bottom: 2px solid transparent; }
         .admin-tab.active { color: var(--oe2-nav-color); border-bottom-color: var(--oe2-accent-orange); }
         .admin-panel { padding: 20px 16px; }
         .admin-panel[hidden] { display: none; }
-        .data-table { width: 100%; border-collapse: collapse; font-size: 12px; color: var(--oe2-nav-color); }
+        .data-table { width: 100%; border-collapse: collapse; font-size:var(--oe2-fs-tiny); color: var(--oe2-nav-color); }
         .data-table th, .data-table td { padding: 6px 10px; text-align: left;
                                           border-bottom: 1px solid var(--oe2-border-subtle); }
         .data-table th { color: var(--oe2-muted); text-transform: uppercase; letter-spacing: 0.5px;
-                         font-weight: 400; font-size: 11px; }
+                         font-weight: 400; font-size:var(--oe2-fs-tiny); }
         .form-row { display: grid; grid-template-columns: 180px 1fr; gap: 8px 12px; margin: 8px 0;
-                    align-items: center; font-size: 12px; }
-        .form-row label { color: var(--oe2-muted); font-size: 11px; text-transform: uppercase; }
+                    align-items: center; font-size:var(--oe2-fs-tiny); }
+        .form-row label { color: var(--oe2-muted); font-size:var(--oe2-fs-tiny); text-transform: uppercase; }
         .form-row input, .form-row select { background: var(--oe2-nav-sub-bg);
                                             border: 1px solid var(--oe2-border-subtle);
                                             color: var(--oe2-nav-color); padding: 5px 8px;
-                                            border-radius: 2px; font-size: 12px; }
-        .msg { margin: 12px 0; padding: 10px; border-radius: 3px; font-size: 12px; display: none; }
+                                            border-radius: 2px; font-size:var(--oe2-fs-tiny); }
+        .msg { margin: 12px 0; padding: 10px; border-radius: 3px; font-size:var(--oe2-fs-tiny); display: none; }
         .msg--ok { background: rgba(40,167,69,0.15); border-left: 3px solid var(--oe2-success); color: #b6f0c0; }
         .msg--err { background: rgba(220,53,69,0.15); border-left: 3px solid var(--oe2-danger); color: #ffb0b0; }
         .badge-admin { background: var(--oe2-accent-orange); color: #fff; padding: 2px 6px;
-                       border-radius: 2px; font-size: 10px; text-transform: uppercase; }
+                       border-radius: 2px; font-size:var(--oe2-fs-tiny); text-transform: uppercase; }
         .badge-doctor { background: var(--oe2-label-bg); color: #fff; padding: 2px 6px;
-                        border-radius: 2px; font-size: 10px; text-transform: uppercase; }
+                        border-radius: 2px; font-size:var(--oe2-fs-tiny); text-transform: uppercase; }
     </style>
 </head>
 <body>
@@ -90,7 +90,7 @@
 
             <!-- ===== USERS ===== -->
             <div class="admin-panel" id="panel-users">
-                <h2 style="font-size:14px;margin:0 0 12px">Utilisateurs Authelia</h2>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 12px">Utilisateurs Authelia</h2>
                 <table class="data-table" id="users-table">
                     <thead>
                         <tr><th>Login</th><th>Nom</th><th>Email</th><th>Groupes</th><th></th></tr>
@@ -99,7 +99,7 @@
                 </table>
 
                 <details style="margin-top:20px">
-                    <summary style="font-size:13px;cursor:pointer;color:var(--oe2-accent-soft)">+ Ajouter un utilisateur</summary>
+                    <summary style="font-size:var(--oe2-fs-small);cursor:pointer;color:var(--oe2-accent-soft)">+ Ajouter un utilisateur</summary>
                     <form id="add-user-form" style="margin-top:12px;max-width:520px">
                         <div class="form-row"><label>Email</label><input type="email" name="email" required></div>
                         <div class="form-row"><label>Nom affiché</label><input name="displayname" required></div>
@@ -118,10 +118,10 @@
 
             <!-- ===== ORTHANC CONFIG ===== -->
             <div class="admin-panel" id="panel-orthanc" hidden>
-                <h2 style="font-size:14px;margin:0 0 12px">Configuration Orthanc</h2>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 12px">Configuration Orthanc</h2>
                 <form id="orthanc-form">
                     <div id="orthanc-fields" style="max-width:560px">
-                        <div style="color:var(--oe2-muted);font-size:12px">Chargement…</div>
+                        <div style="color:var(--oe2-muted);font-size:var(--oe2-fs-tiny)">Chargement…</div>
                     </div>
                     <button type="submit" class="oe2-btn oe2-btn--primary" style="margin-top:16px">
                         Appliquer &amp; recharger Orthanc
@@ -131,8 +131,8 @@
 
             <!-- ===== CF ACCESS ===== -->
             <div class="admin-panel" id="panel-cf" hidden>
-                <h2 style="font-size:14px;margin:0 0 12px">Rotation Cloudflare Access</h2>
-                <div id="cf-status" style="font-size:12px;color:var(--oe2-muted);margin-bottom:16px">Chargement…</div>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 12px">Rotation Cloudflare Access</h2>
+                <div id="cf-status" style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin-bottom:16px">Chargement…</div>
                 <form id="cf-form" style="max-width:520px">
                     <div class="form-row"><label>Nouveau Client ID</label><input name="client_id" required minlength="10"></div>
                     <div class="form-row"><label>Nouveau Secret</label><input type="password" name="client_secret" required minlength="32"></div>
@@ -144,8 +144,8 @@
 
             <!-- ===== HEALTH ===== -->
             <div class="admin-panel" id="panel-session" hidden>
-                <h2 style="font-size:14px;margin:0 0 4px">Durées de session</h2>
-                <p style="font-size:12px;color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 4px">Durées de session</h2>
+                <p style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
                     Format Authelia : un nombre suivi de son unité — <code>s</code>, <code>m</code>,
                     <code>h</code>, <code>d</code>. Par exemple <code>15m</code>, <code>1h</code>,
                     <code>1h30m</code>. Authelia ne relit que son fichier de comptes, pas sa propre
@@ -160,8 +160,8 @@
             </div>
 
             <div class="admin-panel" id="panel-backups" hidden>
-                <h2 style="font-size:14px;margin:0 0 4px">Sauvegardes</h2>
-                <p style="font-size:12px;color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 4px">Sauvegardes</h2>
+                <p style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
                     Une copie est prise avant chaque modification, les 10 dernières sont
                     conservées par fichier. Pour les comptes, le contenu de chaque sauvegarde
                     est indiqué : c'est ce qui permet de choisir la bonne. Restaurer remplace
@@ -178,7 +178,7 @@
             </div>
 
             <div class="admin-panel" id="panel-health" hidden>
-                <h2 style="font-size:14px;margin:0 0 12px">État des composants</h2>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 12px">État des composants</h2>
                 <table class="data-table" id="health-table">
                     <thead><tr><th>Composant</th><th>Statut</th><th>Détail</th></tr></thead>
                     <tbody><tr><td colspan="3" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
@@ -188,7 +188,7 @@
                 </button>
             </div>
 
-            <div style="padding: 12px 16px 8px;font-size:11px;color:var(--oe2-muted);opacity:0.6">
+            <div style="padding: 12px 16px 8px;font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);opacity:0.6">
                 auth-service v{image_version}
             </div>
         </main>
@@ -202,7 +202,7 @@
     <div role="dialog" aria-modal="true" aria-labelledby="confirm-text"
          style="background:var(--oe2-nav-bg);border:1px solid var(--oe2-border);border-radius:8px;
                 padding:22px 24px;max-width:440px;box-shadow:0 10px 40px rgba(0,0,0,.5)">
-        <p id="confirm-text" style="margin:0 0 18px;font-size:14px;line-height:1.5"></p>
+        <p id="confirm-text" style="margin:0 0 18px;font-size:var(--oe2-fs-small);line-height:1.5"></p>
         <div style="display:flex;gap:10px;justify-content:flex-end">
             <button type="button" id="confirm-cancel" class="oe2-btn oe2-btn--sm">Annuler</button>
             <button type="button" id="confirm-ok" class="oe2-btn oe2-btn--sm"
