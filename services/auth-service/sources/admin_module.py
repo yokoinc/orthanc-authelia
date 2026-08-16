@@ -792,6 +792,13 @@ class OrthancConfigPayload(BaseModel):
 # CF Access : verify (auth_request) + rotate + test
 # ============================================================================
 
+# Whether nginx actually gates /api-upload/ on this pair, i.e. whether the
+# auth_request /_verify-cf line is enabled in nginx.ssl.conf. The panel cannot
+# see nginx's configuration, and storing a pair nothing reads while announcing
+# an immediate effect is the kind of false success this project keeps running
+# into -- so the state is declared here and shown as-is in the UI.
+CF_ACCESS_ENFORCED = os.getenv("CF_ACCESS_ENFORCED", "false").lower() == "true"
+
 CF_ID_KEY = "cf_access:client_id"
 CF_SECRET_KEY = "cf_access:secret"
 CF_HISTORY_KEY = "cf_access:history"
@@ -1084,6 +1091,7 @@ async def cf_status(admin: AdminUser = Depends(require_admin)):
         "client_id_masked": (cid[:8] + "…" + cid[-6:]) if len(cid) > 20 else cid,
         "secret_configured": secret_exists,
         "history_length": history_len,
+        "enforced": CF_ACCESS_ENFORCED,
     }
 
 
@@ -1106,7 +1114,17 @@ async def cf_rotate(
         await pipe.execute()
 
     await _audit("cf_access.rotated", admin.username, id_prefix=payload.client_id[:8])
-    return {"ok": True, "rotated_at": int(time.time())}
+    return {
+        "ok": True,
+        "rotated_at": int(time.time()),
+        "enforced": CF_ACCESS_ENFORCED,
+        "detail": (
+            "Pair stored and effective on the next upload."
+            if CF_ACCESS_ENFORCED else
+            "Pair stored, but nothing enforces it yet: nginx does not gate "
+            "/api-upload/ on it. Uploads are unaffected either way."
+        ),
+    }
 
 
 # ============================================================================

@@ -201,10 +201,17 @@ document.getElementById('orthanc-form').addEventListener('submit', async (e) => 
 async function loadCF() {
     try {
         const data = await api('/api/admin/cf-access');
-        document.getElementById('cf-status').innerHTML = `
+        const banner = data.enforced ? '' : `
+            <div class="msg msg--err" style="display:block;margin-bottom:12px">
+                Rotation sans effet pour l'instant : nginx ne filtre pas encore
+                /api-upload/ sur ce couple. Ce que tu enregistres ici est bien
+                stocke, mais aucun upload n'en depend.
+            </div>`;
+        document.getElementById('cf-status').innerHTML = banner + `
             Client ID actuel : <code>${data.client_id_masked || '(non configure)'}</code><br>
             Secret configure : ${data.secret_configured ? '<span style="color:var(--oe2-success)">oui</span>' : '<span style="color:var(--oe2-danger)">non</span>'}<br>
-            Rotations historisees : ${data.history_length}
+            Rotations historisees : ${data.history_length}<br>
+            Applique par nginx : ${data.enforced ? '<span style="color:var(--oe2-success)">oui</span>' : '<span style="color:var(--oe2-danger)">non</span>'}
         `;
     } catch (e) {
         document.getElementById('cf-status').textContent = 'Erreur : ' + e.message;
@@ -221,14 +228,14 @@ document.getElementById('cf-form').addEventListener('submit', async (e) => {
     if (!ok) return;
     const fd = new FormData(e.target);
     try {
-        await api('/api/admin/cf-access/rotate', {
+        const data = await api('/api/admin/cf-access/rotate', {
             method: 'POST',
             body: {
                 client_id: fd.get('client_id'),
                 client_secret: fd.get('client_secret'),
             },
         });
-        showMsg('Rotation OK, effet immediat', true);
+        showMsg(data.detail || 'Rotation enregistree', true);
         e.target.reset();
         loadCF();
     } catch (err) { showMsg(err.message, false); }
