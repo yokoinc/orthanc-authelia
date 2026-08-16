@@ -118,6 +118,35 @@ def valid_orthanc_json(tmp_paths):
 
 
 @pytest.fixture
+def authelia_config(tmp_path, monkeypatch):
+    """A commented Authelia configuration, as shipped in this repo."""
+    path = tmp_path / "configuration.yml"
+    path.write_text("""---
+theme: auto
+
+authentication_backend:
+  file:
+    path: /config/users_database.yml   # accounts
+    watch: true
+
+session:
+  name: authelia_session           # Session cookie name
+  expiration: 1h                   # Maximum session duration
+  inactivity: 15m                  # Auto-logout after inactivity
+  remember_me: 8h                  # "Remember me" duration
+  redis:
+    host: redis
+    port: 6379
+
+regulation:
+  max_retries: 5
+  ban_time: 5m                     # not a session duration
+""")
+    monkeypatch.setattr(admin_module, "AUTHELIA_CONFIG", path)
+    return path
+
+
+@pytest.fixture
 def valid_authelia_yml(tmp_paths):
     """Pre-create a valid users_database.yml (1 active admin, argon2id)."""
     hasher = admin_module._hasher
@@ -952,3 +981,62 @@ class TestJsoncConfig:
         config = json.loads(admin_module._mask_jsonc_comments(written))
         assert config["Name"] == "Nom De Test"
         assert config["HttpPort"] == 8043
+
+
+# ============================================================================
+# Test 13: Authelia session durations
+# ============================================================================
+
+class TestSessionDurations:
+
+    def test_read_returns_current_durations(
+        self, client, tmp_paths, fake_redis, authelia_config,
+    ):
+        r = client.get("/api/admin/session")
+        assert r.status_code == 200, r.text
+        assert r.json()["durations"] == {
+            "expiration": "1h", "inactivity": "15m", "remember_me": "8h",
+        }
+
+    def test_patch_keeps_comments_and_other_sections(
+        self, client, tmp_paths, fake_redis, csrf_headers, authelia_config,
+    ):
+        """Only the targeted values change: comments and layout survive."""
+        r = client.patch("/api/admin/session", json={"inactivity": "45m"},
+                         headers=csrf_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["restart_required"] is True
+
+        written = authelia_config.read_text()
+        assert "# Auto-logout after inactivity" in written
+        assert "# Session cookie name" in written
+        assert "inactivity: 45m" in written
+        # A same-named key in another section is left alone
+        assert "ban_time: 5m" in written
+
+        config = yaml.safe_load(written)
+        assert config["session"]["inactivity"] == "45m"
+        assert config["session"]["expiration"] == "1h"
+        assert config["regulation"]["max_retries"] == 5
+
+    def test_patch_refuses_a_malformed_duration(
+        self, client, tmp_paths, fake_redis, csrf_headers, authelia_config,
+    ):
+        before = authelia_config.read_text()
+        r = client.patch("/api/admin/session", json={"inactivity": "45 minutes"},
+                         headers=csrf_headers)
+        assert r.status_code == 400
+        assert "duration" in r.text.lower()
+        assert authelia_config.read_text() == before, "nothing must be written"
+
+    def test_patch_backs_up_before_writing(
+        self, client, tmp_paths, fake_redis, csrf_headers, authelia_config,
+    ):
+        before = authelia_config.read_text()
+        r = client.patch("/api/admin/session", json={"expiration": "2h"},
+                         headers=csrf_headers)
+        assert r.status_code == 200, r.text
+
+        backup = tmp_paths["backups"] / r.json()["backup"]
+        assert backup.exists()
+        assert backup.read_text() == before

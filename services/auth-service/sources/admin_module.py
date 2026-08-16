@@ -83,6 +83,9 @@ def _require_orthanc_creds():
 AUTHELIA_YML = Path(os.getenv("ADMIN_AUTHELIA_PATH", "/host/authelia.yml"))
 ORTHANC_JSON = Path(os.getenv("ADMIN_ORTHANC_PATH", "/host/orthanc.json"))
 BACKUPS_DIR = Path(os.getenv("ADMIN_BACKUPS_DIR", "/host/backups"))
+# Authelia's own configuration, where the session durations live. Separate from
+# AUTHELIA_YML, which is the accounts file.
+AUTHELIA_CONFIG = Path(os.getenv("ADMIN_AUTHELIA_CONFIG", "/host/authelia/configuration.yml"))
 
 # Name of the Authelia group that grants access to the panel. Configurable
 # because the name is not standardised: this repo ships its examples with
@@ -1200,6 +1203,165 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
 
 
 # ============================================================================
+# Routes: /api/admin/session (Authelia session durations)
+# ============================================================================
+
+# Authelia durations: a sequence of value+unit, e.g. "15m", "1h", "1h30m".
+_DURATION_RE = re.compile(r"^(\d+[smhdwMy])+$")
+
+SESSION_KEYS = {
+    "expiration": "Durée maximale d'une session, même active",
+    "inactivity": "Déconnexion automatique après cette durée sans activité",
+    "remember_me": "Durée de l'option « se souvenir de moi »",
+}
+
+
+class SessionPayload(BaseModel):
+    expiration: str | None = None
+    inactivity: str | None = None
+    remember_me: str | None = None
+
+
+def _session_block_bounds(lines: list[str]) -> tuple[int, int]:
+    """Line range of the top-level `session:` block, end exclusive."""
+    start = next(
+        (i for i, line in enumerate(lines) if line.rstrip() == "session:"),
+        None,
+    )
+    if start is None:
+        raise HTTPException(500, "no top-level 'session:' block in the Authelia configuration")
+    for i in range(start + 1, len(lines)):
+        line = lines[i]
+        # A non-indented, non-blank, non-comment line ends the block.
+        if line.strip() and not line.startswith((" ", "\t")) and not line.lstrip().startswith("#"):
+            return start, i
+    return start, len(lines)
+
+
+def _read_session_durations() -> dict[str, str | None]:
+    try:
+        raw = AUTHELIA_CONFIG.read_text(encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(500, f"Authelia configuration unreadable: {e}") from e
+
+    lines = raw.split("\n")
+    start, end = _session_block_bounds(lines)
+    values: dict[str, str | None] = dict.fromkeys(SESSION_KEYS)
+    for line in lines[start + 1:end]:
+        for key in SESSION_KEYS:
+            m = re.match(rf"^  {key}:\s*(\S+)", line)
+            if m:
+                values[key] = m.group(1)
+    return values
+
+
+def _patch_session_durations(raw: str, changes: dict[str, str]) -> str:
+    """Rewrite the session durations in place, comments and layout untouched.
+
+    Same reasoning as orthanc.json: a yaml.safe_dump round-trip would produce a
+    valid file stripped of every comment the administrator wrote. Only the value
+    on the matching line is replaced, and only inside the session block -- other
+    sections carry keys of the same name.
+    """
+    lines = raw.split("\n")
+    start, end = _session_block_bounds(lines)
+
+    remaining = dict(changes)
+    for i in range(start + 1, end):
+        for key, value in list(remaining.items()):
+            m = re.match(rf"^(  {key}:\s*)(\S+)(.*)$", lines[i])
+            if m:
+                lines[i] = f"{m.group(1)}{value}{m.group(3)}"
+                del remaining[key]
+    if remaining:
+        raise HTTPException(
+            500,
+            "keys absent from the session block, nothing written: "
+            + ", ".join(sorted(remaining)),
+        )
+    return "\n".join(lines)
+
+
+@router.get("/api/admin/session")
+async def read_session(admin: AdminUser = Depends(require_admin)):
+    """Current session durations, with what each one governs."""
+    return {
+        "durations": _read_session_durations(),
+        "labels": SESSION_KEYS,
+        "restart_required": True,
+    }
+
+
+@router.patch("/api/admin/session")
+async def update_session(
+    payload: SessionPayload,
+    admin: AdminUser = Depends(require_admin),
+):
+    """Change the session durations in Authelia's configuration.
+
+    Authelia only watches its accounts file, never its own configuration, so the
+    change takes effect when the container restarts. Said plainly rather than
+    implied, for the same reason as the Orthanc tab.
+    """
+    changes = {k: v for k, v in payload.model_dump().items() if v}
+    if not changes:
+        raise HTTPException(400, "no duration supplied")
+    for key, value in changes.items():
+        if not _DURATION_RE.match(value):
+            raise HTTPException(
+                400,
+                f"{key}: '{value}' is not an Authelia duration — a number "
+                "followed by s, m, h, d, w, M or y, e.g. 15m or 1h30m",
+            )
+
+    lock = FileLock(str(AUTHELIA_CONFIG) + ".lock", timeout=5)
+    try:
+        with lock:
+            raw = AUTHELIA_CONFIG.read_text(encoding="utf-8")
+            patched = _patch_session_durations(raw, changes)
+
+            # Guard: the rewrite must still parse, and must carry exactly the
+            # requested values, before it reaches the disk.
+            try:
+                reparsed = yaml.safe_load(patched) or {}
+            except yaml.YAMLError as e:
+                raise HTTPException(500, f"invalid edit, nothing written: {e}") from e
+            session = reparsed.get("session") or {}
+            for key, value in changes.items():
+                if str(session.get(key)) != value:
+                    raise HTTPException(
+                        500,
+                        f"{key} re-read as {session.get(key)!r} instead of {value!r}, "
+                        "nothing written",
+                    )
+
+            backup = _backup(AUTHELIA_CONFIG)
+            _atomic_write(AUTHELIA_CONFIG, patched)
+    except Timeout as e:
+        raise HTTPException(423, "Authelia configuration locked, retry") from e
+    except OSError as e:
+        raise HTTPException(500, f"Authelia configuration unwritable: {e}") from e
+
+    await _audit(
+        "authelia.session.updated",
+        admin.username,
+        fields=",".join(sorted(changes)),
+        backup=backup.name,
+    )
+    return {
+        "ok": True,
+        "backup": backup.name,
+        "applied": False,
+        "restart_required": True,
+        "detail": (
+            "Durations written. Authelia only re-reads its accounts file, not "
+            "its own configuration: restart it to apply — "
+            "docker compose restart authelia"
+        ),
+    }
+
+
+# ============================================================================
 # Route: backup rollback
 # ============================================================================
 
@@ -1207,11 +1369,11 @@ def _backup_target(name: str) -> Path | None:
     """The file a backup can be restored onto, None if it is not one of ours.
 
     Derived from the configured paths rather than from hardcoded file names:
-    both are settable through ADMIN_ORTHANC_PATH / ADMIN_AUTHELIA_PATH, and a
-    fixed name would silently refuse every restore on an install that renamed
-    them. This is also what bounds a restore to the two files the panel owns.
+    they are all settable through ADMIN_* variables, and a fixed name would
+    silently refuse every restore on an install that renamed them. This is also
+    what bounds a restore to the files the panel owns.
     """
-    for path in (ORTHANC_JSON, AUTHELIA_YML):
+    for path in (ORTHANC_JSON, AUTHELIA_YML, AUTHELIA_CONFIG):
         if name.startswith(path.name + ".bak."):
             return path
     return None

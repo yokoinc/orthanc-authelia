@@ -73,12 +73,13 @@ document.querySelectorAll('.admin-tab').forEach(btn => {
         document.querySelectorAll('.admin-tab').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         const target = btn.dataset.tab;
-        ['users', 'orthanc', 'cf', 'backups', 'health'].forEach(t => {
+        ['users', 'orthanc', 'cf', 'session', 'backups', 'health'].forEach(t => {
             document.getElementById('panel-' + t).hidden = (t !== target);
         });
         if (target === 'users') loadUsers();
         if (target === 'orthanc') loadOrthanc();
         if (target === 'cf') loadCF();
+        if (target === 'session') loadSession();
         if (target === 'backups') loadBackups();
         if (target === 'health') loadHealth();
     });
@@ -230,6 +231,40 @@ document.getElementById('cf-form').addEventListener('submit', async (e) => {
         showMsg('Rotation OK, effet immediat', true);
         e.target.reset();
         loadCF();
+    } catch (err) { showMsg(err.message, false); }
+});
+
+// ============ SESSION ============
+async function loadSession() {
+    const container = document.getElementById('session-fields');
+    try {
+        const data = await api('/api/admin/session');
+        container.innerHTML = Object.entries(data.durations).map(([key, value]) => `
+            <div class="form-row">
+                <label title="${data.labels[key] || ''}">${key}</label>
+                <input name="${key}" value="${value ?? ''}" pattern="(\\d+[smhdwMy])+" required>
+            </div>
+            <div style="font-size:11px;color:var(--oe2-muted);margin:-6px 0 10px">
+                ${data.labels[key] || ''}
+            </div>
+        `).join('');
+    } catch (e) {
+        container.innerHTML = `<div class="msg msg--err" style="display:block">${e.message}</div>`;
+    }
+}
+
+document.getElementById('session-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const body = {};
+    fd.forEach((value, key) => { if (value) body[key] = value; });
+    try {
+        const data = await api('/api/admin/session', { method: 'PATCH', body });
+        showMsg(
+            `Ecrit (backup ${data.backup}). Authelia ne relit pas sa configuration : `
+            + 'relancer le conteneur pour appliquer — docker compose restart authelia',
+            true,
+        );
     } catch (err) { showMsg(err.message, false); }
 });
 

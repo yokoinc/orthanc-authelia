@@ -75,6 +75,9 @@
                 <button class="admin-tab" data-tab="cf">
                     <i class="fa-solid fa-cloud"></i> Cloudflare Access
                 </button>
+                <button class="admin-tab" data-tab="session">
+                    <i class="fa-solid fa-hourglass-half"></i> Session
+                </button>
                 <button class="admin-tab" data-tab="backups">
                     <i class="fa-solid fa-clock-rotate-left"></i> Sauvegardes
                 </button>
@@ -140,6 +143,22 @@
             </div>
 
             <!-- ===== HEALTH ===== -->
+            <div class="admin-panel" id="panel-session" hidden>
+                <h2 style="font-size:14px;margin:0 0 4px">Durées de session</h2>
+                <p style="font-size:12px;color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
+                    Format Authelia : un nombre suivi de son unité — <code>s</code>, <code>m</code>,
+                    <code>h</code>, <code>d</code>. Par exemple <code>15m</code>, <code>1h</code>,
+                    <code>1h30m</code>. Authelia ne relit que son fichier de comptes, pas sa propre
+                    configuration : un redémarrage est nécessaire pour appliquer.
+                </p>
+                <form id="session-form" style="max-width:520px">
+                    <div id="session-fields"></div>
+                    <button class="oe2-btn" type="submit" style="margin-top:12px">
+                        <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+                    </button>
+                </form>
+            </div>
+
             <div class="admin-panel" id="panel-backups" hidden>
                 <h2 style="font-size:14px;margin:0 0 4px">Sauvegardes</h2>
                 <p style="font-size:12px;color:var(--oe2-muted);margin:0 0 12px;max-width:640px">

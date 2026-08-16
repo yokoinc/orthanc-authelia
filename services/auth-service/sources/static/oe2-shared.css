@@ -50,6 +50,15 @@
 
     /* Typographie */
     --oe2-font-stack: Avenir, Helvetica, Arial, sans-serif;
+    /* La sidebar suit OE2 au caractere pres, pas la typo du contenu. OE2 la
+       declare ainsi :
+           .nav-side-menu { font-family: verdana; font-size: 12px; font-weight: 200 }
+           .nav-side-menu ul, .nav-side-menu li { line-height: 35px }
+       Verdana est nettement plus large qu'Avenir a taille egale : s'en ecarter
+       change la largeur rendue de la colonne, et nos pages ne s'alignent plus
+       sur celles d'OE2 quand on passe de l'une a l'autre. */
+    --oe2-sidebar-font: verdana, Geneva, sans-serif;
+    --oe2-sidebar-fs: 12px;
     --oe2-font-mono: 'Courier New', Consolas, monospace;
     --oe2-fs-body: 14px;
     --oe2-fs-small: 12px;
@@ -106,6 +115,9 @@ body {
 
 .oe2-sidebar {
     width: var(--oe2-sidebar-w);
+    /* Meme police que .nav-side-menu d'OE2 -- cf. le commentaire des tokens. */
+    font-family: var(--oe2-sidebar-font);
+    font-weight: var(--oe2-fw-thin);
     flex-shrink: 0;
     background-color: var(--oe2-nav-bg);
     color: var(--oe2-nav-color);
@@ -149,7 +161,7 @@ body {
 .oe2-sidebar__nav {
     flex: 1;
     margin-top: 10px;
-    font-size: 14px;
+    font-size: var(--oe2-sidebar-fs);
 }
 
 .oe2-sidebar__link {

@@ -20,7 +20,23 @@
      * inherits OE2's classes and its scoped-style attribute (data-v-*), which is
      * what makes the styling apply at all.
      */
-    function makeItem(id, iconClass, label, onClick) {
+    // Font Awesome families, oldest to newest naming. Which one is loaded depends
+    // on the OE2 build, and a glyph declared under the wrong family renders as an
+    // empty box -- hence inheriting the family from a native entry rather than
+    // hardcoding one.
+    var ICON_FAMILIES = ["fa", "fas", "far", "fab", "fa-solid", "fa-regular", "fa-brands"];
+
+    function iconFamilyOf(reference) {
+        var icon = reference.querySelector("i");
+        if (!icon) return "fa";
+        var families = [];
+        for (var i = 0; i < icon.classList.length; i++) {
+            if (ICON_FAMILIES.indexOf(icon.classList[i]) !== -1) families.push(icon.classList[i]);
+        }
+        return families.length ? families.join(" ") : "fa";
+    }
+
+    function makeItem(id, glyph, label, onClick) {
         var menu = document.getElementById("menu-content");
         if (!menu || document.getElementById(id)) return null;
         var upload = document.getElementById("upload-handler");
@@ -35,8 +51,8 @@
             if (attr.name.startsWith("data-v-")) li.setAttribute(attr.name, attr.value);
         }
         li.innerHTML =
-            '<i class="fa ' + iconClass + ' fa-lg menu-icon" style="width:20px;' +
-            'min-width:20px;margin-right:10px;text-align:center"></i>' + label +
+            '<i class="' + iconFamilyOf(reference) + ' ' + glyph + ' fa-lg menu-icon" ' +
+            'style="width:20px;min-width:20px;margin-right:10px;text-align:center"></i>' + label +
             ' <span class="ms-auto"></span>';
         li.style.cursor = "pointer";
         li.addEventListener("click", onClick);
