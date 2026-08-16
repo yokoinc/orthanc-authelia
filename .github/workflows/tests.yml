@@ -45,8 +45,8 @@ jobs:
 
       # nginx et auth-service seulement : le build d'OHIF compile la
       # visionneuse depuis ses sources et prend une quinzaine de minutes, ce
-      # qui n'a pas sa place a chaque poussee. Il reste couvert par le test de
-      # bout en bout, lance a la main.
+      # qui n'a pas sa place a chaque poussee. Il reste couvert par le job
+      # bout-en-bout, qui tire l'image publiee et l'exerce reellement.
       - name: nginx
         run: docker build -t nginx-test services/nginx
 
@@ -119,3 +119,69 @@ jobs:
           cp docker-compose.yml.example docker-compose.yml
           docker compose config >/dev/null
           echo "docker-compose.yml.example est valide."
+
+      - name: Services construits localement jamais tires
+        # nginx et auth-service portent leur code dans leur image. Sans
+        # `pull_policy: build`, docker compose telecharge un tag publie plus
+        # tot des lors qu'il existe dans le registre, et l'installation tourne
+        # sur un code qui n'est pas celui du clone. C'est exactement ce qui
+        # s'est produit : /console en 404 et nginx en boucle de redemarrage,
+        # sur une branche dont la CI etait pourtant verte.
+        # On relit la configuration telle que docker compose la resout, et non
+        # le fichier brut : c'est le parseur reel qui tranche, et cela evite
+        # une dependance YAML sur le runner.
+        run: |
+          docker compose config --format json > /tmp/compose.json
+          python3 - <<'PY'
+          import json, sys
+          services = json.load(open('/tmp/compose.json'))['services']
+          # OHIF est l'exception assumee : un quart d'heure de compilation.
+          # Sa contrepartie est de publier un tag a chaque changement.
+          dispense = {'ohif'}
+          fautifs = [
+              nom for nom, s in services.items()
+              if 'build' in s and nom not in dispense
+              and s.get('pull_policy') != 'build'
+          ]
+          if fautifs:
+              print("Services avec build: mais sans pull_policy: build ->", ", ".join(fautifs))
+              print("Ils tourneraient sur l'image du registre au lieu du depot.")
+              sys.exit(1)
+          print("Les services construits localement le sont toujours.")
+          PY
+
+  bout-en-bout:
+    name: Installation de bout en bout
+    # Sur les propositions de fusion et sur master. Ce job monte la pile
+    # entiere : trop long pour chaque poussee sur une branche de travail, mais
+    # indispensable avant que du code n'arrive sur master. Les trois autres
+    # jobs construisent et testent sans jamais faire `docker compose up` --
+    # c'est par cet angle mort que sont passees les deux pannes d'installation
+    # corrigees dans cette meme proposition.
+    #
+    # Pour l'etendre a toutes les poussees, retirer la ligne `if:` ci-dessous.
+    if: github.event_name != 'push' || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Le script interroge https://pacs.localhost:31443. La resolution des
+      # sous-domaines de .localhost depend du resolveur de l'image du runner :
+      # on la fige plutot que d'en dependre.
+      - name: Resoudre pacs.localhost
+        run: echo "127.0.0.1 pacs.localhost" | sudo tee -a /etc/hosts
+
+      - name: Rejouer une installation complete
+        run: ./scripts/e2e-test.sh
+
+      # Le script nettoie derriere lui, y compris apres un echec : sans cette
+      # etape il ne resterait que la ligne rouge, sans le detail qui permet de
+      # comprendre.
+      - name: Journaux en cas d'echec
+        if: failure()
+        run: |
+          for f in /tmp/e2e-bootstrap.log /tmp/e2e-up.log; do
+            [ -f "$f" ] && { echo "=== $f ==="; tail -60 "$f"; }
+          done
+          exit 0

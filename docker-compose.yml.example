@@ -79,10 +79,19 @@ services:
   # =============================================================================
   
   auth-service:
-    # L'image publiee est utilisee si elle est disponible ; sinon elle est
-    # construite depuis le depot. Un clone frais demarre donc meme sans acces
-    # au registre. `docker compose build auth-service` pour forcer.
-    image: registry.yokoinc.ovh/orthanc-auth-service:1.0.16
+    # Le code du service ET le frontend compile vivent DANS l'image : un tag
+    # publie avant l'etat courant du depot livre un service qui ne correspond
+    # pas aux fichiers du clone. C'est exactement ce qui est arrive avec le
+    # tag 1.0.16, anterieur au panel : il existait dans le registre, docker
+    # compose le telechargeait au lieu de construire, et /console repondait
+    # 404 sur une installation pourtant fraiche.
+    #
+    # `pull_policy: build` impose donc la construction locale, quoi qu'il
+    # traine dans le registre ou dans le cache Docker. Le nom d'image reste
+    # renseigne : il sert de tag a l'image construite, et `docker compose
+    # push` continue de fonctionner pour publier.
+    image: registry.yokoinc.ovh/orthanc-auth-service:1.1.0
+    pull_policy: build
     build:
       context: ./services/auth-service
     container_name: orthanc-auth-service
@@ -130,8 +139,8 @@ services:
       - AUTH_PASSWORD=${AUTH_PASSWORD}
       - REDIS_HOST=redis
       # Version semantique affichee en pied de page du token manager.
-      # A synchroniser avec le tag de l'image ci-dessus (1.0.16) a chaque bump.
-      - IMAGE_VERSION=1.0.16
+      # A synchroniser avec le tag de l'image ci-dessus (1.1.0) a chaque bump.
+      - IMAGE_VERSION=1.1.0
       # Compte Orthanc dedie pour POST /tools/reset (reload config a chaud).
       # Genere par bootstrap.sh dans .env.
       - ORTHANC_URL=http://orthanc:8042
@@ -316,10 +325,17 @@ services:
   # =============================================================================
   
   ohif:
-    # Idem : image publiee, ou construction locale a defaut. Ce build est
-    # long (~15 min), OHIF etant compile depuis ses sources -- l'image
-    # officielle ohif/app ne peut pas servir sous /ohif/, son chemin de base
-    # etant fige au moment du build.
+    # SEULE EXCEPTION au `pull_policy: build` applique a auth-service et
+    # nginx. Ce build est long (~15 min), OHIF etant compile depuis ses
+    # sources -- l'image officielle ohif/app ne peut pas servir sous /ohif/,
+    # son chemin de base etant fige au moment du build. L'imposer a chaque
+    # installation couterait un quart d'heure a tout le monde.
+    #
+    # La contrepartie est une regle a tenir : toute modification de
+    # services/ohif/ exige de publier un nouveau tag ET de le reporter ici,
+    # sinon les installations continueront de tourner sur l'ancienne image
+    # sans que rien ne le signale. La visionneuse ne se configure pas depuis
+    # le panel, cette surface est donc restreinte et stable.
     image: registry.yokoinc.ovh/orthanc-ohif:3.11.0
     build:
       context: ./services/ohif
@@ -340,8 +356,15 @@ services:
     # Image >= 1.1.0 no longer bakes the nginx config in: the templates are
     # bind-mounted from the host (see volumes below). Tags before 1.1.0 will
     # NOT start with these mounts because they expect the templates baked in.
-    # Idem : image publiee, ou construction locale a defaut.
-    image: registry.yokoinc.ovh/orthanc-nginx:1.1.0
+    #
+    # Les gabarits viennent du depot, mais l'ENTRYPOINT vient de l'image, et
+    # c'est lui qui derive DOMAIN de PUBLIC_URL avant d'appeler envsubst. Les
+    # tags anterieurs attendaient DOMAIN dans l'environnement et le laissaient
+    # non exporte : envsubst rendait alors `proxy_set_header Host ;` et nginx
+    # refusait de demarrer. Meme raison que pour auth-service, donc meme
+    # remede : on construit toujours depuis le depot.
+    image: registry.yokoinc.ovh/orthanc-nginx:1.2.0
+    pull_policy: build
     build:
       context: ./services/nginx
     container_name: orthanc-nginx

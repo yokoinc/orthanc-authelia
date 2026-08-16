@@ -30,7 +30,24 @@ GARDER=0
 [[ "${1:-}" == "--keep" ]] && GARDER=1
 
 DEPOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-TRAVAIL=$(mktemp -d /tmp/orthanc-e2e.XXXXXX)
+
+# Le dossier de travail doit permettre l'execution : bootstrap.sh y est lance
+# par son chemin. Sur Synology DSM -- la cible principale du projet -- /tmp est
+# un tmpfs monte noexec, et le test mourait sur "Permission denied" des la
+# deuxieme etape. TMPDIR permet de le placer ailleurs :
+#     TMPDIR=/volume1/docker/tmp ./scripts/e2e-test.sh
+BASE_TRAVAIL=${TMPDIR:-/tmp}
+TRAVAIL=$(mktemp -d "${BASE_TRAVAIL%/}/orthanc-e2e.XXXXXX")
+if ! ( printf '#!/bin/sh\n' > "$TRAVAIL/.exec-test" && chmod +x "$TRAVAIL/.exec-test" \
+       && "$TRAVAIL/.exec-test" ) 2>/dev/null; then
+    printf '\033[31m✗\033[0m %s est monte noexec : bootstrap.sh ne pourra pas y etre lance.\n' \
+        "$BASE_TRAVAIL"
+    printf '  Relance avec un dossier executable, par exemple :\n    TMPDIR=%s/tmp %s\n' \
+        "$DEPOT" "$0"
+    rm -rf "$TRAVAIL"
+    exit 1
+fi
+rm -f "$TRAVAIL/.exec-test"
 
 ROUGE=$'\033[31m'; VERT=$'\033[32m'; JAUNE=$'\033[33m'; CYAN=$'\033[36m'; RAZ=$'\033[0m'
 ECHECS=0
@@ -54,9 +71,11 @@ nettoyer() {
     # Les conteneurs ecrivent en root dans le dossier monte (base Authelia,
     # configuration generee, verrous) : un rm lance par l'utilisateur bute
     # dessus. On repasse par un conteneur, qui a les droits.
+    # On monte le dossier PARENT reel, et non /tmp en dur : le dossier de
+    # travail suit TMPDIR et n'est pas forcement sous /tmp.
     if ! rm -rf "$TRAVAIL" 2>/dev/null; then
-        docker run --rm -v /tmp:/tmp-hote alpine \
-            rm -rf "/tmp-hote/$(basename "$TRAVAIL")" >/dev/null 2>&1
+        docker run --rm -v "$(dirname "$TRAVAIL")":/parent-hote alpine \
+            rm -rf "/parent-hote/$(basename "$TRAVAIL")" >/dev/null 2>&1
     fi
     if [[ -d "$TRAVAIL" ]]; then
         echec "dossier temporaire non supprime : $TRAVAIL"
@@ -454,14 +473,34 @@ fi
 # compose, sans rien casser de visible : d'ou cette verification.
 etape "Perimetre du proxy Docker"
 if compose ps --services 2>/dev/null | grep -qx socket-proxy; then
+    # La sonde passe par python, present dans l'image auth-service, et non par
+    # curl qui n'y est pas. Avec curl, docker renvoyait "executable file not
+    # found", cette phrase atterrissait dans la variable censee porter le code
+    # HTTP, et les trois controles ci-dessous annonçaient une evasion possible
+    # a chaque execution -- sur une pile pourtant correctement verrouillee.
+    # Un test de securite qui echoue toujours n'est pas un test : on cesse de
+    # le lire.
     interroge_proxy() {
         # $1 = methode, $2 = chemin, $3 = corps JSON (facultatif)
-        local corps=()
-        [[ -n "${3:-}" ]] && corps=(-H 'Content-Type: application/json' -d "$3")
-        compose exec -T auth-service \
-            curl -s -o /dev/null -w '%{http_code}' -X "$1" \
-            "${corps[@]}" --max-time 20 \
-            "http://socket-proxy:2375$2" 2>/dev/null || echo "000"
+        compose exec -T auth-service python3 -c '
+import sys, urllib.error, urllib.request
+
+methode, chemin, corps = sys.argv[1], sys.argv[2], sys.argv[3]
+requete = urllib.request.Request(
+    "http://socket-proxy:2375" + chemin,
+    data=corps.encode() if corps else None,
+    method=methode,
+)
+if corps:
+    requete.add_header("Content-Type", "application/json")
+try:
+    with urllib.request.urlopen(requete, timeout=20) as reponse:
+        print(reponse.status)
+except urllib.error.HTTPError as refus:
+    print(refus.code)
+except Exception:
+    print("000")
+' "$1" "$2" "${3:-}" 2>/dev/null || echo "000"
     }
 
     code=$(interroge_proxy POST "/containers/create" \
