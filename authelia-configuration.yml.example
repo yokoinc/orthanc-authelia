@@ -72,6 +72,21 @@ access_control:
   default_policy: deny              # Deny access by default (secure)
   
   rules:
+    # Admin panel - MUST stay above the bypass rule below. Rules are evaluated
+    # in order and the first match wins, so "^/auth/.*$" would otherwise swallow
+    # /auth/admin: Authelia would answer without a Remote-User header and the
+    # panel would reject its own administrators with a 401.
+    # /auth/setup is deliberately NOT listed here: at first run no account exists
+    # yet, so it stays covered by the bypass below and is closed instead by the
+    # setup_gate middleware in auth-service.
+    # The group name must match ADMIN_GROUP on the auth-service side.
+    - domain: ${AUTHELIA_DOMAIN}
+      policy: one_factor
+      subject: "group:admin"
+      resources:
+        - "^/auth/admin.*$"
+        - "^/api/admin/.*$"
+
     # Authelia authentication pages - bypass authentication (must be accessible)
     - domain: ${AUTHELIA_DOMAIN}
       policy: bypass                # Allow without authentication
