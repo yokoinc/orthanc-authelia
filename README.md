@@ -23,8 +23,8 @@ Component versions as defined in `docker-compose.yml` (keep this table in sync w
 | Authelia | `authelia/authelia` | `4.39.20` |
 | Redis | `redis` | `8.0-alpine` |
 | OHIF Viewer | `registry.yokoinc.ovh/orthanc-ohif` | `3.11.0` |
-| Nginx | `registry.yokoinc.ovh/orthanc-nginx` | `1.1.0` |
-| Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.0.15` |
+| Nginx | `registry.yokoinc.ovh/orthanc-nginx` | `1.2.0` |
+| Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.1.0` |
 | Socket proxy | `tecnativa/docker-socket-proxy` | `0.3.0` |
 
 > **PostgreSQL** is not part of this stack — Orthanc connects to an **external** PostgreSQL instance over the `database` network (see [Database Setup Guide](docs/DATABASE_SETUP.md)).
@@ -336,15 +336,26 @@ Request flow for `POST /api-upload/instances`:
 
 Trois images sont publiées sur `registry.yokoinc.ovh` :
 
-- `orthanc-nginx:1.1.0` — nginx, génération du certificat, authentification déléguée
+- `orthanc-nginx:1.2.0` — nginx, génération du certificat, authentification déléguée
 - `orthanc-ohif:3.11.0` — visionneuse OHIF servie sous `/ohif/`
-- `orthanc-auth-service:1.0.16` — service d'authentification, panel et partages
+- `orthanc-auth-service:1.1.0` — service d'authentification, panel et partages
 
-**Aucun accès à ce registre n'est nécessaire.** Chaque service déclare à la fois
-`image:` et `build:` : l'image publiée est utilisée si elle est disponible, et
-construite depuis le dépôt sinon. Un clone frais démarre donc sans rien tirer.
+**Aucun accès à ce registre n'est nécessaire.**
 
-Pour forcer la construction locale :
+`nginx` et `auth-service` portent `pull_policy: build` : ils sont **toujours**
+construits depuis le dépôt, jamais tirés du registre. C'est délibéré. Leur code
+vit à l'intérieur de l'image — le service Python et le frontend compilé pour
+auth-service, l'entrypoint pour nginx — et un tag publié avant l'état courant du
+dépôt livre donc un conteneur qui ne correspond pas aux fichiers du clone. Le
+nom d'`image:` reste renseigné : il sert de tag à l'image construite, et
+`docker compose push` continue de fonctionner.
+
+`ohif` fait exception et reste tiré du registre : sa construction prend une
+quinzaine de minutes. En contrepartie, toute modification de `services/ohif/`
+impose de publier un nouveau tag et de le reporter dans le
+`docker-compose.yml` — sinon les installations resteront sur l'ancienne image.
+
+Reconstruire à la demande :
 
 ```bash
 docker compose build                 # les trois
