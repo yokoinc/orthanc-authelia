@@ -56,6 +56,14 @@ AUTHELIA_YML = Path(os.getenv("ADMIN_AUTHELIA_PATH", "/host/authelia.yml"))
 ORTHANC_JSON = Path(os.getenv("ADMIN_ORTHANC_PATH", "/host/orthanc.json"))
 BACKUPS_DIR = Path(os.getenv("ADMIN_BACKUPS_DIR", "/host/backups"))
 
+# Nom du groupe Authelia qui donne acces au panneau. Configurable parce que
+# le nom n'est pas normalise : ce depot livre ses exemples en "admins", mais
+# une installation existante peut tres bien utiliser "admin" -- il doit alors
+# concorder avec le users_database.yml, le `subject: "group:..."` de la
+# configuration Authelia et la map $groups de nginx, sous peine de 403 sur
+# tout le panneau.
+ADMIN_GROUP = os.getenv("ADMIN_GROUP", "admins")
+
 SETUP_KEY = "orthanc_authelia:setup_completed"
 SETUP_FIRST_ADMIN_KEY = "orthanc_authelia:setup_first_admin_created"
 AUDIT_STREAM = "admin:audit"
@@ -122,10 +130,37 @@ def _backup(path: Path, tag: str = "") -> Path:
 
 
 def _atomic_write(path: Path, content: str) -> None:
-    """Ecrit content dans path via un fichier temporaire + rename atomique."""
+    """Ecrit content dans path en conservant l'inode.
+
+    Surtout pas de tmp.replace(path) ici : ces fichiers sont bind-mountes dans
+    les autres conteneurs, et Docker monte par inode.
+      - orthanc.json est monte en :ro sur /etc/orthanc/orthanc.json cote
+        orthanc ; un rename creerait un nouvel inode et orthanc continuerait
+        de lire l'ancien, meme apres /tools/reset (echec silencieux) ;
+      - si la cible est elle-meme le point de montage, le rename echoue
+        carrement : OSError [Errno 16] Device or resource busy.
+
+    On ecrit donc dans l'inode existant. Le passage par un temporaire reste
+    utile : il valide que le contenu s'ecrit entierement sur le disque avant
+    qu'on touche au fichier reel, ce qui evite de laisser une config tronquee
+    derriere soi si le disque est plein.
+    """
+    data = content.encode("utf-8")
+
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content, encoding="utf-8")
-    tmp.replace(path)
+    try:
+        tmp.write_bytes(data)
+        with open(tmp, "rb") as f:
+            os.fsync(f.fileno())
+
+        mode = "r+b" if path.exists() else "wb"
+        with open(path, mode) as f:
+            f.write(data)
+            f.truncate()
+            f.flush()
+            os.fsync(f.fileno())
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 async def _audit(event: str, actor: str, **fields: Any) -> None:
@@ -156,14 +191,59 @@ async def require_admin(request: Request) -> AdminUser:
     if not username:
         raise HTTPException(401, "auth requise")
     groups = [g.strip() for g in groups_raw.split(",") if g.strip()]
-    if "admins" not in groups:
-        raise HTTPException(403, "groupe admins requis")
+    if ADMIN_GROUP not in groups:
+        raise HTTPException(403, f"groupe {ADMIN_GROUP} requis")
     return AdminUser(username=username, groups=groups)
 
 
 # ============================================================================
 # Middleware : setup state machine
 # ============================================================================
+
+async def _setup_is_done() -> bool:
+    """Le premier demarrage a-t-il deja eu lieu ?
+
+    Le flag Redis fait foi, mais il est absent de toute installation anterieure
+    au panneau : la clef n'existait pas. Sans rattrapage, deployer cette
+    version sur un stack deja en service rouvre l'assistant de premier
+    demarrage -- qui est volontairement hors SSO, puisqu'au tout premier
+    lancement aucun compte n'existe pour s'authentifier -- et laisse donc
+    n'importe qui se creer un compte admin.
+
+    Un users_database.yml contenant deja un admin actif vaut donc setup
+    termine. On fige alors le flag pour ne pas relire le fichier a chaque
+    requete.
+
+    En cas de YAML present mais illisible on ferme l'assistant (fail-closed) :
+    une vraie premiere installation n'a pas de fichier du tout, un fichier
+    casse est un incident a reparer via /api/admin/backups/restore, pas une
+    raison de rouvrir la porte.
+    """
+    if (await _r().get(SETUP_KEY)) == "1":
+        return True
+
+    # Assistant en cours : l'admin present dans le YAML est celui que
+    # create-admin vient d'ecrire, pas la trace d'une install anterieure.
+    # Sans ce garde-fou l'assistant se fermerait sur son propre passage et
+    # /auth/setup/finalize deviendrait injoignable.
+    if await _r().get(SETUP_FIRST_ADMIN_KEY):
+        return False
+
+    if not AUTHELIA_YML.exists():
+        return False
+
+    try:
+        admins = _active_admins(_load_authelia())
+    except HTTPException:
+        return True
+
+    if not admins:
+        return False
+
+    await _r().set(SETUP_KEY, "1")
+    await _audit("setup.adopted_existing", actor="system", admin_count=len(admins))
+    return True
+
 
 async def setup_gate(request: Request, call_next):
     """
@@ -175,7 +255,7 @@ async def setup_gate(request: Request, call_next):
     if not (path.startswith("/auth/setup") or path.startswith("/auth/admin")):
         return await call_next(request)
 
-    done = (await _r().get(SETUP_KEY)) == "1"
+    done = await _setup_is_done()
     is_setup = path.startswith("/auth/setup")
 
     if is_setup and done:
@@ -263,15 +343,19 @@ def _load_orthanc_config() -> dict:
         ) from e
 
 
+def _active_admins(data: dict) -> list[str]:
+    """Comptes du groupe admins non desactives presents dans le YAML."""
+    return [
+        u for u, info in (data.get("users") or {}).items()
+        if not info.get("disabled") and ADMIN_GROUP in (info.get("groups") or [])
+    ]
+
+
 def _validate_authelia(data: dict) -> None:
     """Invariants qui empechent un YAML lockant tout le monde dehors."""
     if not isinstance(data.get("users"), dict) or not data["users"]:
         raise ValueError("users: section vide ou absente")
-    active_admins = [
-        u for u, info in data["users"].items()
-        if not info.get("disabled") and "admins" in (info.get("groups") or [])
-    ]
-    if not active_admins:
+    if not _active_admins(data):
         raise ValueError("au moins 1 admin actif requis (invariant lockout)")
     for name, info in data["users"].items():
         for field in ("password", "email", "displayname"):
@@ -466,8 +550,8 @@ async def setup_create_admin(payload: UserCreatePayload):
             "un admin a deja ete cree — finaliser le setup (POST /auth/setup/finalize) "
             "puis utiliser /api/admin/users pour en ajouter d'autres",
         )
-    if "admins" not in payload.groups:
-        payload.groups.append("admins")
+    if ADMIN_GROUP not in payload.groups:
+        payload.groups.append(ADMIN_GROUP)
     data = _load_authelia()
     if payload.username in data.get("users", {}):
         raise HTTPException(409, f"user {payload.username} existe deja")
@@ -490,11 +574,7 @@ async def setup_finalize():
     """Etape finale : verifie invariant admin actif puis flip le flag."""
     if (await _r().get(SETUP_KEY)) == "1":
         raise HTTPException(409, "setup deja finalise")
-    data = _load_authelia()
-    admins = [
-        u for u, i in data.get("users", {}).items()
-        if not i.get("disabled") and "admins" in (i.get("groups") or [])
-    ]
+    admins = _active_admins(_load_authelia())
     if not admins:
         raise HTTPException(400, "creer d'abord un admin (POST /auth/setup/create-admin)")
     await _r().set(SETUP_KEY, "1")

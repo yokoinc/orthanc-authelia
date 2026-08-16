@@ -44,11 +44,29 @@ def tmp_paths(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def fake_redis():
+def fake_server():
+    """Backend partage : le client async du module et le client sync des
+    assertions tapent dans le meme datastore."""
+    return fakeredis.FakeServer()
+
+
+@pytest.fixture
+def fake_redis(fake_server):
     """Injecte un Redis fake dans le module (synchrone pour TestClient)."""
-    r = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    r = fakeredis.aioredis.FakeRedis(decode_responses=True, server=fake_server)
     admin_module.set_redis(r)
     return r
+
+
+@pytest.fixture
+def redis_sync(fake_server):
+    """Client synchrone pour inspecter l'etat Redis dans les assertions.
+
+    On ne peut pas faire asyncio.run(fake_redis.get(...)) : ca ouvrirait un
+    2eme event loop alors que la connexion async est deja liee a celui du
+    TestClient (RuntimeError: bound to a different event loop).
+    """
+    return fakeredis.FakeStrictRedis(server=fake_server, decode_responses=True)
 
 
 @pytest.fixture
@@ -70,7 +88,10 @@ def app(admin_user):
 
 @pytest.fixture
 def client(app, tmp_paths, fake_redis):
-    return TestClient(app)
+    # Context manager obligatoire : sinon TestClient ouvre un event loop par
+    # requete et la connexion fakeredis, liee au premier, casse des la 2eme.
+    with TestClient(app) as c:
+        yield c
 
 
 @pytest.fixture
@@ -122,7 +143,7 @@ def valid_authelia_yml(tmp_paths):
 
 class TestSetupWizard:
 
-    def test_full_flow(self, client, tmp_paths, fake_redis):
+    def test_full_flow(self, client, tmp_paths, fake_redis, redis_sync):
         """Redis vide → create admin → finalize → 2eme create bloque par middleware."""
         # Etat initial : setup_completed absent
         # (fake_redis est frais, aucune clef)
@@ -151,8 +172,7 @@ class TestSetupWizard:
         assert r.json()["admins"] == ["cuffel.gregory"]
 
         # Redis a bien le flag maintenant
-        import asyncio
-        val = asyncio.run(fake_redis.get("orthanc_authelia:setup_completed"))
+        val = redis_sync.get("orthanc_authelia:setup_completed")
         assert val == "1"
 
         # Etape 3 : 2eme appel bloque par setup_gate (redirect vers /auth/admin)
@@ -230,7 +250,9 @@ class TestCFAccess:
         })
         assert r.status_code == 503
 
-    def test_rotate_snapshots_old_to_history(self, client, fake_redis, csrf_headers):
+    def test_rotate_snapshots_old_to_history(
+        self, client, fake_redis, redis_sync, csrf_headers,
+    ):
         """Ancien couple pousse dans cf_access:history au moment du rotate."""
         # 1er rotate (client_id min 10 chars)
         r1 = client.post("/api/admin/cf-access/rotate", json={
@@ -246,10 +268,9 @@ class TestCFAccess:
         assert r2.status_code == 200, r2.text
 
         # History contient au moins l'ancien couple
-        import asyncio
-        length = asyncio.run(fake_redis.llen("cf_access:history"))
+        length = redis_sync.llen("cf_access:history")
         assert length >= 1
-        first = asyncio.run(fake_redis.lindex("cf_access:history", 0))
+        first = redis_sync.lindex("cf_access:history", 0)
         assert "id-one-abc.access" in first
         assert "1" * 64 in first
 
@@ -261,7 +282,8 @@ class TestCFAccess:
 class TestOrthancConfig:
 
     def test_patch_writes_file_and_calls_reset(
-        self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
+        self, client, tmp_paths, fake_redis, redis_sync, csrf_headers,
+        valid_orthanc_json,
     ):
         """PATCH → JSON updated on disk + POST /tools/reset called + audit."""
         with respx.mock(base_url="http://orthanc:8042") as mock:
@@ -286,8 +308,7 @@ class TestOrthancConfig:
         assert len(backups) == 1
 
         # Audit stream a une entree
-        import asyncio
-        entries = asyncio.run(fake_redis.xrange("admin:audit"))
+        entries = redis_sync.xrange("admin:audit")
         assert len(entries) >= 1
         _, fields = entries[-1]
         assert fields["event"] == "orthanc.config.updated"
@@ -453,7 +474,8 @@ class TestFileLock:
 class TestAutoRollback:
 
     def test_rollback_on_reset_failure(
-        self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
+        self, client, tmp_paths, fake_redis, redis_sync, csrf_headers,
+        valid_orthanc_json,
     ):
         """PATCH → /tools/reset renvoie 500 → rollback auto → 502 mais fichier restore."""
         # 1er reset (celui qui echoue) puis 2eme (celui du rollback qui reussit)
@@ -479,8 +501,7 @@ class TestAutoRollback:
         assert current["Name"] == valid_orthanc_json["Name"]
 
         # Audit trail montre le rollback
-        import asyncio
-        entries = asyncio.run(fake_redis.xrange("admin:audit"))
+        entries = redis_sync.xrange("admin:audit")
         events = [f["event"] for _, f in entries]
         assert "orthanc.config.rolled_back" in events
 
@@ -491,7 +512,73 @@ class TestAutoRollback:
 
 class TestSetupLockout:
 
-    def test_second_create_admin_refused(self, client, tmp_paths, fake_redis):
+    def test_existing_install_without_flag_closes_the_wizard(
+        self, client, tmp_paths, fake_redis, redis_sync, valid_authelia_yml,
+    ):
+        """Stack deja en service, flag Redis absent : l'assistant reste ferme.
+
+        C'est le cas de la montee de version : la clef setup_completed n'existe
+        pas dans le Redis d'une install anterieure au panneau. Si l'assistant
+        se rouvrait, il est hors SSO -- n'importe qui pourrait se creer un
+        compte admin sur un PACS en production.
+        """
+        assert redis_sync.get("orthanc_authelia:setup_completed") is None
+
+        r = client.get("/auth/setup", follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["location"] == "/auth/admin"
+
+        # Le flag est fige au passage, plus besoin de relire le YAML ensuite
+        assert redis_sync.get("orthanc_authelia:setup_completed") == "1"
+
+    def test_fresh_install_keeps_the_wizard_open(
+        self, client, tmp_paths, fake_redis, redis_sync,
+    ):
+        """Aucun users_database.yml : vraie premiere install, assistant ouvert."""
+        assert not tmp_paths["authelia"].exists()
+
+        r = client.get("/auth/setup", follow_redirects=False)
+        assert r.status_code == 200
+        assert redis_sync.get("orthanc_authelia:setup_completed") is None
+
+    def test_corrupt_yaml_closes_the_wizard(
+        self, client, tmp_paths, fake_redis, redis_sync,
+    ):
+        """YAML present mais casse : fail-closed, on ne rouvre pas l'assistant."""
+        tmp_paths["authelia"].write_text("users:\n  x: {not: valid: yaml")
+
+        r = client.get("/auth/setup", follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["location"] == "/auth/admin"
+
+    def test_admin_group_name_is_configurable(
+        self, client, tmp_paths, fake_redis, redis_sync, monkeypatch,
+    ):
+        """Le nom du groupe admin suit ADMIN_GROUP, pas un "admins" en dur.
+
+        Les installations existantes n'utilisent pas toutes le meme nom : ce
+        stack est en "admin" au singulier. Si le module reste sur "admins",
+        aucun admin n'est reconnu -- l'assistant se rouvre et le panneau
+        repond 403 a tout le monde.
+        """
+        monkeypatch.setattr(admin_module, "ADMIN_GROUP", "admin")
+        tmp_paths["authelia"].write_text(yaml.safe_dump({
+            "users": {
+                "boss": {
+                    "disabled": False,
+                    "displayname": "Boss",
+                    "email": "boss@example.com",
+                    "password": admin_module._hasher.hash("un-mot-de-passe-1234"),
+                    "groups": ["admin"],
+                },
+            },
+        }))
+
+        r = client.get("/auth/setup", follow_redirects=False)
+        assert r.status_code == 302, "un groupe 'admin' doit fermer l'assistant"
+        assert redis_sync.get("orthanc_authelia:setup_completed") == "1"
+
+    def test_second_create_admin_refused(self, client, tmp_paths, fake_redis, redis_sync):
         """Apres 1 create-admin, un 2e appel = 409 tant que non-finalize."""
         r1 = client.post("/auth/setup/create-admin", json={
             "username": "first.admin",
@@ -511,7 +598,7 @@ class TestSetupLockout:
         assert "deja ete cree" in r2.text.lower()
 
     def test_finalize_clears_lock_next_setup_impossible_anyway(
-        self, client, tmp_paths, fake_redis,
+        self, client, tmp_paths, fake_redis, redis_sync,
     ):
         """Apres finalize, le verrou first_admin est supprime (mais setup_gate ferme tout)."""
         client.post("/auth/setup/create-admin", json={
@@ -522,13 +609,8 @@ class TestSetupLockout:
         })
         client.post("/auth/setup/finalize")
 
-        import asyncio
-        first_admin_flag = asyncio.run(
-            fake_redis.get("orthanc_authelia:setup_first_admin_created"),
-        )
-        setup_flag = asyncio.run(
-            fake_redis.get("orthanc_authelia:setup_completed"),
-        )
+        first_admin_flag = redis_sync.get("orthanc_authelia:setup_first_admin_created")
+        setup_flag = redis_sync.get("orthanc_authelia:setup_completed")
         assert first_admin_flag is None
         assert setup_flag == "1"
 
@@ -624,26 +706,24 @@ class TestHealth:
         assert "create-admin" in r.text  # le fetch JS pointe dessus
 
     def test_setup_page_redirects_when_setup_done(
-        self, client, tmp_paths, fake_redis,
+        self, client, tmp_paths, fake_redis, redis_sync,
     ):
         """GET /auth/setup apres finalize = 302 vers /auth/admin (setup_gate)."""
-        import asyncio
-        asyncio.run(fake_redis.set("orthanc_authelia:setup_completed", "1"))
+        redis_sync.set("orthanc_authelia:setup_completed", "1")
 
         r = client.get("/auth/setup", follow_redirects=False)
         assert r.status_code == 302
         assert r.headers["location"] == "/auth/admin"
 
     def test_admin_page_sets_csrf_cookie(
-        self, client, tmp_paths, fake_redis, valid_authelia_yml,
+        self, client, tmp_paths, fake_redis, redis_sync, valid_authelia_yml,
     ):
         """GET /auth/admin apres setup = HTML + cookie orthanc_admin_csrf pose."""
         if not (admin_module.TEMPLATES_DIR / "admin.html").exists():
             import pytest
             pytest.skip("templates/admin.html absent dans le layout de test")
 
-        import asyncio
-        asyncio.run(fake_redis.set("orthanc_authelia:setup_completed", "1"))
+        redis_sync.set("orthanc_authelia:setup_completed", "1")
 
         r = client.get("/auth/admin")
         assert r.status_code == 200
