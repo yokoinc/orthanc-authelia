@@ -1139,3 +1139,96 @@ class TestCFAccessJWT:
         r = client.get("/api/internal/verify-cf",
                        headers={"cf-access-jwt-assertion": "whatever"})
         assert r.status_code == 503
+
+
+class TestModalities:
+    """DICOM devices: declaration, removal, connectivity test.
+
+    These routes go through Orthanc's API, simulated here. Without them the
+    equipment page would only be covered by the end-to-end script, run by
+    hand: CI only executes the unit tests, so a change breaking them would
+    go through green.
+    """
+
+    def test_list_gathers_configurations(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml,
+    ):
+        """Orthanc only returns names: the route must join in the details."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/modalities").respond(json=["SCANNER-1"])
+            mock.get("/modalities/SCANNER-1/configuration").respond(
+                json={"AET": "SCANNER1", "Host": "192.0.2.10", "Port": 104},
+            )
+            r = client.get("/api/admin/modalities")
+
+        assert r.status_code == 200, r.text
+        devices = r.json()["modalities"]
+        assert len(devices) == 1
+        assert devices[0] == {
+            "name": "SCANNER-1", "aet": "SCANNER1",
+            "host": "192.0.2.10", "port": 104,
+        }
+
+    def test_declaration(self, client, tmp_paths, fake_redis, valid_authelia_yml,
+                         csrf_headers, redis_sync):
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            route = mock.put("/modalities/IRM-1").respond(status_code=200, json={})
+            r = client.put("/api/admin/modalities/IRM-1", json={
+                "aet": "IRM1", "host": "192.0.2.20", "port": 104,
+            }, headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert route.called
+        # The operation must leave a trace: declaring a device authorises a
+        # third-party machine to drop studies here.
+        entries = redis_sync.xrange("admin:audit")
+        assert any(e[1].get("event") == "orthanc.modality.saved" for e in entries)
+
+    def test_ae_title_too_long_refused(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        """Sixteen characters at most: beyond that the device refuses the
+        association without saying why, so better to say it up front."""
+        r = client.put("/api/admin/modalities/TOO-LONG", json={
+            "aet": "A" * 17, "host": "192.0.2.30", "port": 104,
+        }, headers=csrf_headers)
+        assert r.status_code == 422
+
+    def test_port_out_of_bounds_refused(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        r = client.put("/api/admin/modalities/PORT-KO", json={
+            "aet": "OK", "host": "192.0.2.30", "port": 70000,
+        }, headers=csrf_headers)
+        assert r.status_code == 422
+
+    def test_deletion(self, client, tmp_paths, fake_redis, valid_authelia_yml,
+                      csrf_headers):
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            route = mock.delete("/modalities/IRM-1").respond(status_code=200, json={})
+            r = client.delete("/api/admin/modalities/IRM-1", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert route.called
+
+    def test_echo_reachable(self, client, tmp_paths, fake_redis, valid_authelia_yml,
+                            csrf_headers):
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.post("/modalities/IRM-1/echo").respond(status_code=200, json={})
+            r = client.post("/api/admin/modalities/IRM-1/echo", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert r.json()["reachable"] is True
+
+    def test_unreachable_echo_is_not_an_error(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        """A silent device is a result, not a failure: the route answers 200
+        while reporting it, so the interface can show it."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.post("/modalities/MUET/echo").respond(status_code=500, text="timeout")
+            r = client.post("/api/admin/modalities/MUET/echo", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert r.json()["reachable"] is False
+        assert "timeout" in r.json()["detail"]

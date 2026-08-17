@@ -72,6 +72,9 @@
                 <button class="admin-tab" data-tab="orthanc">
                     <i class="fa-solid fa-server"></i> Orthanc config
                 </button>
+                <button class="admin-tab" data-tab="modalities">
+                    <i class="fa-solid fa-x-ray"></i> Équipements
+                </button>
                 <button class="admin-tab" data-tab="cf">
                     <i class="fa-solid fa-cloud"></i> Cloudflare Access
                 </button>
@@ -129,6 +132,43 @@
                         <i class="fa-solid fa-floppy-disk"></i> Enregistrer
                     </button>
                 </form>
+            </div>
+
+            <!-- ===== ÉQUIPEMENTS ===== -->
+            <div class="admin-panel" id="panel-modalities" hidden>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 4px">Équipements DICOM</h2>
+                <p style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
+                    Les échographes, scanners et autres appareils autorisés à envoyer des
+                    examens. La déclaration est enregistrée en base : elle prend effet
+                    immédiatement, sans redémarrer Orthanc.
+                </p>
+                <table class="data-table" id="modalities-table">
+                    <thead>
+                        <tr><th>Nom</th><th>AET</th><th>Hôte</th><th>Port</th><th></th></tr>
+                    </thead>
+                    <tbody><tr><td colspan="5" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
+                </table>
+
+                <details style="margin-top:20px">
+                    <summary style="font-size:var(--oe2-fs-small);cursor:pointer;color:var(--oe2-accent-soft)">+ Déclarer un équipement</summary>
+                    <form id="add-modality-form" style="margin-top:12px;max-width:520px">
+                        <div class="form-row"><label>Nom</label>
+                            <input name="name" required pattern="[A-Za-z0-9._-]{1,64}"
+                                   title="Lettres, chiffres, point, tiret, souligné">
+                        </div>
+                        <div class="form-row"><label>AET</label>
+                            <input name="aet" required maxlength="16"
+                                   title="16 caractères maximum, imposé par la norme DICOM">
+                        </div>
+                        <div class="form-row"><label>Hôte</label><input name="host" required></div>
+                        <div class="form-row"><label>Port</label>
+                            <input type="number" name="port" required min="1" max="65535" value="104">
+                        </div>
+                        <button type="submit" class="oe2-btn oe2-btn--primary">
+                            <i class="fa-solid fa-plus"></i> Déclarer
+                        </button>
+                    </form>
+                </details>
             </div>
 
             <!-- ===== CF ACCESS ===== -->

@@ -73,11 +73,12 @@ document.querySelectorAll('.admin-tab').forEach(btn => {
         document.querySelectorAll('.admin-tab').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         const target = btn.dataset.tab;
-        ['users', 'orthanc', 'cf', 'session', 'backups', 'health'].forEach(t => {
+        ['users', 'orthanc', 'modalities', 'cf', 'session', 'backups', 'health'].forEach(t => {
             document.getElementById('panel-' + t).hidden = (t !== target);
         });
         if (target === 'users') loadUsers();
         if (target === 'orthanc') loadOrthanc();
+        if (target === 'modalities') loadModalities();
         if (target === 'cf') loadCF();
         if (target === 'session') loadSession();
         if (target === 'backups') loadBackups();
@@ -143,6 +144,84 @@ document.getElementById('add-user-form').addEventListener('submit', async (e) =>
         showMsg('Compte cree. Authelia relit le fichier automatiquement.', true);
         e.target.reset();
         loadUsers();
+    } catch (err) { showMsg(err.message, false); }
+});
+
+// ============ ÉQUIPEMENTS ============
+async function loadModalities() {
+    const tbody = document.querySelector('#modalities-table tbody');
+    try {
+        const data = await api('/api/admin/modalities');
+        tbody.innerHTML = data.modalities.map(m => `
+            <tr>
+                <td><strong>${m.name}</strong></td>
+                <td>${m.aet}</td>
+                <td>${m.host}</td>
+                <td>${m.port}</td>
+                <td style="text-align:right;white-space:nowrap">
+                    <span id="echo-${m.name}" style="color:var(--oe2-muted);margin-right:8px"></span>
+                    <button class="oe2-btn oe2-btn--sm" onclick="echoModality('${m.name}')">
+                        <i class="fa-solid fa-tower-broadcast"></i> Tester
+                    </button>
+                    <button class="oe2-btn oe2-btn--danger oe2-btn--sm"
+                            onclick="deleteModality('${m.name}')">
+                        <i class="fa-solid fa-trash"></i> Supprimer
+                    </button>
+                </td>
+            </tr>
+        `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--oe2-muted)">Aucun équipement déclaré</td></tr>';
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="5">Erreur : ${e.message}</td></tr>`;
+    }
+}
+
+// A silent device is a result, not an error: the route answers 200 and says
+// so in its body, so we report it in place rather than as a failed call.
+async function echoModality(name) {
+    const cell = document.getElementById('echo-' + name);
+    cell.textContent = '…';
+    try {
+        const r = await api(`/api/admin/modalities/${encodeURIComponent(name)}/echo`,
+                            { method: 'POST' });
+        cell.textContent = r.reachable ? '✓ répond' : '✗ muet';
+        cell.title = r.detail || '';
+        cell.style.color = r.reachable ? 'var(--oe2-ok, #4caf50)' : 'var(--oe2-danger, #e57373)';
+    } catch (e) {
+        cell.textContent = '✗';
+        showMsg(e.message, false);
+    }
+}
+
+async function deleteModality(name) {
+    const ok = await confirmDialog(
+        `Supprimer l'équipement "${name}" ? Il ne pourra plus envoyer d'examens.`,
+        'Supprimer',
+    );
+    if (!ok) return;
+    try {
+        await api(`/api/admin/modalities/${encodeURIComponent(name)}`, { method: 'DELETE' });
+        showMsg(`Équipement ${name} supprimé`, true);
+        loadModalities();
+    } catch (e) { showMsg(e.message, false); }
+}
+
+document.getElementById('add-modality-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const name = fd.get('name').trim();
+    try {
+        await api(`/api/admin/modalities/${encodeURIComponent(name)}`, {
+            method: 'PUT',
+            body: {
+                aet: fd.get('aet').trim(),
+                host: fd.get('host').trim(),
+                port: Number(fd.get('port')),
+            },
+        });
+        showMsg(`Équipement ${name} déclaré`, true);
+        e.target.reset();
+        e.target.port.value = 104;
+        loadModalities();
     } catch (err) { showMsg(err.message, false); }
 });
 

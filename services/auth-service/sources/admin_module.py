@@ -788,6 +788,39 @@ class OrthancConfigPayload(BaseModel):
     changes: dict[str, Any]
 
 
+class ModalityPayload(BaseModel):
+    """A declared DICOM device: an AE title, a host and a port."""
+    aet: str = Field(min_length=1, max_length=16)
+    host: str = Field(min_length=1, max_length=255)
+    port: int = Field(ge=1, le=65535)
+
+
+def _require_orthanc_creds() -> None:
+    if not ORTHANC_USER or not ORTHANC_PASS:
+        raise HTTPException(
+            503,
+            "ORTHANC_ADMIN_USER/ORTHANC_ADMIN_PASS are not set in .env -- the "
+            "endpoint is reachable but cannot call Orthanc",
+        )
+
+
+async def _orthanc(method: str, path: str, **kwargs: Any) -> httpx.Response:
+    """Call Orthanc's API with the service account.
+
+    Remote-User: admin is essential -- the Authorization plugin reads it to
+    resolve the profile. Without it the call passes for anonymous, a profile
+    that only holds the upload permission.
+    """
+    _require_orthanc_creds()
+    async with httpx.AsyncClient(timeout=15) as client:
+        return await client.request(
+            method, f"{ORTHANC_URL}{path}",
+            auth=(ORTHANC_USER, ORTHANC_PASS),
+            headers={"Remote-User": "admin"},
+            **kwargs,
+        )
+
+
 # ============================================================================
 # CF Access : verify (auth_request) + rotate + test
 # ============================================================================
@@ -1074,6 +1107,98 @@ async def update_orthanc_config(
         backup=backup.name,
     )
     return {"ok": True, "backup": backup.name}
+
+
+# ============================================================================
+# Routes: /api/admin/modalities (declared DICOM devices)
+# ============================================================================
+#
+# DicomModalitiesInDatabase is enforced as true by _validate_orthanc, so a
+# device declared here is stored in the database and takes effect at once:
+# no restart, and no rewrite of orthanc.json.
+
+
+@router.get("/api/admin/modalities")
+async def list_modalities(admin: AdminUser = Depends(require_admin)):
+    """Declared DICOM devices, with their configuration.
+
+    Orthanc only returns the names; each device's configuration takes an
+    extra call. We gather them here so the display does not have to chain
+    requests.
+    """
+    r = await _orthanc("GET", "/modalities")
+    if r.status_code != 200:
+        raise HTTPException(r.status_code, f"Orthanc: {r.text[:200]}")
+
+    devices = []
+    for name in r.json():
+        detail = await _orthanc("GET", f"/modalities/{name}/configuration")
+        cfg = detail.json() if detail.status_code == 200 else {}
+        devices.append({
+            "name": name,
+            "aet": cfg.get("AET", ""),
+            "host": cfg.get("Host", ""),
+            "port": cfg.get("Port", 0),
+        })
+    devices.sort(key=lambda device: device["name"].lower())
+    return {"modalities": devices}
+
+
+@router.put("/api/admin/modalities/{name}")
+async def upsert_modality(
+    name: str,
+    payload: ModalityPayload,
+    admin: AdminUser = Depends(require_admin),
+):
+    """Declare a device, or update an existing one."""
+    if "/" in name or not name.strip():
+        raise HTTPException(400, "invalid name")
+
+    r = await _orthanc(
+        "PUT", f"/modalities/{name}",
+        json={"AET": payload.aet, "Host": payload.host, "Port": payload.port},
+    )
+    if r.status_code not in (200, 201):
+        raise HTTPException(r.status_code, f"Orthanc: {r.text[:200]}")
+
+    await _audit(
+        "orthanc.modality.saved", admin.username,
+        target=name, aet=payload.aet, host=payload.host, port=payload.port,
+    )
+    return {"ok": True}
+
+
+@router.delete("/api/admin/modalities/{name}")
+async def delete_modality(name: str, admin: AdminUser = Depends(require_admin)):
+    r = await _orthanc("DELETE", f"/modalities/{name}")
+    if r.status_code != 200:
+        raise HTTPException(r.status_code, f"Orthanc: {r.text[:200]}")
+    await _audit("orthanc.modality.deleted", admin.username, target=name)
+    return {"ok": True}
+
+
+@router.post("/api/admin/modalities/{name}/echo")
+async def echo_modality(name: str, admin: AdminUser = Depends(require_admin)):
+    """Connectivity test (C-ECHO).
+
+    Declaring a device says nothing about whether it answers. This call
+    spares having to diagnose, later on, a transfer failing for want of a
+    correct address or port.
+
+    A silent device is a result, not a failure: we answer 200 while
+    reporting it in the body, so the interface can show it rather than
+    presenting it as a server error.
+    """
+    r = await _orthanc("POST", f"/modalities/{name}/echo", json={})
+    reachable = r.status_code == 200
+    await _audit(
+        "orthanc.modality.echo", admin.username,
+        target=name, result="ok" if reachable else "failed",
+    )
+    return {
+        "reachable": reachable,
+        "detail": "" if reachable else r.text[:200],
+    }
 
 
 # ============================================================================
