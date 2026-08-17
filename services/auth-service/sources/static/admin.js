@@ -296,10 +296,43 @@ async function loadCF() {
             Appliquee par nginx sur /api-upload/ : ${d.enforced ? yes : no}<br>
             Assertions acceptees : ${d.checks_ok}
         `;
+        // Prefill the form with what is actually in force. The audience comes
+        // back masked, so we only overwrite the field when it is still empty:
+        // otherwise saving would write the ellipsis back as the real value.
+        const form = document.getElementById('cf-form');
+        form.team_domain.value = d.team_domain || '';
+        form.enforced.checked = !!d.enforced;
+        if (!form.aud.value) {
+            form.aud.placeholder = d.aud_masked || "Identifiant de l'application Cloudflare";
+        }
     } catch (e) {
         el.textContent = 'Erreur : ' + e.message;
     }
 }
+
+document.getElementById('cf-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const aud = (fd.get('aud') || '').trim();
+    if (!aud) {
+        showMsg("Saisir l'audience : elle revient masquee, donc elle doit etre "
+                + 'ressaisie en entier a chaque enregistrement.', false);
+        return;
+    }
+    try {
+        await api('/api/admin/cf-access', {
+            method: 'PUT',
+            body: {
+                team_domain: (fd.get('team_domain') || '').trim(),
+                aud,
+                enforced: fd.get('enforced') === 'on',
+            },
+        });
+        showMsg('Cloudflare Access enregistre. Effet immediat, sans redemarrage.', true);
+        e.target.aud.value = '';
+        loadCF();
+    } catch (err) { showMsg(err.message, false); }
+});
 
 // ============ SESSION ============
 async function loadSession() {

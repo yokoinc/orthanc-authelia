@@ -33,14 +33,21 @@ import admin_module
 
 @pytest.fixture
 def tmp_paths(tmp_path, monkeypatch):
-    """Redirect the 3 module-level paths to a per-test tmp_path."""
+    """Redirect the module-level paths to a per-test tmp_path."""
     authelia = tmp_path / "authelia.yml"
     orthanc = tmp_path / "orthanc.json"
     backups = tmp_path / "backups"
+    settings = tmp_path / "backups" / "settings.json"
     monkeypatch.setattr(admin_module, "AUTHELIA_YML", authelia)
     monkeypatch.setattr(admin_module, "ORTHANC_JSON", orthanc)
     monkeypatch.setattr(admin_module, "BACKUPS_DIR", backups)
-    return {"authelia": authelia, "orthanc": orthanc, "backups": backups}
+    monkeypatch.setattr(admin_module, "SETTINGS_FILE", settings)
+    # The cache is module-level: without this reset a test would read what the
+    # previous one wrote, in another tmp_path.
+    admin_module._settings_cache["key"] = None
+    admin_module._settings_cache["data"] = {}
+    return {"authelia": authelia, "orthanc": orthanc, "backups": backups,
+            "settings": settings}
 
 
 @pytest.fixture
@@ -1232,3 +1239,78 @@ class TestModalities:
         assert r.status_code == 200, r.text
         assert r.json()["reachable"] is False
         assert "timeout" in r.json()["detail"]
+
+
+class TestCFAccessSettings:
+    """What the origin pins, settable from the panel.
+
+    These three values used to be readable only from the environment, fixed at
+    import: changing one meant editing the compose file and recreating the
+    container -- for a setting the panel ought to offer. They now live in the
+    settings file and are resolved per request.
+    """
+
+    def test_saved_then_in_force(self, client, tmp_paths, fake_redis,
+                                 valid_authelia_yml, csrf_headers):
+        """The next GET must report what was just written, with no restart."""
+        r = client.put("/api/admin/cf-access", json={
+            "team_domain": "equipe.cloudflareaccess.com",
+            "aud": "a" * 64,
+            "enforced": True,
+        }, headers=csrf_headers)
+        assert r.status_code == 200, r.text
+
+        state = client.get("/api/admin/cf-access").json()
+        assert state["team_domain"] == "equipe.cloudflareaccess.com"
+        assert state["enforced"] is True
+        assert state["configured"] is True
+
+    def test_survives_a_fresh_read(self, client, tmp_paths, fake_redis,
+                                   valid_authelia_yml, csrf_headers):
+        """Written to disk, not just held in the cache."""
+        client.put("/api/admin/cf-access", json={
+            "team_domain": "equipe.cloudflareaccess.com",
+            "aud": "b" * 64, "enforced": False,
+        }, headers=csrf_headers)
+
+        admin_module._settings_cache["key"] = None
+        assert tmp_paths["settings"].exists()
+        assert admin_module._cf_team_domain() == "equipe.cloudflareaccess.com"
+
+    def test_url_form_accepted(self, client, tmp_paths, fake_redis,
+                               valid_authelia_yml, csrf_headers):
+        """Pasted from the dashboard, the domain carries its scheme. The
+        issuer is rebuilt as https://<domain>, so keeping it would yield
+        https://https://... and every verification would fail."""
+        client.put("/api/admin/cf-access", json={
+            "team_domain": "https://equipe.cloudflareaccess.com/",
+            "aud": "c" * 64, "enforced": False,
+        }, headers=csrf_headers)
+        assert admin_module._cf_team_domain() == "equipe.cloudflareaccess.com"
+
+    def test_enforcing_without_the_pair_refused(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        """Ticking the box with nothing pinned would answer 503 on every
+        upload. Better a refusal than an endpoint locked by a checkbox."""
+        r = client.put("/api/admin/cf-access", json={
+            "team_domain": "", "aud": "", "enforced": True,
+        }, headers=csrf_headers)
+        assert r.status_code == 400
+
+    def test_environment_still_wins_until_first_write(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, monkeypatch,
+    ):
+        """An install that never opens the panel keeps behaving as before."""
+        monkeypatch.setattr(admin_module, "CF_ACCESS_TEAM_DOMAIN", "depuis-env.com")
+        assert admin_module._cf_team_domain() == "depuis-env.com"
+
+    def test_unreadable_settings_degrade_to_defaults(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, monkeypatch,
+    ):
+        """A broken settings file must not take the service down with it."""
+        tmp_paths["settings"].parent.mkdir(parents=True, exist_ok=True)
+        tmp_paths["settings"].write_text("{ not json", encoding="utf-8")
+        admin_module._settings_cache["key"] = None
+        monkeypatch.setattr(admin_module, "CF_ACCESS_TEAM_DOMAIN", "repli.com")
+        assert admin_module._cf_team_domain() == "repli.com"

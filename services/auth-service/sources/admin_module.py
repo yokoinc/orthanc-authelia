@@ -12,6 +12,7 @@ Required env vars: ORTHANC_ADMIN_USER, ORTHANC_ADMIN_PASS, ORTHANC_URL, REDIS_UR
 
 import copy
 import json
+import logging
 import os
 import re
 import secrets as pysecrets
@@ -86,6 +87,24 @@ BACKUPS_DIR = Path(os.getenv("ADMIN_BACKUPS_DIR", "/host/backups"))
 # Authelia's own configuration, where the session durations live. Separate from
 # AUTHELIA_YML, which is the accounts file.
 AUTHELIA_CONFIG = Path(os.getenv("ADMIN_AUTHELIA_CONFIG", "/host/authelia/configuration.yml"))
+
+# Application settings, as opposed to bootstrap variables.
+#
+# A setting that only auth-service reads, once running, has no business in the
+# compose file: changing it there means editing a file and recreating the
+# container, for something the panel ought to offer. This file holds those
+# settings, and the panel writes it while the stack runs.
+#
+# It defaults into the backups directory because that one is ALREADY
+# bind-mounted read-write on every install -- so the store works without
+# anyone having to touch their compose file first. list_backups ignores it:
+# the listing keeps only the names _backup_target recognises.
+SETTINGS_FILE = Path(
+    os.getenv("ADMIN_SETTINGS_PATH", str(BACKUPS_DIR / "settings.json"))
+)
+
+# Hooked into auth_service's logger hierarchy, so LOG_LEVEL applies here too.
+logger = logging.getLogger("auth-service.admin")
 
 # Name of the Authelia group that grants access to the panel. Configurable
 # because the name is not standardised: this repo ships its examples with
@@ -192,6 +211,79 @@ def _atomic_write(path: Path, content: str) -> None:
             os.fsync(f.fileno())
     finally:
         tmp.unlink(missing_ok=True)
+
+
+_settings_cache: dict[str, Any] = {"key": None, "data": {}}
+
+
+def _read_settings() -> dict[str, Any]:
+    """Contents of the settings file. Empty dict when it does not exist yet.
+
+    Cached on (path, mtime): a setting is read on nearly every request, and
+    re-reading the file each time would mean dozens of reads per page.
+    """
+    try:
+        key = (str(SETTINGS_FILE), SETTINGS_FILE.stat().st_mtime)
+    except OSError:
+        # No file: fresh install, or no setting ever changed.
+        _settings_cache["key"] = None
+        _settings_cache["data"] = {}
+        return {}
+
+    if _settings_cache["key"] == key:
+        return _settings_cache["data"]
+
+    try:
+        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        # An unreadable settings file must not stop the service from
+        # answering: fall back to the defaults, and say so in the log rather
+        # than degrading in silence.
+        logger.warning("unreadable settings (%s), falling back to defaults", e)
+        data = {}
+
+    _settings_cache["key"] = key
+    _settings_cache["data"] = data
+    return data
+
+
+def _read_setting(name: str, env_var: str = "", default: Any = None) -> Any:
+    """A setting's value, falling back to the environment variable it replaces.
+
+    `env_var` keeps existing installations working: these settings used to be
+    passed through the compose file, and are still read from there until they
+    get redefined from the panel. The first write moves the value into the
+    settings file, after which the compose line has no further effect.
+    """
+    settings = _read_settings()
+    if name in settings:
+        return settings[name]
+    if env_var:
+        previous = os.getenv(env_var, "")
+        if previous:
+            return previous
+    return default
+
+
+def _write_setting(name: str, value: Any) -> None:
+    """Write one setting, creating the file and its directory when needed."""
+    try:
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise HTTPException(
+            503,
+            f"settings directory not writable ({e}). Check that "
+            f"'{SETTINGS_FILE.parent}' is bind-mounted read-write on "
+            f"auth-service.",
+        ) from e
+
+    settings = _read_settings()
+    settings[name] = value
+    _atomic_write(SETTINGS_FILE,
+                  json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+    # Invalidate explicitly: mtime granularity is sometimes one second, which
+    # would make two writes in the same second indistinguishable.
+    _settings_cache["key"] = None
 
 
 async def _audit(event: str, actor: str, **fields: Any) -> None:
@@ -839,6 +931,26 @@ CF_ACCESS_TEAM_DOMAIN = os.getenv("CF_ACCESS_TEAM_DOMAIN", "")
 CF_ACCESS_AUD = os.getenv("CF_ACCESS_AUD", "")
 
 
+# The three values above are read once, at import: changing them meant editing
+# the compose file and recreating the container. They are now resolved per
+# request, from the settings file, and fall back to the value the environment
+# supplied at startup -- so an installation that never touches the panel keeps
+# behaving exactly as before.
+def _cf_team_domain() -> str:
+    return _read_setting("cf_access_team_domain", default=CF_ACCESS_TEAM_DOMAIN)
+
+
+def _cf_aud() -> str:
+    return _read_setting("cf_access_aud", default=CF_ACCESS_AUD)
+
+
+def _cf_enforced() -> bool:
+    value = _read_setting("cf_access_enforced", default=CF_ACCESS_ENFORCED)
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() == "true"
+
+
 
 # ============================================================================
 # Routes: setup wizard (unauthenticated)
@@ -1209,11 +1321,13 @@ async def echo_modality(name: str, admin: AdminUser = Depends(require_admin)):
 async def cf_status(admin: AdminUser = Depends(require_admin)):
     """State of the Cloudflare Access verification.
 
-    There is nothing to set here. Cloudflare validates the service token at its
-    edge and relays a signed assertion; the origin checks that signature against
-    the team's published keys. Rotating a token is done in the Cloudflare
-    dashboard, and nothing on this side has to follow -- which is why the tab
-    reports rather than offers.
+    The service token itself is not settable here. Cloudflare validates it at
+    its edge and relays a signed assertion; the origin checks that signature
+    against the team's published keys. Rotating a token is done in the
+    Cloudflare dashboard, and nothing on this side has to follow.
+
+    What IS settable is what the origin pins: the team domain, the audience,
+    and whether verification is enforced at all.
     """
     checks = 0
     try:
@@ -1222,15 +1336,61 @@ async def cf_status(admin: AdminUser = Depends(require_admin)):
         pass
 
     return {
-        "team_domain": CF_ACCESS_TEAM_DOMAIN,
+        "team_domain": _cf_team_domain(),
         "aud_masked": (
-            CF_ACCESS_AUD[:8] + "…" + CF_ACCESS_AUD[-6:]
-            if len(CF_ACCESS_AUD) > 20 else CF_ACCESS_AUD
+            _cf_aud()[:8] + "…" + _cf_aud()[-6:]
+            if len(_cf_aud()) > 20 else _cf_aud()
         ),
-        "configured": bool(CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD),
-        "enforced": CF_ACCESS_ENFORCED,
+        "configured": bool(_cf_team_domain() and _cf_aud()),
+        "enforced": _cf_enforced(),
         "checks_ok": checks,
     }
+
+
+class CFAccessPayload(BaseModel):
+    """What the origin pins. The service token is not part of it."""
+    team_domain: str = Field(default="", max_length=255)
+    aud: str = Field(default="", max_length=128)
+    enforced: bool = False
+
+
+@router.put("/api/admin/cf-access")
+async def update_cf_access(
+    payload: CFAccessPayload,
+    admin: AdminUser = Depends(require_admin),
+):
+    """Pin the team domain, the audience and whether to enforce.
+
+    Written to the settings file and re-read on the next request: no restart,
+    and no editing of the compose file, which is the whole point -- these
+    three values used to be reachable only by recreating the container.
+
+    Enforcing without both values would answer 503 on every upload, so we
+    refuse the combination rather than let the operator lock the endpoint by
+    ticking a box.
+    """
+    team_domain = payload.team_domain.strip()
+    aud = payload.aud.strip()
+
+    if team_domain.startswith(("http://", "https://")):
+        team_domain = team_domain.split("//", 1)[1].rstrip("/")
+
+    if payload.enforced and not (team_domain and aud):
+        raise HTTPException(
+            400,
+            "enforcing requires both the team domain and the audience: "
+            "without them every upload would answer 503",
+        )
+
+    _write_setting("cf_access_team_domain", team_domain)
+    _write_setting("cf_access_aud", aud)
+    _write_setting("cf_access_enforced", payload.enforced)
+
+    await _audit(
+        "cf_access.updated", admin.username,
+        team_domain=team_domain, enforced=payload.enforced,
+    )
+    return {"ok": True, "enforced": payload.enforced}
 
 
 # ============================================================================
@@ -1248,7 +1408,7 @@ async def _cf_signing_key(kid: str):
 
     The issuer is NOT taken from the token: a forged assertion would simply
     name its own team, whose JWKS would then validate it happily. It comes from
-    CF_ACCESS_TEAM_DOMAIN, which is the whole point of pinning it.
+    the pinned team domain, which is the whole point of pinning it.
     """
     import jwt  # noqa: PLC0415 -- optional at import time, see verify_cf
 
@@ -1256,7 +1416,7 @@ async def _cf_signing_key(kid: str):
     if kid in _jwks_cache["keys"] and fresh:
         return _jwks_cache["keys"][kid]
 
-    url = f"https://{CF_ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs"
+    url = f"https://{_cf_team_domain()}/cdn-cgi/access/certs"
     async with httpx.AsyncClient(timeout=5) as client:
         r = await client.get(url)
         r.raise_for_status()
@@ -1290,10 +1450,10 @@ async def verify_cf(
 
     Fail closed throughout: anything unexpected answers 403 so nginx refuses
     the upload. 503 is reserved for "not configured", which nginx must never
-    reach in the first place -- the auth_request line and CF_ACCESS_TEAM_DOMAIN
-    belong together.
+    reach in the first place -- the auth_request line and the pinned team
+    domain belong together.
     """
-    if not CF_ACCESS_TEAM_DOMAIN or not CF_ACCESS_AUD:
+    if not _cf_team_domain() or not _cf_aud():
         return Response(status_code=503)  # not configured
     if not cf_access_jwt_assertion:
         return Response(status_code=403)
@@ -1314,8 +1474,8 @@ async def verify_cf(
             cf_access_jwt_assertion,
             key=key,
             algorithms=["RS256"],
-            audience=CF_ACCESS_AUD,
-            issuer=f"https://{CF_ACCESS_TEAM_DOMAIN}",
+            audience=_cf_aud(),
+            issuer=f"https://{_cf_team_domain()}",
         )
     except (jwt.InvalidTokenError, httpx.HTTPError, ValueError, KeyError):
         return Response(status_code=403)

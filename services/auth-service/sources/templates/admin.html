@@ -177,13 +177,40 @@
                 <p style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
                     Cloudflare valide le jeton de service à sa frontière et ne le transmet
                     pas : il relaie une assertion signée, que ce serveur vérifie contre les
-                    clés publiques de l'équipe. Il n'y a donc rien à saisir ici — la rotation
-                    d'un jeton se fait dans Cloudflare, et rien de ce côté n'a à suivre.
+                    clés publiques de l'équipe. <strong>Le jeton lui-même ne se saisit pas
+                    ici</strong> — sa rotation se fait dans Cloudflare, et rien de ce côté
+                    n'a à suivre. Ce qui se règle ici, c'est ce que ce serveur épingle.
                 </p>
                 <div id="cf-status" style="font-size:var(--oe2-fs-small)">Chargement…</div>
-                <button class="oe2-btn oe2-btn--secondary" style="margin-top:12px" onclick="loadCF()">
-                    <i class="fa-solid fa-rotate"></i> Rafraîchir
-                </button>
+
+                <form id="cf-form" style="margin-top:20px;max-width:560px">
+                    <div class="form-row"><label>Domaine d'équipe</label>
+                        <input name="team_domain" placeholder="mon-equipe.cloudflareaccess.com">
+                    </div>
+                    <div class="form-row"><label>Audience (AUD)</label>
+                        <input name="aud" placeholder="Identifiant de l'application Cloudflare">
+                    </div>
+                    <div class="form-row" style="align-items:flex-start">
+                        <label>Vérification</label>
+                        <div>
+                            <label style="font-weight:normal;display:flex;gap:6px;align-items:center">
+                                <input type="checkbox" name="enforced" style="width:auto">
+                                Exiger l'assertion signée sur /api-upload/
+                            </label>
+                            <span style="font-size:var(--oe2-fs-micro);color:var(--oe2-muted)">
+                                Décoché, l'import ne repose plus que sur le filtrage de
+                                Cloudflare : aucune vérification n'est faite ici. Toute
+                                requête qui atteindrait le serveur autrement serait acceptée.
+                            </span>
+                        </div>
+                    </div>
+                    <button type="submit" class="oe2-btn oe2-btn--primary">
+                        <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+                    </button>
+                    <button type="button" class="oe2-btn oe2-btn--secondary" onclick="loadCF()">
+                        <i class="fa-solid fa-rotate"></i> Rafraîchir
+                    </button>
+                </form>
             </div>
 
             <div class="admin-panel" id="panel-session" hidden>
