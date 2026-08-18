@@ -269,13 +269,53 @@ document.getElementById('orthanc-form').addEventListener('submit', async (e) => 
         // Saying "applied" when it only got written would be a lie.
         showMsg(
             data.restart_required
-                ? `Ecrit (backup ${data.backup}). Orthanc lit une copie faite a son demarrage : `
-                  + `relancer le conteneur pour appliquer — docker compose restart orthanc`
+                ? `Ecrit (backup ${data.backup}). Orthanc lit une copie faite a son `
+                  + `demarrage : cliquer « Redemarrer Orthanc » pour appliquer.`
                 : `Applique. Backup : ${data.backup}`,
             true,
         );
+        if (data.restart_required) highlightRestart();
     } catch (err) { showMsg(err.message, false); }
 });
+
+// ============ REDEMARRAGE ORTHANC ============
+
+// Signale qu'un redemarrage est en attente. Le bouton reste au meme endroit,
+// il change seulement d'apparence : deplacer un bouton qui declenche une
+// coupure du PACS serait le pire moment pour surprendre l'operateur.
+function highlightRestart() {
+    const btn = document.getElementById('orthanc-restart');
+    if (btn) btn.classList.add('oe2-btn--primary');
+}
+
+async function restartOrthanc() {
+    const ok = await confirmDialog(
+        'Redemarrer Orthanc ? Le PACS sera indisponible quelques secondes. '
+        + "Si la configuration l'empeche de repartir, la derniere sauvegarde "
+        + 'est restauree automatiquement.',
+        'Redemarrer',
+    );
+    if (!ok) return;
+
+    const btn = document.getElementById('orthanc-restart');
+    const initial = btn.innerHTML;
+    // La route attend qu'Orthanc reponde a nouveau : jusqu'a 60 secondes. Sans
+    // ce verrou l'operateur cliquerait plusieurs fois, croyant que rien ne se
+    // passe, et enchainerait les redemarrages.
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-hourglass-half"></i> Redemarrage…';
+    try {
+        const r = await api('/api/admin/orthanc/restart', { method: 'POST' });
+        showMsg(r.warning || r.message || `Orthanc ${r.version} a redemarre.`,
+                !r.warning);
+        btn.classList.remove('oe2-btn--primary');
+    } catch (e) {
+        showMsg(e.message, false);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = initial;
+    }
+}
 
 // ============ CF ACCESS ============
 async function loadCF() {
@@ -420,10 +460,11 @@ async function restoreBackup(name, target) {
         showMsg(
             data.restart_required
                 ? `${target} restaure. Orthanc lit une copie faite a son demarrage : `
-                  + 'relancer le conteneur pour appliquer — docker compose restart orthanc'
+                  + 'cliquer « Redemarrer Orthanc » dans Configuration Orthanc pour appliquer.'
                 : `${target} restaure`,
             true,
         );
+        if (data.restart_required) highlightRestart();
         loadBackups();
         if (target === 'users_database.yml') loadUsers();
     } catch (e) { showMsg(e.message, false); }

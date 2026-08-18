@@ -69,6 +69,61 @@ services:
   #     - orthanc-network
 
   # =============================================================================
+  # DOCKER SOCKET PROXY - lets the panel restart Orthanc
+  # =============================================================================
+  #
+  # A configuration change only takes effect once Orthanc restarts: its image
+  # merges /etc/orthanc/*.json with the ORTHANC__* variables into a copy at
+  # startup, and that copy is what the process reads. Remotely, SSH is not
+  # always available -- without this service the panel can write a change and
+  # then leave the operator with no way to apply it.
+  #
+  # The Docker socket is NOT mounted into auth-service: giving it to a
+  # web-facing service grants the equivalent of root on the host. It is mounted
+  # here, read-only, behind a proxy whose scope is deliberately tiny.
+  #
+  # CONTAINERS=0 is not cosmetic. With CONTAINERS=1, POST=1 opens the whole of
+  # /containers/*, POST /containers/create included -- and a privileged
+  # container mounting the host root is then accepted, which is exactly the
+  # escape this arrangement exists to prevent. With CONTAINERS=0, create and
+  # exec answer 403 while the restart still works.
+  #
+  # No published port: reachable only from the internal network.
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.1.2
+    container_name: orthanc-socket-proxy
+    restart: unless-stopped
+    environment:
+      - POST=1
+      - ALLOW_RESTARTS=1
+      # Everything else denied, so that reading this file is enough to know
+      # what is possible.
+      - CONTAINERS=0
+      - IMAGES=0
+      - NETWORKS=0
+      - VOLUMES=0
+      - EXEC=0
+      - SERVICES=0
+      - TASKS=0
+      - SECRETS=0
+      - CONFIGS=0
+      - SWARM=0
+      - NODES=0
+      - PLUGINS=0
+      - SYSTEM=0
+      - INFO=0
+      - AUTH=0
+      - BUILD=0
+      - COMMIT=0
+      - DISTRIBUTION=0
+      - SESSION=0
+      - VERSION=0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - orthanc-network
+
+  # =============================================================================
   # AUTHENTICATION SERVICES
   # =============================================================================
   
@@ -77,6 +132,11 @@ services:
     container_name: orthanc-auth-service
     restart: unless-stopped
     environment:
+      # Restarting Orthanc from the panel. Leave DOCKER_PROXY_URL empty to
+      # disable the feature: the panel then says so instead of offering a
+      # button that cannot work.
+      - DOCKER_PROXY_URL=http://socket-proxy:2375
+      - ORTHANC_CONTAINER=orthanc-server
       # Essential Configuration (from .env)
       - LANGUAGE=${LANGUAGE}
       - AUTH_USERNAME=${AUTH_USERNAME}

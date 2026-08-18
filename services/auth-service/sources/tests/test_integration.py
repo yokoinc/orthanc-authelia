@@ -1431,3 +1431,143 @@ class TestLastAdminProtected:
 
         r = client.delete("/api/admin/users/admin.principal", headers=csrf_headers)
         assert r.status_code == 400, r.text
+
+
+class TestRestartOrthanc:
+    """The route that restarts Orthanc from the panel.
+
+    It goes through a proxy exposing nothing but /containers/<id>/restart.
+    What matters here: never announce success without Orthanc having actually
+    answered -- a configuration accepted on write may well stop it from
+    starting, and the operator must learn that straight away rather than by
+    finding a dead PACS later on.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_wait(self, monkeypatch):
+        """Neutralise the pauses between probes: the real route waits 60 s."""
+        async def _sleep(_):
+            return None
+        monkeypatch.setattr(admin_module.asyncio, "sleep", _sleep)
+
+    @pytest.fixture
+    def _wired(self, monkeypatch):
+        monkeypatch.setattr(admin_module, "DOCKER_PROXY_URL", "http://socket-proxy:2375")
+        monkeypatch.setattr(admin_module, "ORTHANC_CONTAINER", "orthanc-server")
+
+    def test_unconfigured_proxy_answers_503(
+        self, client, tmp_paths, fake_redis, csrf_headers, monkeypatch,
+    ):
+        """Without the proxy the feature is unavailable, and says so -- rather
+        than failing on a connection to an empty URL."""
+        monkeypatch.setattr(admin_module, "DOCKER_PROXY_URL", "")
+        r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
+        assert r.status_code == 503
+        assert "socket-proxy" in r.json()["detail"]
+
+    def test_container_not_found(
+        self, client, tmp_paths, fake_redis, csrf_headers, _wired,
+    ):
+        """A 404 from the proxy means the wrong container name: say it."""
+        with respx.mock:
+            respx.post("http://socket-proxy:2375/containers/orthanc-server/restart") \
+                .respond(status_code=404)
+            r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
+        assert r.status_code == 502
+        assert "ORTHANC_CONTAINER" in r.json()["detail"]
+
+    def test_restart_refused_by_proxy(
+        self, client, tmp_paths, fake_redis, csrf_headers, _wired,
+    ):
+        """403 = ALLOW_RESTARTS missing. Point at the right cause."""
+        with respx.mock:
+            respx.post("http://socket-proxy:2375/containers/orthanc-server/restart") \
+                .respond(status_code=403)
+            r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
+        assert r.status_code == 502
+        assert "ALLOW_RESTARTS" in r.json()["detail"]
+
+    def test_succeeds_when_orthanc_answers(
+        self, client, tmp_paths, fake_redis, csrf_headers, _wired,
+        valid_orthanc_json, redis_sync,
+    ):
+        with respx.mock:
+            respx.post("http://socket-proxy:2375/containers/orthanc-server/restart") \
+                .respond(status_code=204)
+            respx.get("http://orthanc:8042/system").respond(
+                json={"Version": "26.4.2", "Name": "Cuffel PACS"})
+            r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert r.json()["version"] == "26.4.2"
+        assert "warning" not in r.json()
+        events = [e[1]["event"] for e in redis_sync.xrange("admin:audit")]
+        assert "orthanc.restart.requested" in events
+        assert "orthanc.restarted" in events
+
+    def test_restart_that_does_not_apply_our_file_is_reported(
+        self, client, tmp_paths, fake_redis, csrf_headers, _wired,
+        valid_orthanc_json,
+    ):
+        """Orthanc answers, but under another name: a compose variable is
+        overriding the file. Announcing plain success would be misleading."""
+        with respx.mock:
+            respx.post("http://socket-proxy:2375/containers/orthanc-server/restart") \
+                .respond(status_code=204)
+            respx.get("http://orthanc:8042/system").respond(
+                json={"Version": "26.4.2", "Name": "Nom Impose Par Le Compose"})
+            r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert "ORTHANC__*" in r.json()["warning"]
+
+    def test_no_backup_available(
+        self, client, tmp_paths, fake_redis, csrf_headers, _wired,
+    ):
+        """Orthanc stays mute and nothing can be restored: 504, and point at
+        the logs rather than pretending."""
+        tmp_paths["backups"].mkdir(parents=True, exist_ok=True)
+        with respx.mock:
+            respx.post("http://socket-proxy:2375/containers/orthanc-server/restart") \
+                .respond(status_code=204)
+            respx.get("http://orthanc:8042/system").respond(status_code=502)
+            r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
+
+        assert r.status_code == 504
+        assert "no backup" in r.json()["detail"]
+
+    def test_configuration_restored_and_orthanc_restarts(
+        self, client, tmp_paths, fake_redis, csrf_headers, _wired, redis_sync,
+    ):
+        """The written configuration prevents Orthanc from starting: restore
+        the last backup, restart, and report the refusal -- the PACS is back
+        up, which is what matters."""
+        tmp_paths["backups"].mkdir(parents=True, exist_ok=True)
+        backup = tmp_paths["backups"] / "orthanc.json.bak.20260101-000000"
+        backup.write_text(json.dumps({"Name": "Avant"}), encoding="utf-8")
+        tmp_paths["orthanc"].write_text(json.dumps({"Name": "Casse"}), encoding="utf-8")
+
+        # Mute for the whole first wait -- 30 probes -- then answering once
+        # the backup has been put back. A couple of 502s would not do: the
+        # route would find Orthanc alive on the third probe and never roll
+        # back at all.
+        probes = {"n": 0}
+
+        def _system(request):
+            probes["n"] += 1
+            if probes["n"] <= admin_module._wait_for_orthanc.__defaults__[0]:
+                return httpx.Response(502)
+            return httpx.Response(200, json={"Version": "26.4.2"})
+
+        with respx.mock:
+            respx.post("http://socket-proxy:2375/containers/orthanc-server/restart") \
+                .respond(status_code=204)
+            respx.get("http://orthanc:8042/system").mock(side_effect=_system)
+            r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
+
+        assert r.status_code == 502, r.text
+        assert "orthanc.json.bak.20260101-000000" in r.json()["detail"]
+        # The file really was restored.
+        assert json.loads(tmp_paths["orthanc"].read_text())["Name"] == "Avant"
+        events = [e[1]["event"] for e in redis_sync.xrange("admin:audit")]
+        assert "orthanc.rolled_back" in events

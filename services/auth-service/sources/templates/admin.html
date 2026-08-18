@@ -131,7 +131,18 @@
                     <button type="submit" class="oe2-btn oe2-btn--primary" style="margin-top:16px">
                         <i class="fa-solid fa-floppy-disk"></i> Enregistrer
                     </button>
+                    <button type="button" id="orthanc-restart" class="oe2-btn oe2-btn--secondary"
+                            style="margin-top:16px" onclick="restartOrthanc()">
+                        <i class="fa-solid fa-power-off"></i> Redémarrer Orthanc
+                    </button>
                 </form>
+                <p style="font-size:var(--oe2-fs-micro);color:var(--oe2-muted);margin:10px 0 0;max-width:640px">
+                    Orthanc ne lit pas ce fichier directement : son image en fabrique une
+                    copie à son démarrage. Un changement n'est appliqué qu'après
+                    redémarrage du conteneur, et le PACS est indisponible quelques
+                    secondes. Si la nouvelle configuration l'empêche de repartir, la
+                    dernière sauvegarde est restaurée automatiquement.
+                </p>
             </div>
 
             <!-- ===== ÉQUIPEMENTS ===== -->

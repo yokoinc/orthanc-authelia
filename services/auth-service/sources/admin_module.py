@@ -10,6 +10,7 @@ Depends: fastapi, redis.asyncio, pyyaml, argon2-cffi, httpx, filelock, pydantic
 Required env vars: ORTHANC_ADMIN_USER, ORTHANC_ADMIN_PASS, ORTHANC_URL, REDIS_URL
 """
 
+import asyncio
 import copy
 import json
 import logging
@@ -71,6 +72,24 @@ ORTHANC_AUTH_HEADERS = {"auth-token": ORTHANC_AUTH_TOKEN}
 #       the plugin's StandardConfigurations:
 #           "Permissions": [["post", "^/tools/reset$", "all|settings"]]
 ORTHANC_APPLY_MODE = os.environ.get("ORTHANC_APPLY_MODE", "restart")
+
+# Restarting Orthanc from the panel, through a Docker socket proxy.
+#
+# Remotely, SSH is not always available: with no way out from the interface,
+# a configuration change leaves the operator stuck inside their own panel,
+# reading "restart required" with no means of doing it.
+#
+# The Docker socket is deliberately NOT mounted into auth-service: handing it
+# to a web-facing service grants the equivalent of root on the host. The proxy
+# in front of it must expose the bare minimum -- POST=1, ALLOW_RESTARTS=1, and
+# everything else at 0, CONTAINERS included. That last point is not cosmetic:
+# with CONTAINERS=1, POST=1 opens the whole of /containers/*, POST
+# /containers/create included, and a privileged container mounting the host
+# root is then accepted -- exactly the escape this arrangement must prevent.
+#
+# Left empty, the feature is simply unavailable and the panel says so.
+DOCKER_PROXY_URL = os.getenv("DOCKER_PROXY_URL", "").rstrip("/")
+ORTHANC_CONTAINER = os.getenv("ORTHANC_CONTAINER", "orthanc-server")
 
 
 def _require_orthanc_creds():
@@ -864,6 +883,54 @@ async def _orthanc_runs_our_file(config: dict) -> bool | None:
         return None
 
 
+async def _wait_for_orthanc(attempts: int = 30, pause: int = 2) -> str:
+    """Wait for Orthanc to answer. Returns its version, or "" if it stays mute.
+
+    Orthanc opens its port before it has finished loading its plugins, so we
+    query /system, which only answers once the server is genuinely ready.
+    """
+    for _ in range(attempts):
+        await asyncio.sleep(pause)
+        try:
+            probe = await _orthanc("GET", "/system", timeout=5)
+            if probe.status_code == 200:
+                return probe.json().get("Version", "unknown")
+        except Exception:  # noqa: BLE001 - expected while restarting
+            pass
+    return ""
+
+
+def _latest_orthanc_backup() -> Path | None:
+    """The most recent orthanc.json backup, if any.
+
+    Names carry a timestamp (orthanc.json.bak.YYYYMMDD-HHMMSS), so
+    alphabetical order is chronological order.
+    """
+    prefix = ORTHANC_JSON.name + ".bak."
+    backups = sorted(BACKUPS_DIR.glob(prefix + "*"), reverse=True)
+    return backups[0] if backups else None
+
+
+async def _request_restart() -> None:
+    """Ask the Docker proxy to restart the container."""
+    async with httpx.AsyncClient(timeout=90) as client:
+        r = await client.post(
+            f"{DOCKER_PROXY_URL}/containers/{ORTHANC_CONTAINER}/restart",
+        )
+    if r.status_code == 404:
+        raise HTTPException(
+            502,
+            f"Container '{ORTHANC_CONTAINER}' not found. Check "
+            f"ORTHANC_CONTAINER in the compose file.",
+        )
+    if r.status_code not in (204, 304):
+        raise HTTPException(
+            502,
+            f"The Docker proxy refused the restart (HTTP {r.status_code}). "
+            f"Check ALLOW_RESTARTS on the socket-proxy service.",
+        )
+
+
 class OrthancConfigPayload(BaseModel):
     """PATCH body: {"changes": {"Name": "Foo", "DicomAet": "BAR"}}"""
     changes: dict[str, Any]
@@ -1247,6 +1314,108 @@ async def update_orthanc_config(
         }
 
     return {"ok": True, "backup": backup.name}
+
+
+@router.post("/api/admin/orthanc/restart")
+async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
+    """Restart the Orthanc container and wait for it to answer again.
+
+    A configuration change only takes effect after a restart: the orthancteam
+    image GENERATES /tmp/orthanc.json at startup, merging its defaults, the
+    files under /etc/orthanc/ and the ORTHANC__* variables, and that generated
+    file is what the process reads.
+
+    We wait for Orthanc to actually come back rather than answering as soon as
+    Docker hands control back. A configuration accepted on write may well stop
+    Orthanc from starting, and the operator must learn it here -- not by
+    finding a dead PACS later on.
+    """
+    if not DOCKER_PROXY_URL:
+        raise HTTPException(
+            503,
+            "Restart unavailable: DOCKER_PROXY_URL is not set. Enable the "
+            "socket-proxy service, or restart by hand with "
+            "'docker compose restart orthanc'.",
+        )
+
+    await _audit("orthanc.restart.requested", admin.username,
+                 container=ORTHANC_CONTAINER)
+
+    try:
+        await _request_restart()
+    except httpx.HTTPError as e:
+        await _audit("orthanc.restart.failed", admin.username, error=str(e))
+        raise HTTPException(502, f"Docker proxy unreachable: {e}") from e
+    except HTTPException:
+        await _audit("orthanc.restart.failed", admin.username,
+                     container=ORTHANC_CONTAINER)
+        raise
+
+    version = await _wait_for_orthanc()
+    if version:
+        await _audit("orthanc.restarted", admin.username,
+                     container=ORTHANC_CONTAINER)
+        # Answering is not the same as applying what we wrote: an ORTHANC__*
+        # variable from the compose file overrides the file silently.
+        config = _load_orthanc_config()
+        if await _orthanc_runs_our_file(config) is False:
+            return {
+                "ok": True,
+                "version": version,
+                "warning": (
+                    "Orthanc restarted, but it is not running on this file. "
+                    "An ORTHANC__* variable in the compose file is probably "
+                    "overriding it."
+                ),
+            }
+        return {"ok": True, "version": version,
+                "message": "Orthanc restarted, configuration applied."}
+
+    # Orthanc is not coming back. The likeliest cause is the configuration
+    # just written: a value can be of the right type, produce perfectly valid
+    # JSON, and still be unacceptable to it -- an out-of-range port, say.
+    # Leaving a PACS down while pointing at the logs is not an answer.
+    await _audit("orthanc.restart.no_response", admin.username,
+                 container=ORTHANC_CONTAINER)
+
+    backup = _latest_orthanc_backup()
+    if backup is None:
+        raise HTTPException(
+            504,
+            "Orthanc has not answered for 60 s and no backup of its "
+            "configuration is available. Check its logs "
+            "(docker compose logs orthanc).",
+        )
+
+    try:
+        shutil.copy2(backup, ORTHANC_JSON)
+        await _request_restart()
+    except Exception as e:  # noqa: BLE001 - we are already in the worst case
+        await _audit("orthanc.rollback.failed", admin.username,
+                     backup=backup.name, error=str(e))
+        raise HTTPException(
+            500,
+            f"Orthanc is not answering, and restoring {backup.name} failed "
+            f"({e}). Manual intervention required.",
+        ) from e
+
+    if await _wait_for_orthanc():
+        await _audit("orthanc.rolled_back", admin.username, backup=backup.name)
+        raise HTTPException(
+            502,
+            f"Orthanc did not restart with the new configuration: "
+            f"{backup.name} was restored, and it is answering again. The "
+            f"change was refused, the PACS is back up.",
+        )
+
+    await _audit("orthanc.rollback.no_response", admin.username,
+                 backup=backup.name)
+    raise HTTPException(
+        504,
+        f"Orthanc is still not answering after {backup.name} was restored. "
+        f"The cause therefore lies elsewhere than in the last change. Check "
+        f"its logs (docker compose logs orthanc).",
+    )
 
 
 # ============================================================================
