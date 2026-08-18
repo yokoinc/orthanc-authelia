@@ -8,7 +8,13 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <link href="/auth/static/oe2-shared.css?v={asset_version}" rel="stylesheet">
     <style>
-        .admin-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--oe2-border-subtle); padding: 0 16px; }
+        /* flex-wrap plutot que overflow-x : avec huit onglets la barre depasse
+           des 760px de large, et un defilement horizontal qu'aucune barre ne
+           signale rend les derniers onglets inatteignables -- on ne sait meme
+           pas qu'ils existent. Le retour a la ligne les garde tous cliquables.
+           overflow-x reste en filet pour un onglet plus large que l'ecran. */
+        .admin-tabs { display: flex; flex-wrap: wrap; overflow-x: auto; gap: 4px;
+                      border-bottom: 1px solid var(--oe2-border-subtle); padding: 0 16px; }
         .admin-tab { background: transparent; border: none; padding: 10px 14px; color: var(--oe2-muted);
                      font-size:var(--oe2-fs-tiny); text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer;
                      border-bottom: 2px solid transparent; }
