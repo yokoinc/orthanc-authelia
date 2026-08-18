@@ -834,14 +834,8 @@ def _validate_orthanc(config: dict, before: dict | None = None) -> None:
 
 async def _reload_orthanc() -> None:
     """POST /tools/reset: Orthanc re-parses the JSON and applies the new config."""
-    _require_orthanc_creds()
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.post(
-            f"{ORTHANC_URL}/tools/reset",
-            auth=(ORTHANC_USER, ORTHANC_PASS),
-            headers=ORTHANC_AUTH_HEADERS,
-        )
-        r.raise_for_status()
+    r = await _orthanc("POST", "/tools/reset", timeout=10)
+    r.raise_for_status()
 
 
 async def _orthanc_runs_our_file(config: dict) -> bool | None:
@@ -863,14 +857,9 @@ async def _orthanc_runs_our_file(config: dict) -> bool | None:
     if not isinstance(expected, str):
         return None
     try:
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get(
-                f"{ORTHANC_URL}/system",
-                auth=(ORTHANC_USER, ORTHANC_PASS),
-                headers=ORTHANC_AUTH_HEADERS,
-            )
-            r.raise_for_status()
-            return r.json().get("Name") == expected
+        r = await _orthanc("GET", "/system", timeout=5)
+        r.raise_for_status()
+        return r.json().get("Name") == expected
     except (httpx.HTTPError, ValueError):
         return None
 
@@ -896,19 +885,24 @@ def _require_orthanc_creds() -> None:
         )
 
 
-async def _orthanc(method: str, path: str, **kwargs: Any) -> httpx.Response:
+async def _orthanc(method: str, path: str, timeout: float = 15,
+                   **kwargs: Any) -> httpx.Response:
     """Call Orthanc's API with the service account.
 
-    Remote-User: admin is essential -- the Authorization plugin reads it to
-    resolve the profile. Without it the call passes for anonymous, a profile
-    that only holds the upload permission.
+    ORTHANC_AUTH_HEADERS carries the group token, which is what the
+    Authorization plugin resolves a profile from. Not Remote-User: the
+    plugin's TokenHttpHeaders lists ["X-Auth-User", "Remote-User",
+    "auth-token"] and the LAST recognised header wins, so sending Remote-User
+    alone resolves the profile of a *user* named admin rather than the admin
+    group -- a call that then passes for anonymous, a profile holding only
+    the upload permission.
     """
     _require_orthanc_creds()
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         return await client.request(
             method, f"{ORTHANC_URL}{path}",
             auth=(ORTHANC_USER, ORTHANC_PASS),
-            headers={"Remote-User": "admin"},
+            headers=ORTHANC_AUTH_HEADERS,
             **kwargs,
         )
 
@@ -1008,7 +1002,7 @@ async def setup_create_admin(payload: UserCreatePayload):
         "groups": payload.groups,
     }
     _write_authelia(data)
-    # Verrouille la fenetre : plus qu'un finalize acceptable maintenant
+    # Close the window: only one finalize is acceptable from now on
     await _r().set(SETUP_FIRST_ADMIN_KEY, "1")
     await _audit("setup.admin.created", actor="wizard", target=payload.username)
     return {"ok": True, "username": payload.username}
@@ -1234,6 +1228,24 @@ async def update_orthanc_config(
         fields=",".join(payload.changes.keys()),
         backup=backup.name,
     )
+
+    # The reset answered 200, which proves Orthanc reloaded something -- not
+    # that it reloaded OUR file. When the two disagree, saying "saved" and
+    # stopping there sends the operator looking for the fault everywhere
+    # except where it is.
+    applied = await _orthanc_runs_our_file(config)
+    if applied is False:
+        return {
+            "ok": True,
+            "backup": backup.name,
+            "warning": (
+                "Saved, but Orthanc is not running on this file: its image "
+                "merges /etc/orthanc/*.json with the ORTHANC__* variables into "
+                "a copy at startup, and that copy is what a reload re-reads. "
+                "Restart the orthanc container for the change to take effect."
+            ),
+        }
+
     return {"ok": True, "backup": backup.name}
 
 
@@ -1546,13 +1558,9 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
 
     # Orthanc API reachable (/system endpoint, less invasive than /tools/reset)
     try:
-        async with httpx.AsyncClient(timeout=3) as c:
-            r = await c.get(
-                f"{ORTHANC_URL}/system",
-                auth=(ORTHANC_USER, ORTHANC_PASS),
-                headers=ORTHANC_AUTH_HEADERS,
-            )
-            checks["orthanc_api"] = {"ok": r.status_code == 200, "detail": f"HTTP {r.status_code}"}
+        r = await _orthanc("GET", "/system", timeout=3)
+        checks["orthanc_api"] = {"ok": r.status_code == 200,
+                                 "detail": f"HTTP {r.status_code}"}
     except httpx.HTTPError as e:
         checks["orthanc_api"] = {"ok": False, "detail": f"HTTPError: {e}"}
 

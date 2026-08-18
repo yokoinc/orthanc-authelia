@@ -1,9 +1,9 @@
 /**
- * admin.js — glue frontend pour /auth/admin.
- * Appelle les endpoints /api/admin/* de admin_module.py avec le header CSRF.
+ * admin.js — frontend glue for /auth/admin.
+ * Calls admin_module.py's /api/admin/* endpoints with the CSRF header.
  *
- * window.__CSRF__ est initialise dans admin.html depuis le cookie
- * orthanc_admin_csrf pose par le serveur au rendu du template.
+ * window.__CSRF__ is initialised in admin.html from the orthanc_admin_csrf
+ * cookie the server sets while rendering the template.
  */
 
 function api(path, opts) {

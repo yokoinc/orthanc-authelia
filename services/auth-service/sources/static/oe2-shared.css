@@ -1,22 +1,22 @@
 /* =============================================================================
-   OE2-SHARED.CSS — Design system partage pour l'auth-service
+   OE2-SHARED.CSS — shared design system for auth-service
    =============================================================================
-   Reprend les patterns visuels d'Orthanc Explorer 2 (sidebar dark, cards KPI,
-   tables a alternance de couleurs, boutons uniformes) et les rend reutilisables
-   par les 4 templates HTML de l'auth-service :
-     - token-manager.html   (page principale, sidebar + main content)
-     - redirect.html        (page centree, spinner)
-     - error.html           (page centree, message d'erreur)
-     - access_denied.html   (page centree, message d'acces refuse)
+   Takes the visual patterns of Orthanc Explorer 2 (dark sidebar, KPI cards,
+   striped tables, uniform buttons) and makes them reusable across the
+   auth-service HTML templates:
+     - token-manager.html   (main page, sidebar + main content)
+     - redirect.html        (centred page, spinner)
+     - error.html           (centred page, error message)
+     - access_denied.html   (centred page, access refused)
 
-   Dark only (aligne sur OE2 upstream qui n'a pas de light mode natif).
+   Dark only, matching upstream OE2, which has no native light mode.
    ============================================================================= */
 
 /* -----------------------------------------------------------------------------
-   TOKENS DE DESIGN
+   DESIGN TOKENS
    ----------------------------------------------------------------------------- */
 :root {
-    /* Palette OE2 (dark only, pas de light mode natif chez OE2 upstream) */
+    /* OE2 palette (dark only: upstream OE2 has no native light mode) */
     --oe2-study-even-bg: rgb(55, 55, 60);
     --oe2-study-odd-bg: rgb(45, 45, 50);
     --oe2-study-hover: rgb(100, 98, 95);
@@ -28,14 +28,14 @@
     --oe2-nav-bg: rgb(30, 36, 42);
     --oe2-nav-sub-bg: #181c20;
     --oe2-nav-hover-bg: #3e454d;
-    /* Accent principal = bleu medical (identite OE2), pas l'orange */
-    --oe2-accent: #3d748d;                /* Bleu medical (--label-bg-color d'OE2) */
-    --oe2-accent-strong: #5088a3;          /* Version relevee (bordure active, hover) */
-    --oe2-accent-soft: #7fb3cf;            /* Version claire (icones, texte accent) */
-    --oe2-accent-orange: #d19b3d;          /* Orange OE2 - warnings et states rares seulement */
-    --oe2-selected-bg: #4f5b69;            /* --nav-side-selected-bg-color d'OE2 upstream */
-    --oe2-label-bg: rgb(61, 116, 141);     /* Alias explicite pour badges "info" */
-    --oe2-link: #6ea0c8;                   /* Liens et actions secondaires */
+    /* Primary accent = medical blue (OE2's identity), not the orange */
+    --oe2-accent: #3d748d;                /* Medical blue (OE2's --label-bg-color) */
+    --oe2-accent-strong: #5088a3;          /* Lifted variant (active border, hover) */
+    --oe2-accent-soft: #7fb3cf;            /* Light variant (icons, accent text) */
+    --oe2-accent-orange: #d19b3d;          /* OE2 orange - warnings and rare states only */
+    --oe2-selected-bg: #4f5b69;            /* upstream OE2's --nav-side-selected-bg-color */
+    --oe2-label-bg: rgb(61, 116, 141);     /* Explicit alias for "info" badges */
+    --oe2-link: #6ea0c8;                   /* Links and secondary actions */
     --oe2-form-placeholder: #888;
     --oe2-border: #ffffff;
     --oe2-border-subtle: rgba(255, 255, 255, 0.2);
@@ -48,35 +48,35 @@
     --oe2-card-bg: var(--oe2-study-details-bg);
     --oe2-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 
-    /* Typographie — valeurs relevees dans le CSS d'OE2, pas approchees.
-       OE2 est bati sur Bootstrap : --bs-body-font-size vaut 1rem et
-       --bs-font-sans-serif est la pile systeme reprise ci-dessous. Ses tables
-       et blocs de details sont en .9rem, ses elements secondaires en .8rem. */
+    /* Typography — values read off OE2's own CSS, not approximated.
+       OE2 is built on Bootstrap: --bs-body-font-size is 1rem and
+       --bs-font-sans-serif is the system stack repeated below. Its tables and
+       detail blocks use .9rem, its secondary elements .8rem. */
     --oe2-font-stack: system-ui, -apple-system, "Segoe UI", Roboto,
         "Helvetica Neue", "Noto Sans", "Liberation Sans", Arial, sans-serif;
-    /* La sidebar suit OE2 au caractere pres, pas la typo du contenu. OE2 la
-       declare ainsi :
+    /* The sidebar follows OE2 to the character, not the content typography.
+       OE2 declares it as:
            .nav-side-menu       { font-family: verdana; font-size: 12px; font-weight: 200 }
            .menu-list           { font-size: 14px; margin-left: 10px; margin-right: 10px }
            .nav-side-menu ul,li { line-height: 35px }
            .nav-side-menu li a i{ width: 20px; padding-left: 10px; padding-right: 20px }
-       L'icone occupe donc 50px de large chez OE2, ce qui pese autant que la
-       police dans la largeur rendue de la colonne.
-       Verdana est nettement plus large qu'Avenir a taille egale : s'en ecarter
-       change la largeur rendue de la colonne, et nos pages ne s'alignent plus
-       sur celles d'OE2 quand on passe de l'une a l'autre. */
+       The icon therefore takes 50px of width in OE2, which weighs as much as
+       the font in the column's rendered width.
+       Verdana is markedly wider than Avenir at equal size: departing from it
+       changes the rendered column width, and our pages stop lining up with
+       OE2's when moving from one to the other. */
     --oe2-sidebar-font: verdana, Geneva, sans-serif;
-    --oe2-sidebar-fs: 14px;   /* .menu-list d'OE2 ; le 12px de .nav-side-menu
-                                 est celui du conteneur, la liste le surcharge */
+    --oe2-sidebar-fs: 14px;   /* OE2's .menu-list; the 12px of .nav-side-menu
+                                 belongs to the container, the list overrides it */
     --oe2-font-mono: 'Courier New', Consolas, monospace;
-    --oe2-fs-body: 1rem;      /* --bs-body-font-size d'OE2 */
-    --oe2-fs-small: .9rem;    /* .study-details-table d'OE2 */
-    --oe2-fs-tiny: .8rem;     /* elements secondaires d'OE2 */
+    --oe2-fs-body: 1rem;      /* OE2's --bs-body-font-size */
+    --oe2-fs-small: .9rem;    /* OE2's .study-details-table */
+    --oe2-fs-tiny: .8rem;     /* OE2's secondary elements */
     --oe2-fs-title: 1rem;
     --oe2-fw-thin: 200;
     --oe2-fw-regular: 400;
 
-    /* Spacing / rayons */
+    /* Spacing and radii */
     --oe2-radius: 3px;
     --oe2-radius-small: 2px;
     --oe2-space-1: 4px;
@@ -85,17 +85,16 @@
     --oe2-space-4: 16px;
     --oe2-space-5: 20px;
     --oe2-space-6: 24px;
-    /* OE2 ne fixe aucune largeur : sa colonne vient de la grille Bootstrap.
-       Mais ce pourcentage s'applique a un .container, PAS a la fenetre --
-       OE2 emploie class="container" partout, jamais container-fluid.
-       Bootstrap plafonne ce conteneur a 1320px au palier xxl, donc la colonne
-       col-md-3 vaut au plus 1320 x 25% = 330px et se fige au-dela.
+    /* OE2 sets no width: its column comes from the Bootstrap grid. But that
+       percentage applies to a .container, NOT to the window -- OE2 uses
+       class="container" everywhere, never container-fluid. Bootstrap caps
+       that container at 1320px on the xxl breakpoint, so a col-md-3 column is
+       at most 1320 x 25% = 330px, and freezes beyond.
 
-       Sans ce plafond, notre 25% se calculait sur la fenetre entiere : 480px
-       sur un ecran 1920, 640px sur un 2560, la ou OE2 en montre 330. La barre
-       paraissait plus large, et continuait de grandir alors que celle d'OE2
-       ne bouge plus. */
-    --oe2-sidebar-w: 25%;      /* col-md-3, la colonne qu'OE2 utilise */
+       Without this cap, our 25% was computed on the whole window: 480px on a
+       1920 screen, 640px on a 2560, where OE2 shows 330. The bar looked
+       wider, and kept growing while OE2's had stopped. */
+    --oe2-sidebar-w: 25%;      /* col-md-3, the column OE2 uses */
     --oe2-sidebar-w-min: 260px;
     --oe2-sidebar-w-max: 330px;   /* 1320px (.container xxl) x 25% */
 }
@@ -121,8 +120,8 @@ body {
     background-color: var(--oe2-body-bg);
     color: var(--oe2-body-color);
     min-height: 100vh;
-    /* Safety mini pour tres petits ecrans (< iPhone SE 375px). Au dela le
-       responsive @media prend le relais. */
+    /* Floor for very small screens (< iPhone SE 375px). Beyond that the
+       responsive @media takes over. */
     min-width: 320px;
 }
 
@@ -138,7 +137,7 @@ body {
     width: var(--oe2-sidebar-w);
     min-width: var(--oe2-sidebar-w-min);
     max-width: var(--oe2-sidebar-w-max);
-    /* Meme police que .nav-side-menu d'OE2 -- cf. le commentaire des tokens. */
+    /* Same font as OE2's .nav-side-menu -- see the token comment above. */
     font-family: var(--oe2-sidebar-font);
     font-weight: var(--oe2-fw-thin);
     flex-shrink: 0;
@@ -159,18 +158,18 @@ body {
 .oe2-sidebar__brand:hover { background-color: transparent; }
 
 .oe2-sidebar__logo {
-    /* Copie du selecteur .orthanc-logo d'OE2 SideBar.vue :
-       filter: brightness(50) + height: 48px. brightness(50) explose les
-       valeurs => silhouette blanche uniforme sur fond dark, preserve
-       la transparence. */
+    /* Copy of the .orthanc-logo selector from OE2's SideBar.vue:
+       filter: brightness(50) + height: 48px. brightness(50) blows the values
+       out => a uniform white silhouette on the dark background, transparency
+       preserved. */
     height: 48px;
     width: auto;
     display: block;
     filter: brightness(50);
 }
 
-/* Nom du serveur (reprise .orthanc-name d'OE2) - full-width, en dehors du
-   lien brand pour aller edge-to-edge avec son border-bottom blanc. */
+/* Server name (after OE2's .orthanc-name) - full width, outside the brand
+   link so its white border-bottom reaches edge to edge. */
 .oe2-sidebar__brand-name {
     text-align: center;
     padding: 6px 0;
@@ -188,10 +187,10 @@ body {
 }
 
 .oe2-sidebar__link {
-    /* Reprise de .nav-side-menu li dans OE2:
+    /* After OE2's .nav-side-menu li:
        - line-height: 35px
-       - border-left: 3px solid var(--nav-side-bg-color) (invisible par defaut)
-       - hover/active: border-left orange 3px + bg selected (#4f5b69) */
+       - border-left: 3px solid var(--nav-side-bg-color) (invisible by default)
+       - hover/active: 3px orange border-left + selected bg (#4f5b69) */
     display: flex;
     align-items: center;
     line-height: 35px;
@@ -201,8 +200,8 @@ body {
     font-weight: var(--oe2-fw-thin);
     border-left: 3px solid var(--oe2-nav-bg);
     transition: background-color 0.15s, border-left-color 0.15s;
-    /* Long label ("Retour a Orthanc Explorer" ex) ne wrap plus, ellipsis
-       si depassement. */
+    /* A long label ("Back to Orthanc Explorer") no longer wraps: it ellipsises
+       when it overflows. */
     white-space: nowrap;
     overflow: hidden;
 }
@@ -219,7 +218,7 @@ body {
 
 .oe2-sidebar__link svg,
 .oe2-sidebar__link i {
-    /* .nav-side-menu li a i d'OE2 : 20px de glyphe, 10px a gauche, 20px a droite */
+    /* OE2's .nav-side-menu li a i: 20px glyph, 10px left, 20px right */
     width: 20px;
     padding-left: 10px;
     padding-right: 20px;
@@ -235,9 +234,9 @@ body {
     font-weight: var(--oe2-fw-thin);
 }
 
-/* Version auth-service en bas de main content (bas-droite, discret).
-   La sidebar n'a plus de footer -- la version etait dans le chemin regarde
-   par personne, on la met dans le contenu principal a la place. */
+/* auth-service version at the bottom of the main content (bottom right,
+   discreet). The sidebar no longer has a footer -- the version sat where
+   nobody looked, so it moved into the main content instead. */
 .oe2-main__version {
     padding: 12px 16px 8px;
     font-size: var(--oe2-fs-tiny);
@@ -247,8 +246,8 @@ body {
 }
 
 .oe2-main {
-    /* Pas de padding lateral: le contenu (tables) va flush aux bords
-       sidebar/droit comme dans OE2. Le padding vertical reste pour respirer. */
+    /* No side padding: the content (tables) sits flush against the sidebar and
+       the right edge, as in OE2. Vertical padding stays, to breathe. */
     flex: 1;
     min-width: 0;
     padding: 16px 0 0;
@@ -279,9 +278,9 @@ body {
     gap: 6px;
 }
 
-/* Les KPI cards ont ete retirees de l'UI (jugees peu utiles par l'utilisateur).
-   Les IDs #totalTokens/#expiringSoonTokens/#highUsageTokens sont conserves en
-   tant que <span> caches dans le template pour eviter un crash JS a
+/* The KPI cards were removed from the UI. The #totalTokens,
+   #expiringSoonTokens and #highUsageTokens ids stay as hidden <span>s in the
+   template to avoid a JS crash at
    document.getElementById('totalTokens').textContent = ... */
 
 /* -----------------------------------------------------------------------------
@@ -317,8 +316,8 @@ body {
 }
 
 /* -----------------------------------------------------------------------------
-   TABLE — les selecteurs .oe2-table* etaient un doublon des .tokens-table*
-   utilises par le JS. Nettoyes (voir bloc COMPAT LEGACY plus bas).
+   TABLE — the .oe2-table* selectors duplicated the .tokens-table* ones the JS
+   uses. Removed (see the LEGACY COMPAT block further down).
    ----------------------------------------------------------------------------- */
 @keyframes oe2-fraud-pulse {
     0%, 100% { background-color: rgba(220, 53, 69, 0.10) !important; }
@@ -375,9 +374,9 @@ body {
     transition: background-color 0.15s, border-color 0.15s;
 }
 
-/* Variante compacte, pour les actions posees dans une ligne de tableau. Elle
-   etait deja utilisee par les templates alors qu'elle n'existait pas ici : ces
-   boutons sortaient donc en taille normale, ce qui se voyait. */
+/* Compact variant, for actions placed inside a table row. The templates were
+   already using it while it did not exist here, so those buttons came out at
+   normal size -- which showed. */
 .oe2-btn--sm {
     padding: 3px 8px;
     font-size: var(--oe2-fs-tiny);
@@ -528,7 +527,7 @@ body {
 }
 
 .oe2-centered__logo {
-    /* Wordmark large, on plafonne la largeur (le PNG upstream fait 786x250) */
+    /* Wide wordmark, so the width is capped (the upstream PNG is 786x250) */
     max-width: 200px;
     height: auto;
     margin-bottom: 24px;
@@ -586,13 +585,13 @@ body {
    RESPONSIVE
    ----------------------------------------------------------------------------- */
 @media (max-width: 767px) {
-    /* App: on empile sidebar au-dessus de main */
+    /* App: stack the sidebar above the main content */
     .oe2-app { flex-direction: column; }
 
-    /* Sidebar devient un bandeau haut (100% width, colonne interne).
-       max-width doit etre leve : le plafond de 330px vise la colonne
-       col-md-3, qui n'existe plus sous ce palier -- Bootstrap empile
-       col-md-* en dessous de 768px, et le bandeau prend toute la largeur. */
+    /* The sidebar becomes a top banner (100% width, inner column).
+       max-width has to be lifted: the 330px cap targets the col-md-3 column,
+       which no longer exists below this breakpoint -- Bootstrap stacks
+       col-md-* under 768px, and the banner takes the full width. */
     .oe2-sidebar {
         width: 100%;
         max-width: none;
@@ -634,8 +633,8 @@ body {
 
     /* Main tightened */
     .oe2-main { padding-top: 8px; }
-    /* Header reste sur une seule ligne meme en mobile (wrap si vraiment trop
-       etroit, mais horizontal par defaut). */
+    /* The header stays on one line even on mobile (it wraps only when really
+       too narrow, but is horizontal by default). */
     .oe2-main__header {
         flex-wrap: wrap;
         gap: 8px;
@@ -643,7 +642,7 @@ body {
     }
     .oe2-main__title { font-size: var(--oe2-fs-title); }
 
-    /* Tables: scroll horizontal si trop de colonnes */
+    /* Tables: horizontal scroll when there are too many columns */
     .oe2-table-wrapper,
     .tokens-table-wrapper { overflow-x: auto; }
     .tokens-table { min-width: 560px; }
@@ -658,18 +657,18 @@ body {
 }
 
 /* =============================================================================
-   COMPAT LEGACY - selecteurs generees par token-manager.js
+   LEGACY COMPAT - selectors generated by token-manager.js
    =============================================================================
-   Le JS construit ses tables/badges/boutons avec des noms de classes historiques
-   (tokens-table, badge-oe2, btn-action, etc.). Plutot que de refactorer 500
-   lignes de JS on style ces classes ici avec les tokens OE2 pour garder le look
-   coherent avec le reste. Si on decide un jour de re-nommer cote JS, on peut
-   supprimer ce bloc.
+   The JS builds its tables, badges and buttons with historical class names
+   (tokens-table, badge-oe2, btn-action, and so on). Rather than refactor 500
+   lines of JS, those classes are styled here with the OE2 tokens so the look
+   stays consistent with the rest. Renaming them on the JS side would make
+   this block removable.
    ============================================================================= */
 
-/* Table (utilise par le JS: <table class="tokens-table">) — densite
-   inspiree de .study-table-title d'OE2: padding fin, line-height 1.2-1.3rem,
-   font-size 11-12px pour tenir plus de rows sans scroll. */
+/* Table (used by the JS: <table class="tokens-table">) — density taken from
+   OE2's .study-table-title: tight padding, 1.2-1.3rem line-height, 11-12px
+   font-size, to fit more rows without scrolling. */
 .tokens-table {
     width: 100%;
     border-collapse: collapse;
@@ -707,7 +706,7 @@ body {
 .tokens-table .expired-token td { opacity: 0.6; }
 .tokens-table .fraud-indicator td { animation: oe2-fraud-pulse 2s infinite; }
 
-/* Wrapper de la table — bord top+bottom seulement (edge-to-edge lateral) */
+/* Table wrapper — top and bottom borders only (edge to edge sideways) */
 .tokens-table-wrapper {
     background-color: var(--oe2-card-bg);
     border-top: 1px solid var(--oe2-border);
@@ -717,7 +716,7 @@ body {
     margin-bottom: var(--oe2-space-4);
 }
 
-/* Empty / loading states genere par le JS */
+/* Empty and loading states generated by the JS */
 .empty-state, .loading-state {
     text-align: center;
     padding: 40px 20px;
@@ -746,9 +745,9 @@ body {
     line-height: 1.5;
     border: none;
 }
-/* JS getTokenTypeInfo() retourne toujours badgeClass: 'badge-share' pour les
-   types de partage (OHIF/Stone/VolView). Sans cette classe le badge etait
-   invisible sur fond dark. */
+/* The JS getTokenTypeInfo() always returns badgeClass: 'badge-share' for the
+   sharing types (OHIF/Stone/VolView). Without this class the badge was
+   invisible against the dark background. */
 .badge-share   { background-color: var(--oe2-label-bg); color: #fff; }
 .badge-info    { background-color: var(--oe2-label-bg); color: #fff; }
 .badge-warning { background-color: rgba(209, 155, 61, 0.20); color: var(--oe2-warning); }
@@ -833,13 +832,13 @@ body {
     cursor: pointer;
     line-height: 1;
     transition: background-color 0.15s, color 0.15s;
-    /* Reset base font-size pour que les icones FA rendent a taille fixe
-       quel que soit l'heritage de la cellule (10-14px selon densite). */
+    /* Reset the base font-size so Font Awesome icons render at a fixed size
+       whatever the cell inherits (10-14px depending on density). */
     font-size: 0;
 }
-/* Font Awesome <i>: taille fixe 12px avec width+height explicites. Le
-   `font-size: 0` sur le parent evite tout heritage indesirable, et on set
-   la taille sur le glyph directement. */
+/* Font Awesome <i>: fixed 12px size, with explicit width and height. The
+   `font-size: 0` on the parent prevents any unwanted inheritance, and the
+   size is set on the glyph itself. */
 .btn-action i {
     font-size: var(--oe2-fs-tiny);
     line-height: 1;
@@ -862,7 +861,7 @@ body {
     color: #fff;
 }
 
-/* Refresh button dans les section headers — style bouton Bootstrap arrondi */
+/* Refresh button inside section headers — rounded Bootstrap button style */
 .btn-refresh {
     display: inline-flex;
     align-items: center;
@@ -881,7 +880,7 @@ body {
     background-color: var(--oe2-nav-hover-bg);
 }
 
-/* Section-title (bouton Actualiser aligne a droite du titre) */
+/* Section title (Refresh button aligned right of the heading) */
 .section-title {
     display: flex;
     align-items: center;

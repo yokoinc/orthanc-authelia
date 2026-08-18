@@ -13,6 +13,11 @@
 # Backup environment files
 .env.backup
 .env.bak
+# bootstrap.sh --force horodate ses sauvegardes : .env.bak.20260726-090539.
+# Sans cette ligne, un git add -A les embarque -- avec les secrets dedans.
+.env.bak.*
+# Verrous poses par filelock pendant une ecriture du panel.
+*.lock
 
 # ===============================================
 # Docker and Container Data
@@ -178,6 +183,10 @@ Dockerfile.local
 
 # OHIF build artifacts
 services/ohif/docker/*/platform/app/dist/
+# Sorties de build du frontend, quel que soit le service. Le motif ci-dessus
+# ne visait qu OHIF : les artefacts Vue de auth-service passaient au travers
+# et se faisaient indexer par un git add -A.
+dist/
 services/ohif/docker/*/platform/app/node_modules/
 services/ohif/docker/*/platform/app/.next/
 services/ohif/docker/*/platform/app/build/

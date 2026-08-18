@@ -294,12 +294,17 @@ class TestOrthancConfig:
         monkeypatch.setattr(admin_module, "ORTHANC_APPLY_MODE", "reset")
         with respx.mock(base_url="http://orthanc:8042") as mock:
             reset_route = mock.post("/tools/reset").respond(status_code=200, json={})
+            # The route now checks, after the reload, that Orthanc really runs
+            # on this file: a 200 from /tools/reset proves it reloaded
+            # something, not that it reloaded ours.
+            mock.get("/system").respond(json={"Name": "New PACS Name"})
 
             r = client.patch("/api/admin/orthanc/config", json={
                 "changes": {"Name": "New PACS Name", "HttpCompressionEnabled": True},
             }, headers=csrf_headers)
             assert r.status_code == 200, r.text
             assert reset_route.called
+            assert "warning" not in r.json(), "agreement: no warning expected"
 
         # The file has been updated
         new = json.loads(tmp_paths["orthanc"].read_text())
@@ -319,6 +324,34 @@ class TestOrthancConfig:
         _, fields = entries[-1]
         assert fields["event"] == "orthanc.config.updated"
         assert fields["actor"] == "cuffel.gregory"
+
+    def test_reset_that_reloads_another_file_is_reported(
+        self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
+        monkeypatch,
+    ):
+        """A 200 from /tools/reset proves Orthanc reloaded something, not that
+        it reloaded ours.
+
+        The orthancteam image merges /etc/orthanc/*.json with the ORTHANC__*
+        variables into a copy at startup, and that copy is what a reload
+        re-reads. Announcing plain success there sends the operator hunting
+        for the fault everywhere except where it is.
+        """
+        monkeypatch.setattr(admin_module, "ORTHANC_APPLY_MODE", "reset")
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.post("/tools/reset").respond(status_code=200, json={})
+            # Orthanc reports another name: it is not reading our file.
+            mock.get("/system").respond(json={"Name": "Nom Impose Par Le Compose"})
+
+            r = client.patch("/api/admin/orthanc/config", json={
+                "changes": {"Name": "Nom Ecrit Dans Le Fichier"},
+            }, headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert r.json()["ok"] is True
+        assert "warning" in r.json(), "the divergence must be reported"
+        assert "restart" in r.json()["warning"].lower()
+
 
     def test_default_mode_writes_without_calling_reset(
         self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
@@ -538,13 +571,13 @@ class TestFileLock:
 
         def hold_lock():
             with orig_flock(lock_path, timeout=5):
-                barrier.wait()  # signale au test qu'on tient le lock
-                time.sleep(3)   # hold plus longtemps que le timeout endpoint
+                barrier.wait()  # tell the test the lock is held
+                time.sleep(3)   # hold it longer than the endpoint's timeout
 
         holder = threading.Thread(target=hold_lock)
         holder.start()
         try:
-            barrier.wait()  # attend que hold_lock ait le lock
+            barrier.wait()  # wait until hold_lock owns the lock
 
             # Now try to write through the API
             r = client.patch("/api/admin/orthanc/config", json={
