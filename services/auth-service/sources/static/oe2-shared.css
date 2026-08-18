@@ -85,11 +85,19 @@
     --oe2-space-4: 16px;
     --oe2-space-5: 20px;
     --oe2-space-6: 24px;
-    /* OE2 ne fixe aucune largeur : sa colonne vient de la grille Bootstrap,
-       donc en pourcentage de la fenetre. On reprend le meme principe, avec un
-       plancher pour les petits ecrans. */
+    /* OE2 ne fixe aucune largeur : sa colonne vient de la grille Bootstrap.
+       Mais ce pourcentage s'applique a un .container, PAS a la fenetre --
+       OE2 emploie class="container" partout, jamais container-fluid.
+       Bootstrap plafonne ce conteneur a 1320px au palier xxl, donc la colonne
+       col-md-3 vaut au plus 1320 x 25% = 330px et se fige au-dela.
+
+       Sans ce plafond, notre 25% se calculait sur la fenetre entiere : 480px
+       sur un ecran 1920, 640px sur un 2560, la ou OE2 en montre 330. La barre
+       paraissait plus large, et continuait de grandir alors que celle d'OE2
+       ne bouge plus. */
     --oe2-sidebar-w: 25%;      /* col-md-3, la colonne qu'OE2 utilise */
     --oe2-sidebar-w-min: 260px;
+    --oe2-sidebar-w-max: 330px;   /* 1320px (.container xxl) x 25% */
 }
 
 /* -----------------------------------------------------------------------------
@@ -129,6 +137,7 @@ body {
 .oe2-sidebar {
     width: var(--oe2-sidebar-w);
     min-width: var(--oe2-sidebar-w-min);
+    max-width: var(--oe2-sidebar-w-max);
     /* Meme police que .nav-side-menu d'OE2 -- cf. le commentaire des tokens. */
     font-family: var(--oe2-sidebar-font);
     font-weight: var(--oe2-fw-thin);
@@ -580,9 +589,13 @@ body {
     /* App: on empile sidebar au-dessus de main */
     .oe2-app { flex-direction: column; }
 
-    /* Sidebar devient un bandeau haut (100% width, colonne interne) */
+    /* Sidebar devient un bandeau haut (100% width, colonne interne).
+       max-width doit etre leve : le plafond de 330px vise la colonne
+       col-md-3, qui n'existe plus sous ce palier -- Bootstrap empile
+       col-md-* en dessous de 768px, et le bandeau prend toute la largeur. */
     .oe2-sidebar {
         width: 100%;
+        max-width: none;
         flex-direction: column;
     }
 

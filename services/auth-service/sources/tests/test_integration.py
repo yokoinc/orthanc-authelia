@@ -1314,3 +1314,87 @@ class TestCFAccessSettings:
         admin_module._settings_cache["key"] = None
         monkeypatch.setattr(admin_module, "CF_ACCESS_TEAM_DOMAIN", "repli.com")
         assert admin_module._cf_team_domain() == "repli.com"
+
+
+class TestLastAdminProtected:
+    """The last active administrator cannot be deleted.
+
+    The invariant existed, but only as a side effect of _validate_authelia
+    during the write: the operator got a bare 500 and no reason. The account
+    did survive -- the write aborts before persisting -- yet a safeguard that
+    reports itself as a server error is not one.
+    """
+
+    def test_deleting_the_only_admin_is_refused(
+        self, client, tmp_paths, fake_redis, csrf_headers,
+    ):
+        hasher = admin_module._hasher
+        data = {"users": {
+            "admin.principal": {
+                "disabled": False, "displayname": "Admin",
+                "email": "admin@example.com",
+                "password": hasher.hash("un-mot-de-passe-12345"),
+                "groups": ["admins"],
+            },
+        }}
+        tmp_paths["authelia"].write_text(yaml.safe_dump(data))
+
+        r = client.delete("/api/admin/users/admin.principal", headers=csrf_headers)
+
+        assert r.status_code == 400, r.text
+        assert "last active administrator" in r.json()["detail"]
+        # And the account is still there, untouched.
+        remaining = yaml.safe_load(tmp_paths["authelia"].read_text())
+        assert "admin.principal" in remaining["users"]
+
+    def test_another_admin_can_still_be_deleted(
+        self, client, tmp_paths, fake_redis, csrf_headers,
+    ):
+        """The guard must not lock ordinary housekeeping: with two admins,
+        removing one is legitimate."""
+        hasher = admin_module._hasher
+        password = hasher.hash("un-mot-de-passe-12345")
+        data = {"users": {
+            "admin.principal": {
+                "disabled": False, "displayname": "Admin",
+                "email": "admin@example.com", "password": password,
+                "groups": ["admins"],
+            },
+            "admin.second": {
+                "disabled": False, "displayname": "Second",
+                "email": "second@example.com", "password": password,
+                "groups": ["admins"],
+            },
+        }}
+        tmp_paths["authelia"].write_text(yaml.safe_dump(data))
+
+        r = client.delete("/api/admin/users/admin.second", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        remaining = yaml.safe_load(tmp_paths["authelia"].read_text())
+        assert "admin.second" not in remaining["users"]
+        assert "admin.principal" in remaining["users"]
+
+    def test_a_disabled_admin_does_not_count(
+        self, client, tmp_paths, fake_redis, csrf_headers,
+    ):
+        """A disabled account cannot administer anything: deleting the only
+        enabled admin must still be refused, even with a disabled one left."""
+        hasher = admin_module._hasher
+        password = hasher.hash("un-mot-de-passe-12345")
+        data = {"users": {
+            "admin.principal": {
+                "disabled": False, "displayname": "Admin",
+                "email": "admin@example.com", "password": password,
+                "groups": ["admins"],
+            },
+            "admin.dormant": {
+                "disabled": True, "displayname": "Dormant",
+                "email": "dormant@example.com", "password": password,
+                "groups": ["admins"],
+            },
+        }}
+        tmp_paths["authelia"].write_text(yaml.safe_dump(data))
+
+        r = client.delete("/api/admin/users/admin.principal", headers=csrf_headers)
+        assert r.status_code == 400, r.text

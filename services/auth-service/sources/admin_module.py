@@ -1089,8 +1089,24 @@ async def delete_user(username: str, admin: AdminUser = Depends(require_admin)):
     data = _load_authelia()
     if username not in data.get("users", {}):
         raise HTTPException(404, "unknown user")
+
+    # Refuse BEFORE touching anything. _validate_authelia does catch the case,
+    # but only once _write_authelia is under way, and it raises a bare
+    # ValueError: the operator got a 500 instead of a reason. The account
+    # survived -- the write aborts before persisting -- yet an invariant that
+    # holds by accident of validation, and reports itself as a server error,
+    # is not a safeguard.
+    if not [u for u in _active_admins(data) if u != username]:
+        raise HTTPException(
+            400,
+            f"{username} is the last active administrator: deleting it would "
+            f"leave the stack with nobody able to administer it, and the only "
+            f"way back would be editing users_database.yml by hand. Create "
+            f"another administrator first.",
+        )
+
     del data["users"][username]
-    _write_authelia(data)  # enforces the "at least 1 active admin" invariant
+    _write_authelia(data)
     await _audit("authelia.user.deleted", admin.username, target=username)
     return {"ok": True}
 
