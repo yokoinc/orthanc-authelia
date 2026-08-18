@@ -1648,3 +1648,153 @@ class TestEffectiveConfig:
 
         assert r.status_code == 200
         assert r.json()["mismatches"] == []
+
+
+class TestUserUpdate:
+    """Editing an account, and the anti-lockout guard.
+
+    Without these routes, changing someone's group meant deleting their
+    account and recreating it -- losing their password on the way. And an
+    account that should simply stop working had to be deleted outright,
+    taking its history with it.
+    """
+
+    def test_partial_update(self, client, tmp_paths, fake_redis,
+                            valid_authelia_yml, csrf_headers):
+        """Only the fields sent are touched: the rest survives untouched."""
+        r = client.patch("/api/admin/users/cuffel.gregory", json={
+            "displayname": "Dr Cuffel",
+        }, headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert r.json()["modified"] == ["displayname"]
+        record = yaml.safe_load(tmp_paths["authelia"].read_text())["users"]["cuffel.gregory"]
+        assert record["displayname"] == "Dr Cuffel"
+        assert record["email"] == "cuffel.gregory@gmail.com"     # unchanged
+        assert "admins" in record["groups"]                       # unchanged
+
+    def test_disabling_keeps_the_account(self, client, tmp_paths, fake_redis,
+                                         csrf_headers):
+        """Disabling is not deleting: the account and its history stay."""
+        hasher = admin_module._hasher
+        password = hasher.hash("un-mot-de-passe-12345")
+        data = {"users": {
+            "admin.principal": {"disabled": False, "displayname": "Admin",
+                                "email": "a@example.com", "password": password,
+                                "groups": ["admins"]},
+            "docteur.parti": {"disabled": False, "displayname": "Parti",
+                              "email": "p@example.com", "password": password,
+                              "groups": ["doctors"]},
+        }}
+        tmp_paths["authelia"].write_text(yaml.safe_dump(data))
+
+        r = client.patch("/api/admin/users/docteur.parti",
+                         json={"disabled": True}, headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        remaining = yaml.safe_load(tmp_paths["authelia"].read_text())["users"]
+        assert remaining["docteur.parti"]["disabled"] is True
+        assert remaining["docteur.parti"]["password"] == password
+
+    def test_no_field_provided(self, client, tmp_paths, fake_redis,
+                               valid_authelia_yml, csrf_headers):
+        r = client.patch("/api/admin/users/cuffel.gregory", json={},
+                         headers=csrf_headers)
+        assert r.status_code == 400
+
+    def test_unknown_user(self, client, tmp_paths, fake_redis,
+                          valid_authelia_yml, csrf_headers):
+        r = client.patch("/api/admin/users/personne", json={"disabled": True},
+                         headers=csrf_headers)
+        assert r.status_code == 404
+
+    def test_refuses_to_demote_the_last_admin(self, client, tmp_paths,
+                                              fake_redis, valid_authelia_yml,
+                                              csrf_headers):
+        """Removing yourself from the admin group while being the only one
+        would leave the stack with nobody to administer it. A 400 is expected
+        -- not a 500, which does not tell a deliberate refusal from a
+        failure."""
+        r = client.patch("/api/admin/users/cuffel.gregory",
+                         json={"groups": ["doctors"]}, headers=csrf_headers)
+
+        assert r.status_code == 400, r.text
+        assert "administrator" in r.json()["detail"]
+        # And nothing was written.
+        record = yaml.safe_load(tmp_paths["authelia"].read_text())["users"]["cuffel.gregory"]
+        assert "admins" in record["groups"]
+
+    def test_refuses_to_disable_the_last_admin(self, client, tmp_paths,
+                                               fake_redis, valid_authelia_yml,
+                                               csrf_headers):
+        r = client.patch("/api/admin/users/cuffel.gregory",
+                         json={"disabled": True}, headers=csrf_headers)
+        assert r.status_code == 400, r.text
+
+
+class TestAuditLog:
+    """The stream was fed from day one and nothing read it."""
+
+    def test_reports_what_happened(self, client, tmp_paths, fake_redis,
+                                   valid_authelia_yml, csrf_headers):
+        client.patch("/api/admin/users/cuffel.gregory",
+                     json={"displayname": "Dr Cuffel"}, headers=csrf_headers)
+
+        r = client.get("/api/admin/audit")
+        assert r.status_code == 200, r.text
+        entries = r.json()["entries"]
+        assert entries, "the change just made must appear"
+        assert entries[0]["event"] == "authelia.user.updated"
+        assert entries[0]["actor"] == "cuffel.gregory"
+        assert entries[0]["details"]["target"] == "cuffel.gregory"
+        assert entries[0]["ts"] > 0
+
+    def test_most_recent_first(self, client, tmp_paths, fake_redis,
+                               valid_authelia_yml, csrf_headers):
+        client.patch("/api/admin/users/cuffel.gregory",
+                     json={"displayname": "Un"}, headers=csrf_headers)
+        client.patch("/api/admin/users/cuffel.gregory",
+                     json={"email": "autre@example.com"}, headers=csrf_headers)
+
+        entries = client.get("/api/admin/audit").json()["entries"]
+        assert entries[0]["details"]["fields"] == "email"
+
+    def test_limit_is_bounded(self, client, tmp_paths, fake_redis,
+                              valid_authelia_yml):
+        """An unbounded limit would let one request pull the whole stream."""
+        r = client.get("/api/admin/audit?limit=99999")
+        assert r.status_code == 200
+        assert len(r.json()["entries"]) <= 500
+
+
+class TestManualBackup:
+    """A restore point taken before a risky operation, not after it."""
+
+    def test_creates_a_copy_of_each_file(self, client, tmp_paths, fake_redis,
+                                         valid_authelia_yml, valid_orthanc_json,
+                                         csrf_headers):
+        r = client.post("/api/admin/backups", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        created = r.json()["created"]
+        assert any("authelia.yml" in n for n in created)
+        assert any("orthanc.json" in n for n in created)
+        assert all(".manual" in n for n in created)
+
+    def test_appears_in_the_listing(self, client, tmp_paths, fake_redis,
+                                    valid_authelia_yml, csrf_headers):
+        """A manual backup must be restorable like any other: the tag added to
+        the name must not make _backup_target stop recognising it."""
+        client.post("/api/admin/backups", headers=csrf_headers)
+
+        listed = client.get("/api/admin/backups").json()["backups"]
+        assert any(".manual" in b["name"] for b in listed)
+
+    def test_missing_files_are_reported_not_fatal(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        """orthanc.json absent is not a reason to back up nothing."""
+        r = client.post("/api/admin/backups", headers=csrf_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["created"]
+        assert any("missing" in s for s in r.json()["skipped"])

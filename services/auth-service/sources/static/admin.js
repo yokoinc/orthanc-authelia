@@ -73,7 +73,7 @@ document.querySelectorAll('.admin-tab').forEach(btn => {
         document.querySelectorAll('.admin-tab').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         const target = btn.dataset.tab;
-        ['users', 'orthanc', 'modalities', 'cf', 'session', 'backups', 'health'].forEach(t => {
+        ['users', 'orthanc', 'modalities', 'cf', 'session', 'backups', 'audit', 'health'].forEach(t => {
             document.getElementById('panel-' + t).hidden = (t !== target);
         });
         if (target === 'users') loadUsers();
@@ -82,6 +82,7 @@ document.querySelectorAll('.admin-tab').forEach(btn => {
         if (target === 'cf') loadCF();
         if (target === 'session') loadSession();
         if (target === 'backups') loadBackups();
+        if (target === 'audit') loadAudit();
         if (target === 'health') loadHealth();
     });
 });
@@ -99,17 +100,94 @@ async function loadUsers() {
                 <td>${(u.groups || []).map(g =>
                     `<span class="badge-${g === 'admins' ? 'admin' : 'doctor'}">${g}</span>`
                 ).join(' ')}</td>
-                <td style="text-align:right">
+                <td>${u.disabled
+                    ? '<span style="color:var(--oe2-danger)">désactivé</span>'
+                    : '<span style="color:var(--oe2-success)">actif</span>'}</td>
+                <td style="text-align:right;white-space:nowrap">
+                    <button class="oe2-btn oe2-btn--sm" onclick="openEdit('${u.username}')">
+                        <i class="fa-solid fa-pen"></i> Modifier
+                    </button>
+                    <button class="oe2-btn oe2-btn--sm"
+                            onclick="toggleDisabled('${u.username}', ${!!u.disabled})">
+                        <i class="fa-solid fa-power-off"></i> ${u.disabled ? 'Activer' : 'Désactiver'}
+                    </button>
                     <button class="oe2-btn oe2-btn--danger oe2-btn--sm"
                             onclick="deleteUser('${u.username}')">
                         <i class="fa-solid fa-trash"></i> Supprimer
                     </button>
                 </td>
             </tr>
-        `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--oe2-muted)">Aucun user</td></tr>';
+        `).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--oe2-muted)">Aucun user</td></tr>';
+        usersCache = data.users;
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="5">Erreur : ${e.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6">Erreur : ${e.message}</td></tr>`;
     }
+}
+
+// Le formulaire d'edition est pre-rempli depuis la liste deja chargee, plutot
+// que par un appel dedie : les valeurs affichees sont celles que l'operateur
+// vient de lire, ce qui evite de lui montrer autre chose que ce qu'il a sous
+// les yeux.
+let usersCache = [];
+
+function openEdit(username) {
+    const u = usersCache.find(x => x.username === username);
+    if (!u) return;
+    const form = document.getElementById('edit-user-form');
+    document.getElementById('edit-user-name').textContent = username;
+    form.dataset.username = username;
+    form.displayname.value = u.displayname || '';
+    form.email.value = u.email || '';
+    Array.from(form.groups.options).forEach(o => {
+        o.selected = (u.groups || []).includes(o.value);
+    });
+    document.getElementById('edit-user-panel').hidden = false;
+    form.displayname.focus();
+}
+
+function closeEdit() {
+    document.getElementById('edit-user-panel').hidden = true;
+}
+
+document.getElementById('edit-user-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = e.target.dataset.username;
+    const groups = Array.from(e.target.groups.selectedOptions).map(o => o.value);
+    try {
+        await api(`/api/admin/users/${encodeURIComponent(username)}`, {
+            method: 'PATCH',
+            body: {
+                displayname: e.target.displayname.value,
+                email: e.target.email.value,
+                groups,
+            },
+        });
+        showMsg(`${username} modifie`, true);
+        closeEdit();
+        loadUsers();
+    } catch (err) { showMsg(err.message, false); }
+});
+
+// Desactiver n'est pas supprimer : le compte et son historique restent, il
+// cesse simplement de fonctionner. C'est ce qu'on veut quand quelqu'un s'en
+// va, plutot que d'effacer sa trace.
+async function toggleDisabled(username, currentlyDisabled) {
+    const ok = await confirmDialog(
+        currentlyDisabled
+            ? `Reactiver "${username}" ? Il pourra de nouveau se connecter.`
+            : `Desactiver "${username}" ? Le compte est conserve, il ne pourra `
+              + 'plus se connecter.',
+        currentlyDisabled ? 'Reactiver' : 'Desactiver',
+    );
+    if (!ok) return;
+    try {
+        await api(`/api/admin/users/${encodeURIComponent(username)}`, {
+            method: 'PATCH',
+            body: { disabled: !currentlyDisabled },
+        });
+        showMsg(`${username} ${currentlyDisabled ? 'reactive' : 'desactive'}`, true);
+        loadUsers();
+    } catch (e) { showMsg(e.message, false); }
 }
 
 async function deleteUser(username) {
@@ -500,6 +578,63 @@ async function restoreBackup(name, target) {
         loadBackups();
         if (target === 'users_database.yml') loadUsers();
     } catch (e) { showMsg(e.message, false); }
+}
+
+// ============ JOURNAL ============
+
+// Le flux etait alimente depuis le premier jour sans que rien ne le lise.
+let auditCache = [];
+
+async function loadAudit() {
+    const tbody = document.querySelector('#audit-table tbody');
+    try {
+        const d = await api('/api/admin/audit?limit=200');
+        auditCache = d.entries;
+        renderAudit();
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="4">Erreur : ${e.message}</td></tr>`;
+    }
+}
+
+function renderAudit() {
+    const tbody = document.querySelector('#audit-table tbody');
+    const filtre = (document.getElementById('audit-filter').value || '').toLowerCase();
+    const lignes = auditCache.filter(e =>
+        !filtre
+        || e.event.toLowerCase().includes(filtre)
+        || e.actor.toLowerCase().includes(filtre)
+        || JSON.stringify(e.details).toLowerCase().includes(filtre)
+    );
+    tbody.innerHTML = lignes.map(e => `
+        <tr>
+            <td style="white-space:nowrap">${new Date(e.ts * 1000).toLocaleString()}</td>
+            <td><strong>${e.event}</strong></td>
+            <td>${e.actor}</td>
+            <td style="color:var(--oe2-muted)">${
+                Object.entries(e.details).map(([k, v]) => `${k} : ${v}`).join(' · ')
+            }</td>
+        </tr>
+    `).join('') || `<tr><td colspan="4" style="text-align:center;color:var(--oe2-muted)">${
+        filtre ? 'Aucun evenement ne correspond' : 'Journal vide'}</td></tr>`;
+}
+
+// ============ SAUVEGARDE MANUELLE ============
+
+// Les copies n'etaient prises qu'en reaction a une ecriture du panel : prendre
+// un point de restauration AVANT une operation risquee etait impossible, alors
+// que c'est precisement le moment ou on le veut.
+async function createBackup() {
+    const btn = document.getElementById('backup-now');
+    btn.disabled = true;
+    try {
+        const r = await api('/api/admin/backups', { method: 'POST' });
+        showMsg(`${r.created.length} fichier(s) sauvegarde(s).`, true);
+        loadBackups();
+    } catch (e) {
+        showMsg(e.message, false);
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 // ============ HEALTH ============

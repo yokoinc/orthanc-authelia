@@ -754,6 +754,19 @@ class UserCreatePayload(BaseModel):
         return self
 
 
+class UserUpdatePayload(BaseModel):
+    """Partial update: only the fields provided are applied.
+
+    None means "leave alone", which allows changing groups without resending
+    the display name and e-mail, and disabling an account without rewriting
+    anything else.
+    """
+    displayname: str | None = Field(None, min_length=1, max_length=100)
+    email: EmailStr | None = None
+    groups: list[str] | None = None
+    disabled: bool | None = None
+
+
 class PasswordChangePayload(BaseModel):
     new_password: str = Field(..., min_length=12)
 
@@ -1212,6 +1225,62 @@ async def change_password(
     _write_authelia(data)
     await _audit("authelia.password.changed", admin.username, target=username)
     return {"ok": True}
+
+
+@router.patch("/api/admin/users/{username}")
+async def update_user(
+    username: str,
+    payload: UserUpdatePayload,
+    admin: AdminUser = Depends(require_admin),
+):
+    """Modify an existing account without touching its password.
+
+    The panel could only create and delete: changing someone's group meant
+    destroying their account and recreating it, losing their password on the
+    way. And an account that should simply stop working -- someone gone, a
+    device retired -- had to be deleted outright, taking its history with it.
+
+    The "at least one active administrator" invariant is checked BEFORE
+    writing. _validate_authelia catches the case too, but only once the write
+    is under way, and it raises a bare ValueError: the operator would get a
+    500 with no reason.
+    """
+    data = _load_authelia()
+    if username not in data.get("users", {}):
+        raise HTTPException(404, "unknown user")
+
+    info = data["users"][username]
+    modified = []
+    if payload.displayname is not None:
+        info["displayname"] = payload.displayname
+        modified.append("displayname")
+    if payload.email is not None:
+        info["email"] = str(payload.email)
+        modified.append("email")
+    if payload.groups is not None:
+        info["groups"] = payload.groups
+        modified.append("groups")
+    if payload.disabled is not None:
+        info["disabled"] = payload.disabled
+        modified.append("disabled")
+
+    if not modified:
+        raise HTTPException(400, "no field to change")
+
+    if not _active_admins(data):
+        raise HTTPException(
+            400,
+            f"this change would leave no active administrator: {username} is "
+            f"the last one. Removing it from the admin group, or disabling "
+            f"it, would leave the stack with nobody able to administer it.",
+        )
+
+    _write_authelia(data)
+    await _audit(
+        "authelia.user.updated", admin.username, target=username,
+        fields=",".join(modified),
+    )
+    return {"ok": True, "modified": modified}
 
 
 @router.delete("/api/admin/users/{username}")
@@ -1994,6 +2063,75 @@ def _backup_target(name: str) -> Path | None:
         if name.startswith(path.name + ".bak."):
             return path
     return None
+
+
+@router.get("/api/admin/audit")
+async def read_audit(
+    limit: int = 100,
+    admin: AdminUser = Depends(require_admin),
+):
+    """Audit log, most recent event first.
+
+    The stream had been fed since day one but nothing read it: account
+    changes, configuration writes and rejected CSRF attempts piled up with no
+    way for anyone to consult them. On a PACS that traceability matters
+    beyond convenience.
+    """
+    limit = max(1, min(limit, 500))
+    try:
+        raw = await _r().xrevrange(AUDIT_STREAM, count=limit)
+    except Exception as e:  # noqa: BLE001 - Redis down must not break the panel
+        raise HTTPException(503, f"audit log unreadable: {e}") from e
+
+    entries = []
+    for identifier, fields in raw:
+        # event, actor and ts are always there; the rest depends on the event
+        # type (target, changed fields, backup involved) and is grouped so the
+        # display does not have to know about them.
+        details = {k: v for k, v in fields.items()
+                   if k not in ("event", "actor", "ts")}
+        entries.append({
+            "id": identifier,
+            "event": fields.get("event", "?"),
+            "actor": fields.get("actor", "?"),
+            "ts": int(fields.get("ts", 0) or 0),
+            "details": details,
+        })
+
+    return {"entries": entries, "count": len(entries)}
+
+
+@router.post("/api/admin/backups")
+async def create_backup(admin: AdminUser = Depends(require_admin)):
+    """Deliberate backup of the configuration files.
+
+    Copies were only ever created in reaction to a panel write: taking a
+    restore point before a risky operation -- a version upgrade, an edit made
+    by hand -- was impossible, although that is precisely when one wants it.
+    """
+    files = [
+        (AUTHELIA_YML, "accounts"),
+        (ORTHANC_JSON, "Orthanc configuration"),
+        (AUTHELIA_CONFIG, "Authelia configuration"),
+    ]
+
+    created, skipped = [], []
+    for path, label in files:
+        if path and path.exists():
+            try:
+                dest = _backup(path, tag="manual")
+                created.append(dest.name)
+            except OSError as e:  # disk full, insufficient rights
+                skipped.append(f"{label}: {e}")
+        else:
+            skipped.append(f"{label}: file missing")
+
+    if not created:
+        raise HTTPException(
+            500, "no file could be backed up: " + "; ".join(skipped))
+
+    await _audit("backup.created", admin.username, files=",".join(created))
+    return {"ok": True, "created": created, "skipped": skipped}
 
 
 @router.get("/api/admin/backups")

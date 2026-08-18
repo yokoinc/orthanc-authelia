@@ -84,6 +84,9 @@
                 <button class="admin-tab" data-tab="backups">
                     <i class="fa-solid fa-clock-rotate-left"></i> Sauvegardes
                 </button>
+                <button class="admin-tab" data-tab="audit">
+                    <i class="fa-solid fa-clock-rotate-left"></i> Journal
+                </button>
                 <button class="admin-tab" data-tab="health">
                     <i class="fa-solid fa-heart-pulse"></i> Health
                 </button>
@@ -96,10 +99,40 @@
                 <h2 style="font-size:var(--oe2-fs-small);margin:0 0 12px">Utilisateurs Authelia</h2>
                 <table class="data-table" id="users-table">
                     <thead>
-                        <tr><th>Login</th><th>Nom</th><th>Email</th><th>Groupes</th><th></th></tr>
+                        <tr><th>Login</th><th>Nom</th><th>Email</th><th>Groupes</th><th>État</th><th></th></tr>
                     </thead>
-                    <tbody><tr><td colspan="5" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
+                    <tbody><tr><td colspan="6" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
                 </table>
+
+                <div id="edit-user-panel" hidden style="margin-top:20px;max-width:520px;
+                     border-left:3px solid var(--oe2-accent);padding-left:12px">
+                    <h3 style="font-size:var(--oe2-fs-small);margin:0 0 10px">
+                        Modifier <span id="edit-user-name"></span>
+                    </h3>
+                    <form id="edit-user-form">
+                        <div class="form-row"><label>Nom affiché</label>
+                            <input name="displayname" required></div>
+                        <div class="form-row"><label>Email</label>
+                            <input type="email" name="email" required></div>
+                        <div class="form-row"><label>Groupes</label>
+                            <select name="groups" multiple size="3" style="height:auto">
+                                <option value="admins">admins</option>
+                                <option value="doctors">doctors</option>
+                                <option value="external">external</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="oe2-btn oe2-btn--primary">
+                            <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+                        </button>
+                        <button type="button" class="oe2-btn oe2-btn--secondary"
+                                onclick="closeEdit()">Annuler</button>
+                    </form>
+                    <p style="font-size:var(--oe2-fs-micro);color:var(--oe2-muted);margin:10px 0 0">
+                        Le mot de passe ne se modifie pas ici. Retirer le dernier
+                        administrateur du groupe admins est refusé : la pile se
+                        retrouverait sans personne pour l'administrer.
+                    </p>
+                </div>
 
                 <details style="margin-top:20px">
                     <summary style="font-size:var(--oe2-fs-small);cursor:pointer;color:var(--oe2-accent-soft)">+ Ajouter un utilisateur</summary>
@@ -254,9 +287,32 @@
                     <thead><tr><th>Date</th><th>Fichier</th><th>Contenu</th><th></th></tr></thead>
                     <tbody><tr><td colspan="4" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
                 </table>
+                <button class="oe2-btn oe2-btn--primary" style="margin-top:12px"
+                        id="backup-now" onclick="createBackup()">
+                    <i class="fa-solid fa-shield-halved"></i> Sauvegarder maintenant
+                </button>
                 <button class="oe2-btn oe2-btn--secondary" style="margin-top:12px" onclick="loadBackups()">
                     <i class="fa-solid fa-rotate"></i> Rafraîchir
                 </button>
+            </div>
+
+            <!-- ===== JOURNAL ===== -->
+            <div class="admin-panel" id="panel-audit" hidden>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 4px">Journal d'audit</h2>
+                <p style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
+                    Les 200 derniers événements : comptes, configuration Orthanc,
+                    sauvegardes restaurées, redémarrages et requêtes rejetées pour
+                    raison de sécurité. Conservé dans Redis, donc perdu si son volume
+                    l'est.
+                </p>
+                <input id="audit-filter" placeholder="Filtrer…" oninput="renderAudit()"
+                       style="background:var(--oe2-nav-sub-bg);border:1px solid var(--oe2-border-subtle);
+                              color:var(--oe2-nav-color);padding:5px 8px;border-radius:2px;
+                              font-size:var(--oe2-fs-tiny);margin-bottom:10px;width:260px">
+                <table class="data-table" id="audit-table">
+                    <thead><tr><th>Date</th><th>Événement</th><th>Auteur</th><th>Détails</th></tr></thead>
+                    <tbody><tr><td colspan="4" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
+                </table>
             </div>
 
             <div class="admin-panel" id="panel-health" hidden>
