@@ -1571,3 +1571,80 @@ class TestRestartOrthanc:
         assert json.loads(tmp_paths["orthanc"].read_text())["Name"] == "Avant"
         events = [e[1]["event"] for e in redis_sync.xrange("admin:audit")]
         assert "orthanc.rolled_back" in events
+
+
+class TestEffectiveConfig:
+    """Writing a value does not prove Orthanc applies it.
+
+    Three ways to diverge with nothing to signal it: an ORTHANC__* variable
+    from the compose file overriding the file, a field declared at the wrong
+    place in the tree, or a restart that never happened. The second is not
+    theoretical: StudyListColumns sat under OrthancExplorer2 while Explorer
+    reads it under UiOptions, so the setting had never had any effect since it
+    existed, and this check is what would have found it.
+    """
+
+    def test_no_divergence(self, client, tmp_paths, fake_redis, valid_orthanc_json):
+        """What the file declares is what Orthanc reports: nothing to report."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/system").respond(json={
+                "Name": "Cuffel PACS", "DicomAet": "YOKOINC",
+                "DicomPort": 4242, "HttpPort": 8042,
+            })
+            r = client.get("/api/admin/config-effective")
+
+        assert r.status_code == 200, r.text
+        assert r.json()["mismatches"] == []
+
+    def test_divergence_detected(self, client, tmp_paths, fake_redis, valid_orthanc_json):
+        """An ORTHANC__* variable overrides the file: say which field, and
+        both values -- the operator has to know what actually runs."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/system").respond(json={
+                "Name": "Nom Impose Par Le Compose", "DicomAet": "YOKOINC",
+                "DicomPort": 4242, "HttpPort": 8042,
+            })
+            r = client.get("/api/admin/config-effective")
+
+        mismatches = r.json()["mismatches"]
+        assert len(mismatches) == 1
+        assert mismatches[0]["field"] == "Name"
+        assert mismatches[0]["in_file"] == "Cuffel PACS"
+        assert mismatches[0]["applied_by_orthanc"] == "Nom Impose Par Le Compose"
+
+    def test_field_absent_from_the_file_is_not_a_divergence(
+        self, client, tmp_paths, fake_redis,
+    ):
+        """Not declaring a setting means letting Orthanc apply its default.
+        Reporting that as a divergence would drown the real ones."""
+        tmp_paths["orthanc"].write_text(json.dumps({"Name": "PACS"}), encoding="utf-8")
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/system").respond(json={
+                "Name": "PACS", "DicomAet": "AUTRE", "DicomPort": 11112,
+            })
+            r = client.get("/api/admin/config-effective")
+
+        assert r.json()["mismatches"] == []
+
+    def test_field_orthanc_does_not_expose_is_ignored(
+        self, client, tmp_paths, fake_redis, valid_orthanc_json,
+    ):
+        """An older Orthanc may not report a field. Absence of proof is not
+        proof of divergence."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/system").respond(json={"Name": "Cuffel PACS"})
+            r = client.get("/api/admin/config-effective")
+
+        assert r.json()["mismatches"] == []
+
+    def test_orthanc_mute_reports_nothing(
+        self, client, tmp_paths, fake_redis, valid_orthanc_json,
+    ):
+        """Orthanc down is a different problem, already surfaced by /health.
+        Turning it into a wall of false divergences would help nobody."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/system").respond(status_code=502)
+            r = client.get("/api/admin/config-effective")
+
+        assert r.status_code == 200
+        assert r.json()["mismatches"] == []

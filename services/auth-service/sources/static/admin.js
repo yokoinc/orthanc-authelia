@@ -248,6 +248,38 @@ async function loadOrthanc() {
     } catch (e) {
         container.innerHTML = `<div class="msg msg--err" style="display:block">${e.message}</div>`;
     }
+    loadDivergences();
+}
+
+// Ce que le fichier declare n'est pas forcement ce qu'Orthanc applique : une
+// variable ORTHANC__* du compose peut l'ecraser, ou le redemarrage n'a jamais
+// eu lieu. Sans cet affichage l'operateur lit ses valeurs dans le formulaire
+// et croit qu'elles tournent.
+async function loadDivergences() {
+    const zone = document.getElementById('orthanc-divergences');
+    if (!zone) return;
+    zone.innerHTML = '';
+    try {
+        const d = await api('/api/admin/config-effective');
+        if (!d.mismatches.length) return;
+        zone.innerHTML = `
+            <div class="msg msg--err" style="display:block">
+                <strong>${d.mismatches.length} reglage(s) ne sont pas appliques
+                tels qu'ecrits.</strong> Une variable ORTHANC__* du compose les
+                ecrase peut-etre, ou Orthanc n'a pas redemarre depuis la
+                derniere modification.
+                <table class="data-table" style="margin-top:8px">
+                    <thead><tr><th>Reglage</th><th>Dans le fichier</th><th>Applique</th></tr></thead>
+                    <tbody>${d.mismatches.map(m => `
+                        <tr><td><strong>${m.field}</strong></td>
+                            <td>${JSON.stringify(m.in_file)}</td>
+                            <td>${JSON.stringify(m.applied_by_orthanc)}</td></tr>
+                    `).join('')}</tbody>
+                </table>
+            </div>`;
+    } catch {
+        // Orthanc injoignable : /health le dit deja, ne pas doubler l'alerte.
+    }
 }
 
 document.getElementById('orthanc-form').addEventListener('submit', async (e) => {

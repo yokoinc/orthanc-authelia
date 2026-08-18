@@ -883,6 +883,77 @@ async def _orthanc_runs_our_file(config: dict) -> bool | None:
         return None
 
 
+# Settings whose applied value Orthanc exposes, and where to read it.
+#
+# Writing a value proves nothing about Orthanc applying it. Three ways to
+# diverge with nothing to signal it: an ORTHANC__* variable from the compose
+# file overriding the file, a field declared at the wrong place in the tree,
+# or a restart that never happened. The second is not theoretical --
+# StudyListColumns sat under OrthancExplorer2 while Explorer reads it under
+# UiOptions, so the setting had never had any effect since it existed.
+#
+# Only settings Orthanc reports back can appear here: the rest cannot be
+# checked, and pretending otherwise would be worse than saying nothing.
+ORTHANC_VERIFIABLE: dict[str, tuple[str, tuple[str, ...]]] = {
+    "Name": ("/system", ("Name",)),
+    "DicomAet": ("/system", ("DicomAet",)),
+    "DicomPort": ("/system", ("DicomPort",)),
+    "HttpPort": ("/system", ("HttpPort",)),
+    "StorageCompression": ("/system", ("StorageCompression",)),
+    "IngestTranscoding": ("/system", ("IngestTranscoding",)),
+}
+
+
+async def _check_effective_config() -> list[dict[str, Any]]:
+    """Compare what orthanc.json declares with what Orthanc applies.
+
+    Only returns divergences. A field absent from the file is not one:
+    Orthanc then applies its default, which is the expected behaviour. Nor is
+    a field Orthanc does not expose in this version.
+    """
+    try:
+        config = _load_orthanc_config()
+    except Exception:  # noqa: BLE001 - unreadable file, reported elsewhere
+        return []
+
+    responses: dict[str, dict] = {}
+    for endpoint in {e for e, _ in ORTHANC_VERIFIABLE.values()}:
+        try:
+            r = await _orthanc("GET", endpoint, timeout=5)
+            responses[endpoint] = r.json() if r.status_code == 200 else {}
+        except Exception:  # noqa: BLE001 - Orthanc mute: nothing to compare
+            responses[endpoint] = {}
+
+    mismatches = []
+    for path, (endpoint, access) in ORTHANC_VERIFIABLE.items():
+        wanted = config
+        for part in path.split("."):
+            if not isinstance(wanted, dict) or part not in wanted:
+                wanted = None
+                break
+            wanted = wanted[part]
+        if wanted is None:
+            continue  # not declared: the default applies
+
+        effective = responses.get(endpoint) or {}
+        for part in access:
+            if not isinstance(effective, dict) or part not in effective:
+                effective = None
+                break
+            effective = effective[part]
+        if effective is None:
+            continue  # Orthanc does not expose it in this version
+
+        if wanted != effective:
+            mismatches.append({
+                "field": path,
+                "in_file": wanted,
+                "applied_by_orthanc": effective,
+            })
+
+    return mismatches
+
+
 async def _wait_for_orthanc(attempts: int = 30, pause: int = 2) -> str:
     """Wait for Orthanc to answer. Returns its version, or "" if it stays mute.
 
@@ -1316,6 +1387,15 @@ async def update_orthanc_config(
     return {"ok": True, "backup": backup.name}
 
 
+
+@router.get("/api/admin/config-effective")
+async def config_effective(admin: AdminUser = Depends(require_admin)):
+    """Which settings Orthanc does not apply as written.
+
+    An empty list is the good answer: what the file declares is what runs.
+    """
+    return {"mismatches": await _check_effective_config()}
+
 @router.post("/api/admin/orthanc/restart")
 async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
     """Restart the Orthanc container and wait for it to answer again.
@@ -1357,15 +1437,18 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
                      container=ORTHANC_CONTAINER)
         # Answering is not the same as applying what we wrote: an ORTHANC__*
         # variable from the compose file overrides the file silently.
-        config = _load_orthanc_config()
-        if await _orthanc_runs_our_file(config) is False:
+        mismatches = await _check_effective_config()
+        if mismatches:
+            await _audit("orthanc.config.divergent", admin.username,
+                         fields=",".join(m["field"] for m in mismatches))
             return {
                 "ok": True,
                 "version": version,
+                "mismatches": mismatches,
                 "warning": (
-                    "Orthanc restarted, but it is not running on this file. "
-                    "An ORTHANC__* variable in the compose file is probably "
-                    "overriding it."
+                    f"Orthanc restarted, but {len(mismatches)} setting(s) are "
+                    f"not applied as written. An ORTHANC__* variable in the "
+                    f"compose file is probably overriding them."
                 ),
             }
         return {"ok": True, "version": version,
