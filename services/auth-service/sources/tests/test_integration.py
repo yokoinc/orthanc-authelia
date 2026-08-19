@@ -1077,8 +1077,12 @@ class TestCFAccessJWT:
     verify perfectly well against that team's own keys.
     """
 
+    # Valeurs de test, sans rapport avec une installation reelle : le domaine
+    # d equipe suivait deja example.*, l audience non — c etait celle de la
+    # vraie application, dont les 32 premiers caracteres suffisent a
+    # l identifier dans un depot public.
     TEAM = "example.cloudflareaccess.com"
-    AUD = "3a423c8b4e8dcf314759c36218857a0a"
+    AUD = "00000000000000000000000000000000"
     KID = "test-key-1"
 
     @pytest.fixture
