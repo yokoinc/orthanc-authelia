@@ -209,11 +209,12 @@ site/
 # CI/CD and Deployment
 # ===============================================
 
-# CI/CD artifacts
-.github/
-.gitlab-ci.yml
-.travis.yml
-circle.yml
+# Rien a ignorer ici. Cette section excluait .github/, .gitlab-ci.yml,
+# .travis.yml et circle.yml sous le titre "CI/CD artifacts" : ce sont des
+# fichiers de CONFIGURATION, pas des artefacts, et leur place est dans le
+# depot -- c'est meme tout leur objet, puisqu'ils ne servent qu'a etre lus
+# par la forge. Tant que .github/ etait ignore, ce projet ne pouvait pas
+# avoir de CI, quand bien meme on en ecrivait une.
 
 # Deployment scripts (may contain sensitive info)
 deploy.sh
