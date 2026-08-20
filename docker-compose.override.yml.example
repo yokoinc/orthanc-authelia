@@ -1,0 +1,100 @@
+# Additions to the existing docker-compose.yml.
+# Copy to docker-compose.override.yml (gitignored) for automatic overriding.
+#
+# Paths match the repo's real layout:
+#   services/orthanc/config/orthanc.json         (already bind-mounted on the orthanc side)
+#   services/authelia/config/                    (whole directory bind-mounted on the authelia side)
+#
+# ============================================================================
+# One-shot prerequisites before the first up
+# ============================================================================
+#
+# 1) Dedicated Orthanc account for auth-service (in .env, not editable via UI)
+#   grep -q ORTHANC_ADMIN_USER .env || cat >> .env <<'EOF'
+#   ORTHANC_ADMIN_USER=svc-auth
+#   ORTHANC_ADMIN_PASS=$(openssl rand -hex 32)
+#   EOF
+#
+# 2) Backups directory
+#   mkdir -p ./data/admin-backups
+#
+# 3) nginx routes for the panel
+#   Without them, /auth/admin and /api/admin/ fall into the /auth/ and /api/
+#   locations that point at Authelia, and answer 404. The three blocks live in
+#   services/nginx/nginx.ssl.conf, section "ADMIN / SETUP PANEL".
+#
+# 4) How a configuration change reaches Orthanc (ORTHANC_APPLY_MODE)
+#   Default "restart": the panel writes the file and reports that a restart is
+#   needed. On orthancteam images Orthanc does not run on the mounted file --
+#   the entrypoint merges it with the environment into /tmp/orthanc.json at
+#   container start, and that copy is what POST /tools/reset re-reads. Calling
+#   the reset there answers 200 and changes nothing, reporting a success that
+#   never happened.
+#   Set ORTHANC_APPLY_MODE=reset only where Orthanc is started directly on this
+#   file (command: ["Orthanc", "/etc/orthanc/orthanc.json"]) -- which also needs
+#   Plugins / StorageDirectory / Gdcm copied into it, and a permission pattern
+#   for that route, absent from the plugin's StandardConfigurations:
+#       "Permissions": [["post", "^/tools/reset$", "all|settings"]]
+#
+# ============================================================================
+# Why directory bind-mounts and not file bind-mounts
+# ============================================================================
+#
+# A file that is bind-mounted on its own cannot be replaced by a rename: the
+# target is a mount point, and the rename returns EBUSY
+#   OSError [Errno 16] Device or resource busy: '/host/orthanc.json.tmp' -> '/host/orthanc.json'
+# And even where it would succeed, Docker mounts by inode: orthanc, which reads
+# orthanc.json :ro, would keep seeing the old file after /tools/reset -- a
+# silent failure.
+#
+# admin_module therefore writes into the existing inode (_atomic_write), which
+# requires the DIRECTORY to be mounted. Check after an up:
+#   ls -i services/orthanc/config/orthanc.json
+#   docker exec orthanc-server ls -i /etc/orthanc/orthanc.json   # same inode
+#
+# ============================================================================
+# Two options deliberately left out
+# ============================================================================
+#
+# - `user: "1000:1000"`: only add it if the containers already run under that
+#   UID. Switching a live stack from root to 1000 breaks the permissions of
+#   existing data. Check first:
+#     docker exec orthanc-server id
+#   On Synology, Btrfs ACLs can also override a plain chown:
+#     sudo synoacltool -del ./services/orthanc/config/orthanc.json
+#     sudo chown 1000:1000 ./services/orthanc/config/orthanc.json
+#     sudo chmod 660 ./services/orthanc/config/orthanc.json
+#
+# - `ORTHANC__AUTHENTICATION_ENABLED=true`: only enable it if nginx sends an
+#   Authorization header to the orthanc upstream. By default it sends none
+#   (auth goes through Authelia and the Authorization plugin), so turning
+#   Orthanc's basic auth on answers 401 on the UI, OHIF, dicom-web and
+#   /api-upload/. auth-service sends its credentials anyway, so they are ready
+#   for the day auth is enabled properly.
+
+services:
+  auth-service:
+    # Tag dedicated to the branch: do not reuse an already-published number,
+    # two different images under one number is precisely what we avoid.
+    image: registry.yokoinc.ovh/orthanc-auth-service:1.1.0-rc1
+    volumes:
+      # Directories, not files -- see the header.
+      - ./services/orthanc/config:/host/orthanc:rw
+      - ./services/authelia/config:/host/authelia:rw
+      - ./data/admin-backups:/host/backups:rw
+    environment:
+      # Name of the Authelia group that opens the panel. It must match the
+      # users_database.yml, the `subject: "group:..."` of the Authelia
+      # configuration and nginx's $groups map. Module default: "admins".
+      # An existing install often uses "admin", singular.
+      - ADMIN_GROUP=admins
+      - ADMIN_ORTHANC_PATH=/host/orthanc/orthanc.json
+      - ADMIN_AUTHELIA_PATH=/host/authelia/users_database.yml
+      - ADMIN_BACKUPS_DIR=/host/backups
+      # Basic auth for /tools/reset and the /system health check
+      - ORTHANC_ADMIN_USER=${ORTHANC_ADMIN_USER}
+      - ORTHANC_ADMIN_PASS=${ORTHANC_ADMIN_PASS}
+      - ORTHANC_URL=http://orthanc:8042
+      # Versions (already injected in the previous piece of work)
+      - IMAGE_VERSION=${IMAGE_VERSION}
+      - ASSET_VERSION=${ASSET_VERSION}

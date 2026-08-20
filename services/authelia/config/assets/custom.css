@@ -1,4 +1,0 @@
-/* Hide password reset link on Authelia login page */
-a[href="/reset-password/step1"] {
-    display: none !important;
-}

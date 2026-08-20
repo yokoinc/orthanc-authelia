@@ -1,0 +1,126 @@
+name: Tests
+
+# On every push and every pull request. Without this the tests only run when
+# somebody remembers to launch them, which is another way of saying they run
+# when it is already too late.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the auth-service image
+        run: docker build -t auth-service-test services/auth-service/sources
+
+      # Test dependencies are not in the production image: they are pinned in
+      # requirements-dev.txt so CI and a developer machine run exactly the
+      # same thing.
+      #
+      # The whole repository is mounted, not just sources/: some tests reread
+      # files shipped at the root to check that a write does not damage them.
+      # With a reduced mount they would skip themselves silently -- coverage
+      # you believe you have and do not.
+      - name: Run the suite
+        run: |
+          docker run --rm --entrypoint sh \
+            -e AUTH_USERNAME=ci -e AUTH_PASSWORD=mot-de-passe-ci-1234 \
+            -e ORTHANC_ADMIN_USER=ci -e ORTHANC_ADMIN_PASS=ci \
+            -v "$PWD:/repo" -w /repo/services/auth-service/sources \
+            auth-service-test \
+            -c 'pip install -q -r requirements-dev.txt && python -m pytest tests/ -q'
+
+  images:
+    name: Image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # nginx and auth-service only: the OHIF build compiles the viewer from
+      # source and takes about fifteen minutes, which has no place on every
+      # push.
+      - name: nginx
+        run: docker build -t nginx-test services/nginx
+
+      - name: auth-service
+        run: docker build -t auth-service-test services/auth-service/sources
+
+  consistency:
+    name: Repository consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Admin page coherence
+        # The page is rendered by the server and driven by hand-written JS: a
+        # renamed route, a tab without its panel or an onclick pointing at a
+        # deleted function all pass pytest and fail only in the browser.
+        run: python3 scripts/check-admin-page.py
+
+      - name: Executable scripts
+        # A script versioned as 100644 breaks the documented
+        # ./manage-authelia-users.sh, without showing on the machine where the
+        # bit exists locally. Entrypoints are exempt: their Dockerfile chmods
+        # them at build time.
+        run: |
+          missing=$(git ls-files -s '*.sh' \
+            | awk '$1 != "100755" {print $4}' \
+            | grep -v 'entrypoint\|compressDist' || true)
+          if [ -n "$missing" ]; then
+            echo "Scripts meant to be run directly, but not executable:"
+            echo "$missing"
+            exit 1
+          fi
+          echo "Every directly-invoked script is executable."
+
+      - name: Script syntax
+        run: |
+          for f in $(git ls-files '*.sh'); do
+            bash -n "$f" || exit 1
+          done
+          echo "Syntax correct."
+
+      - name: Translations in sync
+        # A key present in one language and missing from the other goes
+        # unnoticed until a user hits a raw label.
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          from pathlib import Path
+          d = Path('services/auth-service/sources/translations')
+          fr = json.loads((d / 'fr.json').read_text(encoding='utf-8'))
+          en = json.loads((d / 'en.json').read_text(encoding='utf-8'))
+          code = 0
+          for section in ('ui', 'js'):
+              drift = set(fr.get(section, {})) ^ set(en.get(section, {}))
+              if drift:
+                  print(f"section {section} out of sync: {sorted(drift)}")
+                  code = 1
+          if not code:
+              print("fr and en cover the same keys.")
+          sys.exit(code)
+          PY
+
+      - name: README links
+        run: |
+          missing=""
+          for f in $(grep -oE '\(docs/[A-Za-z_.-]+\)' README.md | tr -d '()' | sort -u); do
+            [ -f "$f" ] || missing="$missing $f"
+          done
+          if [ -n "$missing" ]; then
+            echo "Dead links in the README:$missing"
+            exit 1
+          fi
+          echo "Every README link resolves."
+
+      - name: Compose valid
+        run: |
+          cp docker-compose.yml.example docker-compose.yml
+          docker compose config >/dev/null
+          echo "docker-compose.yml.example is valid."

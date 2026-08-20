@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Administration — Orthanc</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+    <link href="/auth/static/oe2-shared.css?v={asset_version}" rel="stylesheet">
+    <style>
+        /* flex-wrap plutot que overflow-x : avec huit onglets la barre depasse
+           des 760px de large, et un defilement horizontal qu'aucune barre ne
+           signale rend les derniers onglets inatteignables -- on ne sait meme
+           pas qu'ils existent. Le retour a la ligne les garde tous cliquables.
+           overflow-x reste en filet pour un onglet plus large que l'ecran. */
+        .admin-tabs { display: flex; flex-wrap: wrap; overflow-x: auto; gap: 4px;
+                      border-bottom: 1px solid var(--oe2-border-subtle); padding: 0 16px; }
+        .admin-tab { background: transparent; border: none; padding: 10px 14px; color: var(--oe2-muted);
+                     font-size:var(--oe2-fs-tiny); text-transform: uppercase; letter-spacing: 0.5px; cursor: pointer;
+                     border-bottom: 2px solid transparent; }
+        .admin-tab.active { color: var(--oe2-nav-color); border-bottom-color: var(--oe2-accent-orange); }
+        .admin-panel { padding: 20px 16px; }
+        .admin-panel[hidden] { display: none; }
+        .data-table { width: 100%; border-collapse: collapse; font-size:var(--oe2-fs-tiny); color: var(--oe2-nav-color); }
+        .data-table th, .data-table td { padding: 6px 10px; text-align: left;
+                                          border-bottom: 1px solid var(--oe2-border-subtle); }
+        .data-table th { color: var(--oe2-muted); text-transform: uppercase; letter-spacing: 0.5px;
+                         font-weight: 400; font-size:var(--oe2-fs-tiny); }
+        .form-row { display: grid; grid-template-columns: 180px 1fr; gap: 8px 12px; margin: 8px 0;
+                    align-items: center; font-size:var(--oe2-fs-tiny); }
+        .form-row label { color: var(--oe2-muted); font-size:var(--oe2-fs-tiny); text-transform: uppercase; }
+        .form-row input, .form-row select { background: var(--oe2-nav-sub-bg);
+                                            border: 1px solid var(--oe2-border-subtle);
+                                            color: var(--oe2-nav-color); padding: 5px 8px;
+                                            border-radius: 2px; font-size:var(--oe2-fs-tiny); }
+        .msg { margin: 12px 0; padding: 10px; border-radius: 3px; font-size:var(--oe2-fs-tiny); display: none; }
+        .msg--ok { background: rgba(40,167,69,0.15); border-left: 3px solid var(--oe2-success); color: #b6f0c0; }
+        .msg--err { background: rgba(220,53,69,0.15); border-left: 3px solid var(--oe2-danger); color: #ffb0b0; }
+        .badge-admin { background: var(--oe2-accent-orange); color: #fff; padding: 2px 6px;
+                       border-radius: 2px; font-size:var(--oe2-fs-tiny); text-transform: uppercase; }
+        .badge-doctor { background: var(--oe2-label-bg); color: #fff; padding: 2px 6px;
+                        border-radius: 2px; font-size:var(--oe2-fs-tiny); text-transform: uppercase; }
+    </style>
+</head>
+<body>
+    <div class="oe2-app">
+        <aside class="oe2-sidebar">
+            <a href="/ui/app/" class="oe2-sidebar__brand">
+                <img src="/auth/static/orthanc-logo-official.png" alt="Orthanc" class="oe2-sidebar__logo">
+            </a>
+            <div class="oe2-sidebar__brand-name">Orthanc</div>
+            <nav class="oe2-sidebar__nav">
+                <a href="/ui/app/" class="oe2-sidebar__link">
+                    <i class="fa-solid fa-arrow-left"></i><span>Retour à Orthanc Explorer</span>
+                </a>
+                <a href="/auth/tokens/manage" class="oe2-sidebar__link">
+                    <i class="fa-solid fa-share-nodes"></i><span>Token Manager</span>
+                </a>
+                <span class="oe2-sidebar__link active" role="link" aria-current="page">
+                    <i class="fa-solid fa-shield-halved"></i><span>Administration</span>
+                </span>
+            </nav>
+        </aside>
+
+        <main class="oe2-main">
+            <header class="oe2-main__header">
+                <h1 class="oe2-main__title">Administration</h1>
+                <div class="oe2-main__user">
+                    <i class="fa-solid fa-user"></i>
+                    <span>{admin_username}</span>
+                </div>
+            </header>
+
+            <nav class="admin-tabs">
+                <button class="admin-tab active" data-tab="users">
+                    <i class="fa-solid fa-users"></i> Users
+                </button>
+                <button class="admin-tab" data-tab="orthanc">
+                    <i class="fa-solid fa-server"></i> Orthanc config
+                </button>
+                <button class="admin-tab" data-tab="modalities">
+                    <i class="fa-solid fa-x-ray"></i> Équipements
+                </button>
+                <button class="admin-tab" data-tab="cf">
+                    <i class="fa-solid fa-cloud"></i> Cloudflare Access
+                </button>
+                <button class="admin-tab" data-tab="session">
+                    <i class="fa-solid fa-hourglass-half"></i> Session
+                </button>
+                <button class="admin-tab" data-tab="backups">
+                    <i class="fa-solid fa-clock-rotate-left"></i> Sauvegardes
+                </button>
+                <button class="admin-tab" data-tab="audit">
+                    <i class="fa-solid fa-clock-rotate-left"></i> Journal
+                </button>
+                <button class="admin-tab" data-tab="health">
+                    <i class="fa-solid fa-heart-pulse"></i> Health
+                </button>
+            </nav>
+
+            <div id="global-msg" class="msg" style="margin: 12px 16px"></div>
+
+            <!-- ===== USERS ===== -->
+            <div class="admin-panel" id="panel-users">
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 12px">Utilisateurs Authelia</h2>
+                <table class="data-table" id="users-table">
+                    <thead>
+                        <tr><th>Login</th><th>Nom</th><th>Email</th><th>Groupes</th><th>État</th><th></th></tr>
+                    </thead>
+                    <tbody><tr><td colspan="6" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
+                </table>
+
+                <div id="edit-user-panel" hidden style="margin-top:20px;max-width:520px;
+                     border-left:3px solid var(--oe2-accent);padding-left:12px">
+                    <h3 style="font-size:var(--oe2-fs-small);margin:0 0 10px">
+                        Modifier <span id="edit-user-name"></span>
+                    </h3>
+                    <form id="edit-user-form">
+                        <div class="form-row"><label>Nom affiché</label>
+                            <input name="displayname" required></div>
+                        <div class="form-row"><label>Email</label>
+                            <input type="email" name="email" required></div>
+                        <div class="form-row"><label>Groupes</label>
+                            <select name="groups" multiple size="3" style="height:auto">
+                                <option value="admins">admins</option>
+                                <option value="doctors">doctors</option>
+                                <option value="external">external</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="oe2-btn oe2-btn--primary">
+                            <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+                        </button>
+                        <button type="button" class="oe2-btn oe2-btn--secondary"
+                                onclick="closeEdit()">Annuler</button>
+                    </form>
+                    <p style="font-size:var(--oe2-fs-micro);color:var(--oe2-muted);margin:10px 0 0">
+                        Le mot de passe ne se modifie pas ici. Retirer le dernier
+                        administrateur du groupe admins est refusé : la pile se
+                        retrouverait sans personne pour l'administrer.
+                    </p>
+                </div>
+
+                <details style="margin-top:20px">
+                    <summary style="font-size:var(--oe2-fs-small);cursor:pointer;color:var(--oe2-accent-soft)">+ Ajouter un utilisateur</summary>
+                    <form id="add-user-form" style="margin-top:12px;max-width:520px">
+                        <div class="form-row"><label>Email</label><input type="email" name="email" required></div>
+                        <div class="form-row"><label>Nom affiché</label><input name="displayname" required></div>
+                        <div class="form-row"><label>Mot de passe</label><input type="password" name="password" required minlength="12"></div>
+                        <div class="form-row"><label>Groupes</label>
+                            <select name="groups" multiple size="3" style="height:auto">
+                                <option value="admins">admins</option>
+                                <option value="doctors" selected>doctors</option>
+                                <option value="external">external</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="oe2-btn oe2-btn--primary">
+                            <i class="fa-solid fa-user-plus"></i> Créer le compte
+                        </button>
+                    </form>
+                </details>
+            </div>
+
+            <!-- ===== ORTHANC CONFIG ===== -->
+            <div class="admin-panel" id="panel-orthanc" hidden>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 12px">Configuration Orthanc</h2>
+                <div id="orthanc-divergences"></div>
+                <form id="orthanc-form">
+                    <div id="orthanc-fields" style="max-width:560px">
+                        <div style="color:var(--oe2-muted);font-size:var(--oe2-fs-tiny)">Chargement…</div>
+                    </div>
+                    <button type="submit" class="oe2-btn oe2-btn--primary" style="margin-top:16px">
+                        <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+                    </button>
+                    <button type="button" id="orthanc-restart" class="oe2-btn oe2-btn--secondary"
+                            style="margin-top:16px" onclick="restartOrthanc()">
+                        <i class="fa-solid fa-power-off"></i> Redémarrer Orthanc
+                    </button>
+                </form>
+                <p style="font-size:var(--oe2-fs-micro);color:var(--oe2-muted);margin:10px 0 0;max-width:640px">
+                    Orthanc ne lit pas ce fichier directement : son image en fabrique une
+                    copie à son démarrage. Un changement n'est appliqué qu'après
+                    redémarrage du conteneur, et le PACS est indisponible quelques
+                    secondes. Si la nouvelle configuration l'empêche de repartir, la
+                    dernière sauvegarde est restaurée automatiquement.
+                </p>
+            </div>
+
+            <!-- ===== ÉQUIPEMENTS ===== -->
+            <div class="admin-panel" id="panel-modalities" hidden>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 4px">Équipements DICOM</h2>
+                <p style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
+                    Les échographes, scanners et autres appareils autorisés à envoyer des
+                    examens. La déclaration est enregistrée en base : elle prend effet
+                    immédiatement, sans redémarrer Orthanc.
+                </p>
+                <table class="data-table" id="modalities-table">
+                    <thead>
+                        <tr><th>Nom</th><th>AET</th><th>Hôte</th><th>Port</th><th></th></tr>
+                    </thead>
+                    <tbody><tr><td colspan="5" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
+                </table>
+
+                <details style="margin-top:20px">
+                    <summary style="font-size:var(--oe2-fs-small);cursor:pointer;color:var(--oe2-accent-soft)">+ Déclarer un équipement</summary>
+                    <form id="add-modality-form" style="margin-top:12px;max-width:520px">
+                        <div class="form-row"><label>Nom</label>
+                            <input name="name" required pattern="[A-Za-z0-9._-]{1,64}"
+                                   title="Lettres, chiffres, point, tiret, souligné">
+                        </div>
+                        <div class="form-row"><label>AET</label>
+                            <input name="aet" required maxlength="16"
+                                   title="16 caractères maximum, imposé par la norme DICOM">
+                        </div>
+                        <div class="form-row"><label>Hôte</label><input name="host" required></div>
+                        <div class="form-row"><label>Port</label>
+                            <input type="number" name="port" required min="1" max="65535" value="104">
+                        </div>
+                        <button type="submit" class="oe2-btn oe2-btn--primary">
+                            <i class="fa-solid fa-plus"></i> Déclarer
+                        </button>
+                    </form>
+                </details>
+            </div>
+
+            <!-- ===== CF ACCESS ===== -->
+            <div class="admin-panel" id="panel-cf" hidden>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 4px">Cloudflare Access</h2>
+                <p style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
+                    Cloudflare valide le jeton de service à sa frontière et ne le transmet
+                    pas : il relaie une assertion signée, que ce serveur vérifie contre les
+                    clés publiques de l'équipe. <strong>Le jeton lui-même ne se saisit pas
+                    ici</strong> — sa rotation se fait dans Cloudflare, et rien de ce côté
+                    n'a à suivre. Ce qui se règle ici, c'est ce que ce serveur épingle.
+                </p>
+                <div id="cf-status" style="font-size:var(--oe2-fs-small)">Chargement…</div>
+
+                <form id="cf-form" style="margin-top:20px;max-width:560px">
+                    <div class="form-row"><label>Domaine d'équipe</label>
+                        <input name="team_domain" placeholder="mon-equipe.cloudflareaccess.com">
+                    </div>
+                    <div class="form-row"><label>Audience (AUD)</label>
+                        <input name="aud" placeholder="Identifiant de l'application Cloudflare">
+                    </div>
+                    <div class="form-row" style="align-items:flex-start">
+                        <label>Vérification</label>
+                        <div>
+                            <label style="font-weight:normal;display:flex;gap:6px;align-items:center">
+                                <input type="checkbox" name="enforced" style="width:auto">
+                                Exiger l'assertion signée sur /api-upload/
+                            </label>
+                            <span style="font-size:var(--oe2-fs-micro);color:var(--oe2-muted)">
+                                Décoché, l'import ne repose plus que sur le filtrage de
+                                Cloudflare : aucune vérification n'est faite ici. Toute
+                                requête qui atteindrait le serveur autrement serait acceptée.
+                            </span>
+                        </div>
+                    </div>
+                    <button type="submit" class="oe2-btn oe2-btn--primary">
+                        <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+                    </button>
+                    <button type="button" class="oe2-btn oe2-btn--secondary" onclick="loadCF()">
+                        <i class="fa-solid fa-rotate"></i> Rafraîchir
+                    </button>
+                </form>
+            </div>
+
+            <div class="admin-panel" id="panel-session" hidden>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 4px">Durées de session</h2>
+                <p style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
+                    Format Authelia : un nombre suivi de son unité — <code>s</code>, <code>m</code>,
+                    <code>h</code>, <code>d</code>. Par exemple <code>15m</code>, <code>1h</code>,
+                    <code>1h30m</code>. Authelia ne relit que son fichier de comptes, pas sa propre
+                    configuration : un redémarrage est nécessaire pour appliquer.
+                </p>
+                <form id="session-form" style="max-width:520px">
+                    <div id="session-fields"></div>
+                    <button type="submit" class="oe2-btn oe2-btn--primary" style="margin-top:12px">
+                        <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+                    </button>
+                </form>
+            </div>
+
+            <div class="admin-panel" id="panel-backups" hidden>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 4px">Sauvegardes</h2>
+                <p style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
+                    Une copie est prise avant chaque modification, les 10 dernières sont
+                    conservées par fichier. Pour les comptes, le contenu de chaque sauvegarde
+                    est indiqué : c'est ce qui permet de choisir la bonne. Restaurer remplace
+                    le fichier — l'état actuel est lui aussi sauvegardé au passage, donc
+                    l'opération reste réversible.
+                </p>
+                <table class="data-table" id="backups-table">
+                    <thead><tr><th>Date</th><th>Fichier</th><th>Contenu</th><th></th></tr></thead>
+                    <tbody><tr><td colspan="4" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
+                </table>
+                <button class="oe2-btn oe2-btn--primary" style="margin-top:12px"
+                        id="backup-now" onclick="createBackup()">
+                    <i class="fa-solid fa-shield-halved"></i> Sauvegarder maintenant
+                </button>
+                <button class="oe2-btn oe2-btn--secondary" style="margin-top:12px" onclick="loadBackups()">
+                    <i class="fa-solid fa-rotate"></i> Rafraîchir
+                </button>
+            </div>
+
+            <!-- ===== JOURNAL ===== -->
+            <div class="admin-panel" id="panel-audit" hidden>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 4px">Journal d'audit</h2>
+                <p style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
+                    Les 200 derniers événements : comptes, configuration Orthanc,
+                    sauvegardes restaurées, redémarrages et requêtes rejetées pour
+                    raison de sécurité. Conservé dans Redis, donc perdu si son volume
+                    l'est.
+                </p>
+                <input id="audit-filter" placeholder="Filtrer…" oninput="renderAudit()"
+                       style="background:var(--oe2-nav-sub-bg);border:1px solid var(--oe2-border-subtle);
+                              color:var(--oe2-nav-color);padding:5px 8px;border-radius:2px;
+                              font-size:var(--oe2-fs-tiny);margin-bottom:10px;width:260px">
+                <table class="data-table" id="audit-table">
+                    <thead><tr><th>Date</th><th>Événement</th><th>Auteur</th><th>Détails</th></tr></thead>
+                    <tbody><tr><td colspan="4" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
+                </table>
+            </div>
+
+            <div class="admin-panel" id="panel-health" hidden>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 12px">État des composants</h2>
+                <table class="data-table" id="health-table">
+                    <thead><tr><th>Composant</th><th>Statut</th><th>Détail</th></tr></thead>
+                    <tbody><tr><td colspan="3" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
+                </table>
+                <button class="oe2-btn oe2-btn--secondary" style="margin-top:12px" onclick="loadHealth()">
+                    <i class="fa-solid fa-rotate"></i> Rafraîchir
+                </button>
+            </div>
+
+            <div style="padding: 12px 16px 8px;font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);opacity:0.6">
+                auth-service v{image_version}
+            </div>
+        </main>
+    </div>
+
+<!-- Confirmation dialog. Replaces window.confirm(), whose native box ignores the
+     page styling and cannot be worded properly. Driven by confirmDialog() in
+     admin.js. -->
+<div id="confirm-backdrop" hidden style="position:fixed;inset:0;background:rgba(0,0,0,.55);
+     display:flex;align-items:center;justify-content:center;z-index:1000">
+    <div role="dialog" aria-modal="true" aria-labelledby="confirm-text"
+         style="background:var(--oe2-nav-bg);border:1px solid var(--oe2-border);border-radius:8px;
+                padding:22px 24px;max-width:440px;box-shadow:0 10px 40px rgba(0,0,0,.5)">
+        <p id="confirm-text" style="margin:0 0 18px;font-size:var(--oe2-fs-small);line-height:1.5"></p>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button type="button" id="confirm-cancel" class="oe2-btn oe2-btn--ghost">Annuler</button>
+            <button type="button" id="confirm-ok" class="oe2-btn oe2-btn--danger">Confirmer</button>
+        </div>
+    </div>
+</div>
+
+<script src="/auth/static/admin.js?v={asset_version}"></script>
+<script>
+// Le token CSRF vient d'un cookie non-httponly pose par le serveur.
+window.__CSRF__ = document.cookie.split('; ')
+    .find(c => c.startsWith('orthanc_admin_csrf='))
+    ?.split('=')[1] || '';
+
+initAdmin();
+</script>
+</body>
+</html>

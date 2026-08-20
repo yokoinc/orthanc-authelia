@@ -13,6 +13,11 @@
 # Backup environment files
 .env.backup
 .env.bak
+# bootstrap.sh --force horodate ses sauvegardes : .env.bak.20260726-090539.
+# Sans cette ligne, un git add -A les embarque -- avec les secrets dedans.
+.env.bak.*
+# Verrous poses par filelock pendant une ecriture du panel.
+*.lock
 
 # ===============================================
 # Docker and Container Data
@@ -178,6 +183,10 @@ Dockerfile.local
 
 # OHIF build artifacts
 services/ohif/docker/*/platform/app/dist/
+# Sorties de build du frontend, quel que soit le service. Le motif ci-dessus
+# ne visait qu OHIF : les artefacts Vue de auth-service passaient au travers
+# et se faisaient indexer par un git add -A.
+dist/
 services/ohif/docker/*/platform/app/node_modules/
 services/ohif/docker/*/platform/app/.next/
 services/ohif/docker/*/platform/app/build/
@@ -200,11 +209,12 @@ site/
 # CI/CD and Deployment
 # ===============================================
 
-# CI/CD artifacts
-.github/
-.gitlab-ci.yml
-.travis.yml
-circle.yml
+# Rien a ignorer ici. Cette section excluait .github/, .gitlab-ci.yml,
+# .travis.yml et circle.yml sous le titre "CI/CD artifacts" : ce sont des
+# fichiers de CONFIGURATION, pas des artefacts, et leur place est dans le
+# depot -- c'est meme tout leur objet, puisqu'ils ne servent qu'a etre lus
+# par la forge. Tant que .github/ etait ignore, ce projet ne pouvait pas
+# avoir de CI, quand bien meme on en ecrivait une.
 
 # Deployment scripts (may contain sensitive info)
 deploy.sh

@@ -314,6 +314,7 @@ Detailed guides available in `docs/`:
 - **[Token Sharing Guide](docs/TOKEN_SHARING.md)** - External sharing workflow
 - **[Auth-Service Overview](docs/AUTH_SERVICE.md)** - Authentication service details
 - **[Nginx Configuration](docs/NGINX_CONFIGURATION.md)** - Reverse proxy details
+- **[Cloudflare Tunnel](docs/CLOUDFLARE_TUNNEL.md)** - Exposure without opening a port
 
 ## Troubleshooting
 
