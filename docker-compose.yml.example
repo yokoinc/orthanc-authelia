@@ -132,6 +132,18 @@ services:
     container_name: orthanc-auth-service
     restart: unless-stopped
     environment:
+      # Changing the public URL from the panel. The domain lives in one line
+      # of .env and in eleven places in Authelia's configuration: every
+      # access_control rule, plus the session cookie block. Getting one wrong
+      # leaves Authelia answering 401 on everything, login page included --
+      # which is why the panel owns the change rather than a human editor.
+      #
+      # Mounted as a FILE, not through the project root: mounting the root
+      # would give a web-facing service write access to docker-compose.yml
+      # and to the scripts. Without this mount the panel disables the field
+      # and says which line to add.
+      - ./.env:/host/env/.env:rw
+
       # Restarting Orthanc from the panel. Leave DOCKER_PROXY_URL empty to
       # disable the feature: the panel then says so instead of offering a
       # button that cannot work.

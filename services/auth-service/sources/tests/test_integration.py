@@ -1802,3 +1802,157 @@ class TestManualBackup:
         assert r.status_code == 200, r.text
         assert r.json()["created"]
         assert any("missing" in s for s in r.json()["skipped"])
+
+
+class TestPublicUrl:
+    """Changing the public URL from the panel.
+
+    The domain appears once in .env and eleven times in configuration.yml --
+    every access_control rule plus the session cookie block. Getting one wrong
+    leaves Authelia answering 401 on everything, login page included, with
+    nothing in the interface able to repair it. That is not a hypothesis: it
+    happened, and it took hand-editing production YAML to undo.
+    """
+
+    @pytest.fixture
+    def env_file(self, tmp_path, monkeypatch):
+        path = tmp_path / ".env"
+        path.write_text(
+            "TZ=Europe/Paris\n"
+            "PUBLIC_URL=https://ancien.example.org\n"
+            "DOMAIN=ancien.example.org\n"
+            "LOG_LEVEL=INFO\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(admin_module, "ENV_FILE", path)
+        return path
+
+    @pytest.fixture
+    def authelia_full(self, tmp_path, monkeypatch):
+        """A configuration.yml shaped like the real one: the host appears in
+        every access rule, not only in the cookie block."""
+        path = tmp_path / "configuration.yml"
+        path.write_text("""---
+access_control:
+  rules:
+    - domain: ancien.example.org        # regle 1
+      policy: bypass
+    - domain: ancien.example.org        # regle 2
+      policy: one_factor
+session:
+  cookies:
+    - domain: ancien.example.org
+      authelia_url: https://ancien.example.org/auth
+      default_redirection_url: https://ancien.example.org/ui/app/
+""", encoding="utf-8")
+        monkeypatch.setattr(admin_module, "AUTHELIA_CONFIG", path)
+        return path
+
+    def test_every_occurrence_is_retargeted(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        authelia_full,
+    ):
+        r = client.post("/api/admin/network",
+                        json={"public_url": "https://nouveau.example.org"},
+                        headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        texte = authelia_full.read_text(encoding="utf-8")
+        assert "ancien.example.org" not in texte, "une occurrence a survecu"
+        assert texte.count("nouveau.example.org") == 5
+        # .env suit, sinon nginx resterait sur l ancien domaine
+        env = env_file.read_text(encoding="utf-8")
+        assert "PUBLIC_URL=https://nouveau.example.org" in env
+        assert "DOMAIN=nouveau.example.org" in env
+        assert "TZ=Europe/Paris" in env, "les autres variables survivent"
+
+    def test_comments_survive(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        authelia_full,
+    ):
+        """Textual replacement, not a YAML round-trip: the file is heavily
+        commented and PyYAML would wipe all of it."""
+        client.post("/api/admin/network",
+                    json={"public_url": "https://nouveau.example.org"},
+                    headers=csrf_headers)
+        texte = authelia_full.read_text(encoding="utf-8")
+        assert "# regle 1" in texte and "# regle 2" in texte
+
+    def test_a_backup_is_taken(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        authelia_full,
+    ):
+        client.post("/api/admin/network",
+                    json={"public_url": "https://nouveau.example.org"},
+                    headers=csrf_headers)
+        copies = list(tmp_paths["backups"].glob("configuration.yml.bak.*"))
+        assert copies, "aucune sauvegarde avant reecriture"
+
+    def test_same_url_is_a_noop(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        authelia_full,
+    ):
+        """Reapplying the current URL must not rewrite anything, nor pile up
+        pointless backups."""
+        r = client.post("/api/admin/network",
+                        json={"public_url": "https://ancien.example.org"},
+                        headers=csrf_headers)
+        assert r.status_code == 200
+        assert r.json()["unchanged"] is True
+        assert not list(tmp_paths["backups"].glob("configuration.yml.bak.*"))
+
+    def test_http_refused(self, client, tmp_paths, fake_redis, csrf_headers,
+                          env_file, authelia_full):
+        r = client.post("/api/admin/network",
+                        json={"public_url": "http://nouveau.example.org"},
+                        headers=csrf_headers)
+        assert r.status_code == 400
+
+    def test_host_without_dot_refused(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        authelia_full,
+    ):
+        """RFC 6265: browsers drop a cookie set on a dotless host. Accepting
+        it would produce a stack that authenticates and forgets instantly."""
+        r = client.post("/api/admin/network",
+                        json={"public_url": "https://monpacs"},
+                        headers=csrf_headers)
+        assert r.status_code == 400
+        assert "cookie" in r.json()["detail"]
+
+    def test_path_refused(self, client, tmp_paths, fake_redis, csrf_headers,
+                          env_file, authelia_full):
+        r = client.post("/api/admin/network",
+                        json={"public_url": "https://nouveau.example.org/pacs"},
+                        headers=csrf_headers)
+        assert r.status_code == 400
+
+    def test_hand_edited_config_aborts(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        tmp_path, monkeypatch,
+    ):
+        """If the old host appears nowhere, the file no longer matches what
+        .env says: rewriting blind would make things worse."""
+        path = tmp_path / "configuration.yml"
+        path.write_text("session:\n  cookies:\n    - domain: autre.chose\n",
+                        encoding="utf-8")
+        monkeypatch.setattr(admin_module, "AUTHELIA_CONFIG", path)
+
+        r = client.post("/api/admin/network",
+                        json={"public_url": "https://nouveau.example.org"},
+                        headers=csrf_headers)
+        assert r.status_code == 500
+        assert "by hand" in r.json()["detail"]
+        assert path.read_text(encoding="utf-8") == \
+            "session:\n  cookies:\n    - domain: autre.chose\n"
+
+    def test_env_not_mounted_says_so(
+        self, client, tmp_paths, fake_redis, csrf_headers, authelia_full,
+        tmp_path, monkeypatch,
+    ):
+        """Without the .env mount the feature cannot work: say which line to
+        add, rather than failing obscurely."""
+        monkeypatch.setattr(admin_module, "ENV_FILE", tmp_path / "absent.env")
+        r = client.get("/api/admin/network")
+        assert r.status_code == 200
+        assert r.json()["editable"] is False

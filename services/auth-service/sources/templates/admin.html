@@ -265,6 +265,24 @@
             </div>
 
             <div class="admin-panel" id="panel-session" hidden>
+                <h2 style="font-size:var(--oe2-fs-small);margin:0 0 4px">Adresse publique</h2>
+                <p style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
+                    L'adresse par laquelle on joint ce PACS. Elle figure une fois dans
+                    <code>.env</code> et onze fois dans la configuration d'Authelia — chaque
+                    règle d'accès, plus le domaine du cookie de session. En oublier une
+                    suffit à ce qu'Authelia réponde 401 sur tout, page de connexion
+                    comprise. C'est pour ça que ça se règle ici et pas à la main.
+                </p>
+                <form id="network-form" style="max-width:560px">
+                    <div class="form-row"><label>Adresse publique</label>
+                        <input name="public_url" placeholder="https://pacs.exemple.fr" required>
+                    </div>
+                    <button type="submit" class="oe2-btn oe2-btn--primary">
+                        <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+                    </button>
+                </form>
+                <p id="network-note" style="font-size:var(--oe2-fs-micro);color:var(--oe2-muted);margin:10px 0 24px"></p>
+
                 <h2 style="font-size:var(--oe2-fs-small);margin:0 0 4px">Durées de session</h2>
                 <p style="font-size:var(--oe2-fs-tiny);color:var(--oe2-muted);margin:0 0 12px;max-width:640px">
                     Format Authelia : un nombre suivi de son unité — <code>s</code>, <code>m</code>,

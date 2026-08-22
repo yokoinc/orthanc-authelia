@@ -22,6 +22,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import redis.asyncio as aioredis
@@ -106,6 +107,12 @@ BACKUPS_DIR = Path(os.getenv("ADMIN_BACKUPS_DIR", "/host/backups"))
 # Authelia's own configuration, where the session durations live. Separate from
 # AUTHELIA_YML, which is the accounts file.
 AUTHELIA_CONFIG = Path(os.getenv("ADMIN_AUTHELIA_CONFIG", "/host/authelia/configuration.yml"))
+
+# The .env file, at the project root. Mounted as a FILE rather than through
+# its directory: mounting the root would give the container write access to
+# docker-compose.yml and to the scripts. Consequence: writes happen in place,
+# see _write_env_var.
+ENV_FILE = Path(os.getenv("ADMIN_ENV_PATH", "/host/env/.env"))
 
 # Application settings, as opposed to bootstrap variables.
 #
@@ -303,6 +310,137 @@ def _write_setting(name: str, value: Any) -> None:
     # Invalidate explicitly: mtime granularity is sometimes one second, which
     # would make two writes in the same second indistinguishable.
     _settings_cache["key"] = None
+
+
+def _read_env_var(name: str) -> str:
+    """Read a variable from .env. Empty string when absent or unreadable."""
+    if not ENV_FILE.exists():
+        return ""
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith(f"{name}="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
+def _write_env_var(name: str, value: str) -> None:
+    """Replace (or add) name=value in .env, writing IN PLACE.
+
+    No write-tmp + rename here, unlike everywhere else in this module: .env is
+    a file bind-mount. The rename would fail (EBUSY) and, were it to succeed,
+    docker compose would keep reading the old inode. So we rewrite the same
+    file, after a backup -- an interrupted write would otherwise leave a
+    truncated .env, and the stack would no longer start.
+    """
+    if not ENV_FILE.exists():
+        raise HTTPException(
+            503,
+            "the .env file is not reachable from the container. Add the mount "
+            "'./.env:/host/env/.env:rw' to the auth-service service, then "
+            "recreate the container.",
+        )
+    _backup(ENV_FILE, tag="network")
+    lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
+    replaced = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith(f"{name}="):
+            lines[i] = f"{name}={value}"
+            replaced = True
+            break
+    if not replaced:
+        lines.append(f"{name}={value}")
+    ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _normalise_public_url(raw: str) -> tuple[str, str]:
+    """Validate the public URL. Returns (origin, host without port).
+
+    The origin drives redirections, port included; the host is what session
+    cookies are scoped to -- a cookie never carries a port.
+    """
+    parsed = urlparse(raw.strip())
+    if parsed.scheme != "https":
+        raise HTTPException(400, "the public URL must start with https://")
+    if not parsed.hostname:
+        raise HTTPException(400, "host missing from the public URL")
+    if parsed.path.strip("/"):
+        raise HTTPException(
+            400,
+            "give the origin alone, with no path "
+            "(for example https://pacs.example.org)",
+        )
+    # RFC 6265: some browsers drop a cookie set on a host without a dot.
+    # "localhost" is the exception, "mypacs" is not.
+    if "." not in parsed.hostname and parsed.hostname != "localhost":
+        raise HTTPException(
+            400,
+            f"'{parsed.hostname}' has no dot: browsers will refuse the session "
+            f"cookie. Use a fully qualified name (pacs.example.org) or "
+            f"pacs.localhost.",
+        )
+    return f"https://{parsed.netloc}", parsed.hostname
+
+
+def _retarget_authelia_config(previous_origin: str, previous_host: str,
+                              origin: str, host: str) -> int:
+    """Point configuration.yml at the new public URL.
+
+    Textual replacement rather than a YAML load and re-serialise: the file is
+    heavily commented -- access rules, warnings about the cookie port -- and a
+    round-trip through PyYAML would wipe all of it.
+
+    The host appears in every access_control rule as well as in the session
+    cookie block, which is precisely why hand-editing it is error-prone: miss
+    one occurrence and Authelia answers 401 on everything, with the login page
+    itself unreachable.
+
+    Returns the number of substitutions made.
+    """
+    if not AUTHELIA_CONFIG.exists():
+        raise HTTPException(503, "Authelia's configuration.yml not found")
+    text = AUTHELIA_CONFIG.read_text(encoding="utf-8")
+    total = text.count(previous_origin) + text.count(previous_host)
+    if not total:
+        raise HTTPException(
+            500,
+            f"no trace of '{previous_host}' in configuration.yml: the file was "
+            f"edited by hand, change aborted",
+        )
+    _backup(AUTHELIA_CONFIG, tag="network")
+    # Full origin first: replacing the bare host would otherwise turn
+    # "https://old:30443" into "https://new:30443", keeping a port that no
+    # longer applies.
+    text = text.replace(previous_origin, origin).replace(previous_host, host)
+    _atomic_write(AUTHELIA_CONFIG, text)
+    return total
+
+
+async def _apply_public_url(new_url: str, actor: str) -> dict:
+    """Apply a new public URL to .env and to Authelia's configuration."""
+    origin, host = _normalise_public_url(new_url)
+    previous_origin = _read_env_var("PUBLIC_URL").rstrip("/")
+    if not previous_origin:
+        raise HTTPException(
+            500, "PUBLIC_URL absent from .env, change aborted")
+    if previous_origin == origin:
+        return {"ok": True, "unchanged": True, "public_url": origin}
+
+    _, previous_host = _normalise_public_url(previous_origin)
+    substitutions = _retarget_authelia_config(
+        previous_origin, previous_host, origin, host,
+    )
+    _write_env_var("PUBLIC_URL", origin)
+    _write_env_var("DOMAIN", host)
+    await _audit(
+        "network.public_url.changed", actor=actor,
+        old=previous_origin, new=origin, substitutions=substitutions,
+    )
+    return {
+        "ok": True,
+        "unchanged": False,
+        "public_url": origin,
+        "substitutions": substitutions,
+    }
 
 
 async def _audit(event: str, actor: str, **fields: Any) -> None:
@@ -2063,6 +2201,41 @@ def _backup_target(name: str) -> Path | None:
         if name.startswith(path.name + ".bak."):
             return path
     return None
+
+
+@router.get("/api/admin/network")
+async def admin_network_get(admin: AdminUser = Depends(require_admin)):
+    """Current public URL, and whether it can be changed from here."""
+    return {
+        "public_url": _read_env_var("PUBLIC_URL"),
+        "editable": ENV_FILE.exists(),
+    }
+
+
+class PublicUrlPayload(BaseModel):
+    public_url: str = Field(min_length=8, max_length=255)
+
+
+@router.post("/api/admin/network")
+async def admin_network(
+    payload: PublicUrlPayload,
+    admin: AdminUser = Depends(require_admin),
+):
+    """Change the public URL, in .env and in Authelia's configuration.
+
+    The domain appears once in .env and eleven times in configuration.yml --
+    every access_control rule plus the session cookie block. Changing it by
+    hand means getting all of them right; missing one leaves Authelia
+    answering 401 on everything, login page included, with nothing in the
+    interface able to repair it.
+
+    Takes effect once the stack restarts, and requires logging back in at the
+    new address: the session cookie is bound to the previous domain.
+    """
+    result = await _apply_public_url(payload.public_url, admin.username)
+    if not result.get("unchanged"):
+        result["restart_required"] = True
+    return result
 
 
 @router.get("/api/admin/audit")
