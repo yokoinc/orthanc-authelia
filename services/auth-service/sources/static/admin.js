@@ -80,7 +80,7 @@ document.querySelectorAll('.admin-tab').forEach(btn => {
         if (target === 'orthanc') loadOrthanc();
         if (target === 'modalities') loadModalities();
         if (target === 'cf') loadCF();
-        if (target === 'session') loadSession();
+        if (target === 'session') { loadNetwork(); loadSession(); }
         if (target === 'backups') loadBackups();
         if (target === 'audit') loadAudit();
         if (target === 'health') loadHealth();
@@ -481,6 +481,59 @@ document.getElementById('cf-form').addEventListener('submit', async (e) => {
         showMsg('Cloudflare Access enregistre. Effet immediat, sans redemarrage.', true);
         e.target.aud.value = '';
         loadCF();
+    } catch (err) { showMsg(err.message, false); }
+});
+
+// ============ ADRESSE PUBLIQUE ============
+
+// Changer ce domaine touche .env et onze endroits de la configuration
+// d'Authelia. Le faire a la main veut dire tous les reussir : en manquer un
+// laisse Authelia repondre 401 partout, page de connexion comprise, et plus
+// rien dans cette interface ne sait le reparer.
+async function loadNetwork() {
+    const note = document.getElementById('network-note');
+    try {
+        const d = await api('/api/admin/network');
+        document.getElementById('network-form').public_url.value = d.public_url || '';
+        const bouton = document.querySelector('#network-form button[type=submit]');
+        const champ = document.getElementById('network-form').public_url;
+        if (!d.editable) {
+            champ.disabled = true;
+            bouton.disabled = true;
+            note.textContent = "Modification indisponible : le fichier .env n'est pas "
+                + "monte dans le conteneur. Ajouter './.env:/host/env/.env:rw' au "
+                + 'service auth-service, puis recreer le conteneur.';
+        } else {
+            champ.disabled = false;
+            bouton.disabled = false;
+            note.textContent = 'Le changement prend effet au redemarrage de la pile, '
+                + 'et impose de se reconnecter a la nouvelle adresse : le cookie de '
+                + "session est lie a l'ancien domaine.";
+        }
+    } catch (e) {
+        note.textContent = 'Erreur : ' + e.message;
+    }
+}
+
+document.getElementById('network-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const url = e.target.public_url.value.trim();
+    const ok = await confirmDialog(
+        `Faire pointer le PACS sur ${url} ? Authelia et .env sont reecrits, une `
+        + 'sauvegarde est prise avant. Il faudra redemarrer la pile et se '
+        + 'reconnecter a la nouvelle adresse.',
+        'Changer',
+    );
+    if (!ok) return;
+    try {
+        const r = await api('/api/admin/network', {
+            method: 'POST', body: { public_url: url },
+        });
+        showMsg(r.unchanged
+            ? 'Adresse inchangee, rien de reecrit.'
+            : `${r.substitutions} occurrence(s) mises a jour. Redemarrer la pile `
+              + 'pour appliquer.', true);
+        loadNetwork();
     } catch (err) { showMsg(err.message, false); }
 });
 
