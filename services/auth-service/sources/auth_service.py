@@ -190,8 +190,8 @@ def resolve_patient_name(resource):
 
 # Asset version for cache-busting static files (auto-updates on each container start)
 ASSET_VERSION = os.getenv("ASSET_VERSION", str(int(time.time())))
-# Version semantique de l'image (affichee en pied de page). Independante du
-# cache-buster ASSET_VERSION qui est un timestamp Unix.
+# Semantic version of the image, shown in the footer. Independent of the
+# ASSET_VERSION cache-buster, which is a Unix timestamp.
 IMAGE_VERSION = os.getenv("IMAGE_VERSION", "dev")
 
 # Load translations from JSON files
@@ -259,8 +259,8 @@ redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode
 # ============================================================================
 # Admin/setup panel (feat/admin-setup-panel — WIP)
 # ============================================================================
-# admin_module utilise un client Redis async (aioredis) car ses endpoints
-# sont async. On l'initialise separement en partageant la meme DB Redis.
+# admin_module uses an async Redis client (aioredis) because its endpoints
+# are async. It is initialised separately, sharing the same Redis database.
 # Le module expose : router, setup_gate, csrf_gate, set_redis.
 try:
     import redis.asyncio as aioredis

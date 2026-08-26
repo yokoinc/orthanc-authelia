@@ -33,14 +33,21 @@ import admin_module
 
 @pytest.fixture
 def tmp_paths(tmp_path, monkeypatch):
-    """Redirect the 3 module-level paths to a per-test tmp_path."""
+    """Redirect the module-level paths to a per-test tmp_path."""
     authelia = tmp_path / "authelia.yml"
     orthanc = tmp_path / "orthanc.json"
     backups = tmp_path / "backups"
+    settings = tmp_path / "backups" / "settings.json"
     monkeypatch.setattr(admin_module, "AUTHELIA_YML", authelia)
     monkeypatch.setattr(admin_module, "ORTHANC_JSON", orthanc)
     monkeypatch.setattr(admin_module, "BACKUPS_DIR", backups)
-    return {"authelia": authelia, "orthanc": orthanc, "backups": backups}
+    monkeypatch.setattr(admin_module, "SETTINGS_FILE", settings)
+    # The cache is module-level: without this reset a test would read what the
+    # previous one wrote, in another tmp_path.
+    admin_module._settings_cache["key"] = None
+    admin_module._settings_cache["data"] = {}
+    return {"authelia": authelia, "orthanc": orthanc, "backups": backups,
+            "settings": settings}
 
 
 @pytest.fixture
@@ -287,12 +294,17 @@ class TestOrthancConfig:
         monkeypatch.setattr(admin_module, "ORTHANC_APPLY_MODE", "reset")
         with respx.mock(base_url="http://orthanc:8042") as mock:
             reset_route = mock.post("/tools/reset").respond(status_code=200, json={})
+            # The route now checks, after the reload, that Orthanc really runs
+            # on this file: a 200 from /tools/reset proves it reloaded
+            # something, not that it reloaded ours.
+            mock.get("/system").respond(json={"Name": "New PACS Name"})
 
             r = client.patch("/api/admin/orthanc/config", json={
                 "changes": {"Name": "New PACS Name", "HttpCompressionEnabled": True},
             }, headers=csrf_headers)
             assert r.status_code == 200, r.text
             assert reset_route.called
+            assert "warning" not in r.json(), "agreement: no warning expected"
 
         # The file has been updated
         new = json.loads(tmp_paths["orthanc"].read_text())
@@ -312,6 +324,34 @@ class TestOrthancConfig:
         _, fields = entries[-1]
         assert fields["event"] == "orthanc.config.updated"
         assert fields["actor"] == "cuffel.gregory"
+
+    def test_reset_that_reloads_another_file_is_reported(
+        self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
+        monkeypatch,
+    ):
+        """A 200 from /tools/reset proves Orthanc reloaded something, not that
+        it reloaded ours.
+
+        The orthancteam image merges /etc/orthanc/*.json with the ORTHANC__*
+        variables into a copy at startup, and that copy is what a reload
+        re-reads. Announcing plain success there sends the operator hunting
+        for the fault everywhere except where it is.
+        """
+        monkeypatch.setattr(admin_module, "ORTHANC_APPLY_MODE", "reset")
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.post("/tools/reset").respond(status_code=200, json={})
+            # Orthanc reports another name: it is not reading our file.
+            mock.get("/system").respond(json={"Name": "Nom Impose Par Le Compose"})
+
+            r = client.patch("/api/admin/orthanc/config", json={
+                "changes": {"Name": "Nom Ecrit Dans Le Fichier"},
+            }, headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert r.json()["ok"] is True
+        assert "warning" in r.json(), "the divergence must be reported"
+        assert "restart" in r.json()["warning"].lower()
+
 
     def test_default_mode_writes_without_calling_reset(
         self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
@@ -531,13 +571,13 @@ class TestFileLock:
 
         def hold_lock():
             with orig_flock(lock_path, timeout=5):
-                barrier.wait()  # signale au test qu'on tient le lock
-                time.sleep(3)   # hold plus longtemps que le timeout endpoint
+                barrier.wait()  # tell the test the lock is held
+                time.sleep(3)   # hold it longer than the endpoint's timeout
 
         holder = threading.Thread(target=hold_lock)
         holder.start()
         try:
-            barrier.wait()  # attend que hold_lock ait le lock
+            barrier.wait()  # wait until hold_lock owns the lock
 
             # Now try to write through the API
             r = client.patch("/api/admin/orthanc/config", json={
@@ -1037,8 +1077,12 @@ class TestCFAccessJWT:
     verify perfectly well against that team's own keys.
     """
 
+    # Valeurs de test, sans rapport avec une installation reelle : le domaine
+    # d equipe suivait deja example.*, l audience non — c etait celle de la
+    # vraie application, dont les 32 premiers caracteres suffisent a
+    # l identifier dans un depot public.
     TEAM = "example.cloudflareaccess.com"
-    AUD = "3a423c8b4e8dcf314759c36218857a0a"
+    AUD = "00000000000000000000000000000000"
     KID = "test-key-1"
 
     @pytest.fixture
@@ -1139,3 +1183,776 @@ class TestCFAccessJWT:
         r = client.get("/api/internal/verify-cf",
                        headers={"cf-access-jwt-assertion": "whatever"})
         assert r.status_code == 503
+
+
+class TestModalities:
+    """DICOM devices: declaration, removal, connectivity test.
+
+    These routes go through Orthanc's API, simulated here. Without them the
+    equipment page would only be covered by the end-to-end script, run by
+    hand: CI only executes the unit tests, so a change breaking them would
+    go through green.
+    """
+
+    def test_list_gathers_configurations(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml,
+    ):
+        """Orthanc only returns names: the route must join in the details."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/modalities").respond(json=["SCANNER-1"])
+            mock.get("/modalities/SCANNER-1/configuration").respond(
+                json={"AET": "SCANNER1", "Host": "192.0.2.10", "Port": 104},
+            )
+            r = client.get("/api/admin/modalities")
+
+        assert r.status_code == 200, r.text
+        devices = r.json()["modalities"]
+        assert len(devices) == 1
+        assert devices[0] == {
+            "name": "SCANNER-1", "aet": "SCANNER1",
+            "host": "192.0.2.10", "port": 104,
+        }
+
+    def test_declaration(self, client, tmp_paths, fake_redis, valid_authelia_yml,
+                         csrf_headers, redis_sync):
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            route = mock.put("/modalities/IRM-1").respond(status_code=200, json={})
+            r = client.put("/api/admin/modalities/IRM-1", json={
+                "aet": "IRM1", "host": "192.0.2.20", "port": 104,
+            }, headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert route.called
+        # The operation must leave a trace: declaring a device authorises a
+        # third-party machine to drop studies here.
+        entries = redis_sync.xrange("admin:audit")
+        assert any(e[1].get("event") == "orthanc.modality.saved" for e in entries)
+
+    def test_ae_title_too_long_refused(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        """Sixteen characters at most: beyond that the device refuses the
+        association without saying why, so better to say it up front."""
+        r = client.put("/api/admin/modalities/TOO-LONG", json={
+            "aet": "A" * 17, "host": "192.0.2.30", "port": 104,
+        }, headers=csrf_headers)
+        assert r.status_code == 422
+
+    def test_port_out_of_bounds_refused(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        r = client.put("/api/admin/modalities/PORT-KO", json={
+            "aet": "OK", "host": "192.0.2.30", "port": 70000,
+        }, headers=csrf_headers)
+        assert r.status_code == 422
+
+    def test_deletion(self, client, tmp_paths, fake_redis, valid_authelia_yml,
+                      csrf_headers):
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            route = mock.delete("/modalities/IRM-1").respond(status_code=200, json={})
+            r = client.delete("/api/admin/modalities/IRM-1", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert route.called
+
+    def test_echo_reachable(self, client, tmp_paths, fake_redis, valid_authelia_yml,
+                            csrf_headers):
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.post("/modalities/IRM-1/echo").respond(status_code=200, json={})
+            r = client.post("/api/admin/modalities/IRM-1/echo", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert r.json()["reachable"] is True
+
+    def test_unreachable_echo_is_not_an_error(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        """A silent device is a result, not a failure: the route answers 200
+        while reporting it, so the interface can show it."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.post("/modalities/MUET/echo").respond(status_code=500, text="timeout")
+            r = client.post("/api/admin/modalities/MUET/echo", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert r.json()["reachable"] is False
+        assert "timeout" in r.json()["detail"]
+
+
+class TestCFAccessSettings:
+    """What the origin pins, settable from the panel.
+
+    These three values used to be readable only from the environment, fixed at
+    import: changing one meant editing the compose file and recreating the
+    container -- for a setting the panel ought to offer. They now live in the
+    settings file and are resolved per request.
+    """
+
+    def test_saved_then_in_force(self, client, tmp_paths, fake_redis,
+                                 valid_authelia_yml, csrf_headers):
+        """The next GET must report what was just written, with no restart."""
+        r = client.put("/api/admin/cf-access", json={
+            "team_domain": "equipe.cloudflareaccess.com",
+            "aud": "a" * 64,
+            "enforced": True,
+        }, headers=csrf_headers)
+        assert r.status_code == 200, r.text
+
+        state = client.get("/api/admin/cf-access").json()
+        assert state["team_domain"] == "equipe.cloudflareaccess.com"
+        assert state["enforced"] is True
+        assert state["configured"] is True
+
+    def test_survives_a_fresh_read(self, client, tmp_paths, fake_redis,
+                                   valid_authelia_yml, csrf_headers):
+        """Written to disk, not just held in the cache."""
+        client.put("/api/admin/cf-access", json={
+            "team_domain": "equipe.cloudflareaccess.com",
+            "aud": "b" * 64, "enforced": False,
+        }, headers=csrf_headers)
+
+        admin_module._settings_cache["key"] = None
+        assert tmp_paths["settings"].exists()
+        assert admin_module._cf_team_domain() == "equipe.cloudflareaccess.com"
+
+    def test_url_form_accepted(self, client, tmp_paths, fake_redis,
+                               valid_authelia_yml, csrf_headers):
+        """Pasted from the dashboard, the domain carries its scheme. The
+        issuer is rebuilt as https://<domain>, so keeping it would yield
+        https://https://... and every verification would fail."""
+        client.put("/api/admin/cf-access", json={
+            "team_domain": "https://equipe.cloudflareaccess.com/",
+            "aud": "c" * 64, "enforced": False,
+        }, headers=csrf_headers)
+        assert admin_module._cf_team_domain() == "equipe.cloudflareaccess.com"
+
+    def test_enforcing_without_the_pair_refused(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        """Ticking the box with nothing pinned would answer 503 on every
+        upload. Better a refusal than an endpoint locked by a checkbox."""
+        r = client.put("/api/admin/cf-access", json={
+            "team_domain": "", "aud": "", "enforced": True,
+        }, headers=csrf_headers)
+        assert r.status_code == 400
+
+    def test_environment_still_wins_until_first_write(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, monkeypatch,
+    ):
+        """An install that never opens the panel keeps behaving as before."""
+        monkeypatch.setattr(admin_module, "CF_ACCESS_TEAM_DOMAIN", "depuis-env.com")
+        assert admin_module._cf_team_domain() == "depuis-env.com"
+
+    def test_unreadable_settings_degrade_to_defaults(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, monkeypatch,
+    ):
+        """A broken settings file must not take the service down with it."""
+        tmp_paths["settings"].parent.mkdir(parents=True, exist_ok=True)
+        tmp_paths["settings"].write_text("{ not json", encoding="utf-8")
+        admin_module._settings_cache["key"] = None
+        monkeypatch.setattr(admin_module, "CF_ACCESS_TEAM_DOMAIN", "repli.com")
+        assert admin_module._cf_team_domain() == "repli.com"
+
+
+class TestLastAdminProtected:
+    """The last active administrator cannot be deleted.
+
+    The invariant existed, but only as a side effect of _validate_authelia
+    during the write: the operator got a bare 500 and no reason. The account
+    did survive -- the write aborts before persisting -- yet a safeguard that
+    reports itself as a server error is not one.
+    """
+
+    def test_deleting_the_only_admin_is_refused(
+        self, client, tmp_paths, fake_redis, csrf_headers,
+    ):
+        hasher = admin_module._hasher
+        data = {"users": {
+            "admin.principal": {
+                "disabled": False, "displayname": "Admin",
+                "email": "admin@example.com",
+                "password": hasher.hash("un-mot-de-passe-12345"),
+                "groups": ["admins"],
+            },
+        }}
+        tmp_paths["authelia"].write_text(yaml.safe_dump(data))
+
+        r = client.delete("/api/admin/users/admin.principal", headers=csrf_headers)
+
+        assert r.status_code == 400, r.text
+        assert "last active administrator" in r.json()["detail"]
+        # And the account is still there, untouched.
+        remaining = yaml.safe_load(tmp_paths["authelia"].read_text())
+        assert "admin.principal" in remaining["users"]
+
+    def test_another_admin_can_still_be_deleted(
+        self, client, tmp_paths, fake_redis, csrf_headers,
+    ):
+        """The guard must not lock ordinary housekeeping: with two admins,
+        removing one is legitimate."""
+        hasher = admin_module._hasher
+        password = hasher.hash("un-mot-de-passe-12345")
+        data = {"users": {
+            "admin.principal": {
+                "disabled": False, "displayname": "Admin",
+                "email": "admin@example.com", "password": password,
+                "groups": ["admins"],
+            },
+            "admin.second": {
+                "disabled": False, "displayname": "Second",
+                "email": "second@example.com", "password": password,
+                "groups": ["admins"],
+            },
+        }}
+        tmp_paths["authelia"].write_text(yaml.safe_dump(data))
+
+        r = client.delete("/api/admin/users/admin.second", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        remaining = yaml.safe_load(tmp_paths["authelia"].read_text())
+        assert "admin.second" not in remaining["users"]
+        assert "admin.principal" in remaining["users"]
+
+    def test_a_disabled_admin_does_not_count(
+        self, client, tmp_paths, fake_redis, csrf_headers,
+    ):
+        """A disabled account cannot administer anything: deleting the only
+        enabled admin must still be refused, even with a disabled one left."""
+        hasher = admin_module._hasher
+        password = hasher.hash("un-mot-de-passe-12345")
+        data = {"users": {
+            "admin.principal": {
+                "disabled": False, "displayname": "Admin",
+                "email": "admin@example.com", "password": password,
+                "groups": ["admins"],
+            },
+            "admin.dormant": {
+                "disabled": True, "displayname": "Dormant",
+                "email": "dormant@example.com", "password": password,
+                "groups": ["admins"],
+            },
+        }}
+        tmp_paths["authelia"].write_text(yaml.safe_dump(data))
+
+        r = client.delete("/api/admin/users/admin.principal", headers=csrf_headers)
+        assert r.status_code == 400, r.text
+
+
+class TestRestartOrthanc:
+    """The route that restarts Orthanc from the panel.
+
+    It goes through a proxy exposing nothing but /containers/<id>/restart.
+    What matters here: never announce success without Orthanc having actually
+    answered -- a configuration accepted on write may well stop it from
+    starting, and the operator must learn that straight away rather than by
+    finding a dead PACS later on.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _no_wait(self, monkeypatch):
+        """Neutralise the pauses between probes: the real route waits 60 s."""
+        async def _sleep(_):
+            return None
+        monkeypatch.setattr(admin_module.asyncio, "sleep", _sleep)
+
+    @pytest.fixture
+    def _wired(self, monkeypatch):
+        monkeypatch.setattr(admin_module, "DOCKER_PROXY_URL", "http://socket-proxy:2375")
+        monkeypatch.setattr(admin_module, "ORTHANC_CONTAINER", "orthanc-server")
+
+    def test_unconfigured_proxy_answers_503(
+        self, client, tmp_paths, fake_redis, csrf_headers, monkeypatch,
+    ):
+        """Without the proxy the feature is unavailable, and says so -- rather
+        than failing on a connection to an empty URL."""
+        monkeypatch.setattr(admin_module, "DOCKER_PROXY_URL", "")
+        r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
+        assert r.status_code == 503
+        assert "socket-proxy" in r.json()["detail"]
+
+    def test_container_not_found(
+        self, client, tmp_paths, fake_redis, csrf_headers, _wired,
+    ):
+        """A 404 from the proxy means the wrong container name: say it."""
+        with respx.mock:
+            respx.post("http://socket-proxy:2375/containers/orthanc-server/restart") \
+                .respond(status_code=404)
+            r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
+        assert r.status_code == 502
+        assert "ORTHANC_CONTAINER" in r.json()["detail"]
+
+    def test_restart_refused_by_proxy(
+        self, client, tmp_paths, fake_redis, csrf_headers, _wired,
+    ):
+        """403 = ALLOW_RESTARTS missing. Point at the right cause."""
+        with respx.mock:
+            respx.post("http://socket-proxy:2375/containers/orthanc-server/restart") \
+                .respond(status_code=403)
+            r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
+        assert r.status_code == 502
+        assert "ALLOW_RESTARTS" in r.json()["detail"]
+
+    def test_succeeds_when_orthanc_answers(
+        self, client, tmp_paths, fake_redis, csrf_headers, _wired,
+        valid_orthanc_json, redis_sync,
+    ):
+        with respx.mock:
+            respx.post("http://socket-proxy:2375/containers/orthanc-server/restart") \
+                .respond(status_code=204)
+            respx.get("http://orthanc:8042/system").respond(
+                json={"Version": "26.4.2", "Name": "Cuffel PACS"})
+            r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert r.json()["version"] == "26.4.2"
+        assert "warning" not in r.json()
+        events = [e[1]["event"] for e in redis_sync.xrange("admin:audit")]
+        assert "orthanc.restart.requested" in events
+        assert "orthanc.restarted" in events
+
+    def test_restart_that_does_not_apply_our_file_is_reported(
+        self, client, tmp_paths, fake_redis, csrf_headers, _wired,
+        valid_orthanc_json,
+    ):
+        """Orthanc answers, but under another name: a compose variable is
+        overriding the file. Announcing plain success would be misleading."""
+        with respx.mock:
+            respx.post("http://socket-proxy:2375/containers/orthanc-server/restart") \
+                .respond(status_code=204)
+            respx.get("http://orthanc:8042/system").respond(
+                json={"Version": "26.4.2", "Name": "Nom Impose Par Le Compose"})
+            r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert "ORTHANC__*" in r.json()["warning"]
+
+    def test_no_backup_available(
+        self, client, tmp_paths, fake_redis, csrf_headers, _wired,
+    ):
+        """Orthanc stays mute and nothing can be restored: 504, and point at
+        the logs rather than pretending."""
+        tmp_paths["backups"].mkdir(parents=True, exist_ok=True)
+        with respx.mock:
+            respx.post("http://socket-proxy:2375/containers/orthanc-server/restart") \
+                .respond(status_code=204)
+            respx.get("http://orthanc:8042/system").respond(status_code=502)
+            r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
+
+        assert r.status_code == 504
+        assert "no backup" in r.json()["detail"]
+
+    def test_configuration_restored_and_orthanc_restarts(
+        self, client, tmp_paths, fake_redis, csrf_headers, _wired, redis_sync,
+    ):
+        """The written configuration prevents Orthanc from starting: restore
+        the last backup, restart, and report the refusal -- the PACS is back
+        up, which is what matters."""
+        tmp_paths["backups"].mkdir(parents=True, exist_ok=True)
+        backup = tmp_paths["backups"] / "orthanc.json.bak.20260101-000000"
+        backup.write_text(json.dumps({"Name": "Avant"}), encoding="utf-8")
+        tmp_paths["orthanc"].write_text(json.dumps({"Name": "Casse"}), encoding="utf-8")
+
+        # Mute for the whole first wait -- 30 probes -- then answering once
+        # the backup has been put back. A couple of 502s would not do: the
+        # route would find Orthanc alive on the third probe and never roll
+        # back at all.
+        probes = {"n": 0}
+
+        def _system(request):
+            probes["n"] += 1
+            if probes["n"] <= admin_module._wait_for_orthanc.__defaults__[0]:
+                return httpx.Response(502)
+            return httpx.Response(200, json={"Version": "26.4.2"})
+
+        with respx.mock:
+            respx.post("http://socket-proxy:2375/containers/orthanc-server/restart") \
+                .respond(status_code=204)
+            respx.get("http://orthanc:8042/system").mock(side_effect=_system)
+            r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
+
+        assert r.status_code == 502, r.text
+        assert "orthanc.json.bak.20260101-000000" in r.json()["detail"]
+        # The file really was restored.
+        assert json.loads(tmp_paths["orthanc"].read_text())["Name"] == "Avant"
+        events = [e[1]["event"] for e in redis_sync.xrange("admin:audit")]
+        assert "orthanc.rolled_back" in events
+
+
+class TestEffectiveConfig:
+    """Writing a value does not prove Orthanc applies it.
+
+    Three ways to diverge with nothing to signal it: an ORTHANC__* variable
+    from the compose file overriding the file, a field declared at the wrong
+    place in the tree, or a restart that never happened. The second is not
+    theoretical: StudyListColumns sat under OrthancExplorer2 while Explorer
+    reads it under UiOptions, so the setting had never had any effect since it
+    existed, and this check is what would have found it.
+    """
+
+    def test_no_divergence(self, client, tmp_paths, fake_redis, valid_orthanc_json):
+        """What the file declares is what Orthanc reports: nothing to report."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/system").respond(json={
+                "Name": "Cuffel PACS", "DicomAet": "YOKOINC",
+                "DicomPort": 4242, "HttpPort": 8042,
+            })
+            r = client.get("/api/admin/config-effective")
+
+        assert r.status_code == 200, r.text
+        assert r.json()["mismatches"] == []
+
+    def test_divergence_detected(self, client, tmp_paths, fake_redis, valid_orthanc_json):
+        """An ORTHANC__* variable overrides the file: say which field, and
+        both values -- the operator has to know what actually runs."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/system").respond(json={
+                "Name": "Nom Impose Par Le Compose", "DicomAet": "YOKOINC",
+                "DicomPort": 4242, "HttpPort": 8042,
+            })
+            r = client.get("/api/admin/config-effective")
+
+        mismatches = r.json()["mismatches"]
+        assert len(mismatches) == 1
+        assert mismatches[0]["field"] == "Name"
+        assert mismatches[0]["in_file"] == "Cuffel PACS"
+        assert mismatches[0]["applied_by_orthanc"] == "Nom Impose Par Le Compose"
+
+    def test_field_absent_from_the_file_is_not_a_divergence(
+        self, client, tmp_paths, fake_redis,
+    ):
+        """Not declaring a setting means letting Orthanc apply its default.
+        Reporting that as a divergence would drown the real ones."""
+        tmp_paths["orthanc"].write_text(json.dumps({"Name": "PACS"}), encoding="utf-8")
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/system").respond(json={
+                "Name": "PACS", "DicomAet": "AUTRE", "DicomPort": 11112,
+            })
+            r = client.get("/api/admin/config-effective")
+
+        assert r.json()["mismatches"] == []
+
+    def test_field_orthanc_does_not_expose_is_ignored(
+        self, client, tmp_paths, fake_redis, valid_orthanc_json,
+    ):
+        """An older Orthanc may not report a field. Absence of proof is not
+        proof of divergence."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/system").respond(json={"Name": "Cuffel PACS"})
+            r = client.get("/api/admin/config-effective")
+
+        assert r.json()["mismatches"] == []
+
+    def test_orthanc_mute_reports_nothing(
+        self, client, tmp_paths, fake_redis, valid_orthanc_json,
+    ):
+        """Orthanc down is a different problem, already surfaced by /health.
+        Turning it into a wall of false divergences would help nobody."""
+        with respx.mock(base_url="http://orthanc:8042") as mock:
+            mock.get("/system").respond(status_code=502)
+            r = client.get("/api/admin/config-effective")
+
+        assert r.status_code == 200
+        assert r.json()["mismatches"] == []
+
+
+class TestUserUpdate:
+    """Editing an account, and the anti-lockout guard.
+
+    Without these routes, changing someone's group meant deleting their
+    account and recreating it -- losing their password on the way. And an
+    account that should simply stop working had to be deleted outright,
+    taking its history with it.
+    """
+
+    def test_partial_update(self, client, tmp_paths, fake_redis,
+                            valid_authelia_yml, csrf_headers):
+        """Only the fields sent are touched: the rest survives untouched."""
+        r = client.patch("/api/admin/users/cuffel.gregory", json={
+            "displayname": "Dr Cuffel",
+        }, headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        assert r.json()["modified"] == ["displayname"]
+        record = yaml.safe_load(tmp_paths["authelia"].read_text())["users"]["cuffel.gregory"]
+        assert record["displayname"] == "Dr Cuffel"
+        assert record["email"] == "cuffel.gregory@gmail.com"     # unchanged
+        assert "admins" in record["groups"]                       # unchanged
+
+    def test_disabling_keeps_the_account(self, client, tmp_paths, fake_redis,
+                                         csrf_headers):
+        """Disabling is not deleting: the account and its history stay."""
+        hasher = admin_module._hasher
+        password = hasher.hash("un-mot-de-passe-12345")
+        data = {"users": {
+            "admin.principal": {"disabled": False, "displayname": "Admin",
+                                "email": "a@example.com", "password": password,
+                                "groups": ["admins"]},
+            "docteur.parti": {"disabled": False, "displayname": "Parti",
+                              "email": "p@example.com", "password": password,
+                              "groups": ["doctors"]},
+        }}
+        tmp_paths["authelia"].write_text(yaml.safe_dump(data))
+
+        r = client.patch("/api/admin/users/docteur.parti",
+                         json={"disabled": True}, headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        remaining = yaml.safe_load(tmp_paths["authelia"].read_text())["users"]
+        assert remaining["docteur.parti"]["disabled"] is True
+        assert remaining["docteur.parti"]["password"] == password
+
+    def test_no_field_provided(self, client, tmp_paths, fake_redis,
+                               valid_authelia_yml, csrf_headers):
+        r = client.patch("/api/admin/users/cuffel.gregory", json={},
+                         headers=csrf_headers)
+        assert r.status_code == 400
+
+    def test_unknown_user(self, client, tmp_paths, fake_redis,
+                          valid_authelia_yml, csrf_headers):
+        r = client.patch("/api/admin/users/personne", json={"disabled": True},
+                         headers=csrf_headers)
+        assert r.status_code == 404
+
+    def test_refuses_to_demote_the_last_admin(self, client, tmp_paths,
+                                              fake_redis, valid_authelia_yml,
+                                              csrf_headers):
+        """Removing yourself from the admin group while being the only one
+        would leave the stack with nobody to administer it. A 400 is expected
+        -- not a 500, which does not tell a deliberate refusal from a
+        failure."""
+        r = client.patch("/api/admin/users/cuffel.gregory",
+                         json={"groups": ["doctors"]}, headers=csrf_headers)
+
+        assert r.status_code == 400, r.text
+        assert "administrator" in r.json()["detail"]
+        # And nothing was written.
+        record = yaml.safe_load(tmp_paths["authelia"].read_text())["users"]["cuffel.gregory"]
+        assert "admins" in record["groups"]
+
+    def test_refuses_to_disable_the_last_admin(self, client, tmp_paths,
+                                               fake_redis, valid_authelia_yml,
+                                               csrf_headers):
+        r = client.patch("/api/admin/users/cuffel.gregory",
+                         json={"disabled": True}, headers=csrf_headers)
+        assert r.status_code == 400, r.text
+
+
+class TestAuditLog:
+    """The stream was fed from day one and nothing read it."""
+
+    def test_reports_what_happened(self, client, tmp_paths, fake_redis,
+                                   valid_authelia_yml, csrf_headers):
+        client.patch("/api/admin/users/cuffel.gregory",
+                     json={"displayname": "Dr Cuffel"}, headers=csrf_headers)
+
+        r = client.get("/api/admin/audit")
+        assert r.status_code == 200, r.text
+        entries = r.json()["entries"]
+        assert entries, "the change just made must appear"
+        assert entries[0]["event"] == "authelia.user.updated"
+        assert entries[0]["actor"] == "cuffel.gregory"
+        assert entries[0]["details"]["target"] == "cuffel.gregory"
+        assert entries[0]["ts"] > 0
+
+    def test_most_recent_first(self, client, tmp_paths, fake_redis,
+                               valid_authelia_yml, csrf_headers):
+        client.patch("/api/admin/users/cuffel.gregory",
+                     json={"displayname": "Un"}, headers=csrf_headers)
+        client.patch("/api/admin/users/cuffel.gregory",
+                     json={"email": "autre@example.com"}, headers=csrf_headers)
+
+        entries = client.get("/api/admin/audit").json()["entries"]
+        assert entries[0]["details"]["fields"] == "email"
+
+    def test_limit_is_bounded(self, client, tmp_paths, fake_redis,
+                              valid_authelia_yml):
+        """An unbounded limit would let one request pull the whole stream."""
+        r = client.get("/api/admin/audit?limit=99999")
+        assert r.status_code == 200
+        assert len(r.json()["entries"]) <= 500
+
+
+class TestManualBackup:
+    """A restore point taken before a risky operation, not after it."""
+
+    def test_creates_a_copy_of_each_file(self, client, tmp_paths, fake_redis,
+                                         valid_authelia_yml, valid_orthanc_json,
+                                         csrf_headers):
+        r = client.post("/api/admin/backups", headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        created = r.json()["created"]
+        assert any("authelia.yml" in n for n in created)
+        assert any("orthanc.json" in n for n in created)
+        assert all(".manual" in n for n in created)
+
+    def test_appears_in_the_listing(self, client, tmp_paths, fake_redis,
+                                    valid_authelia_yml, csrf_headers):
+        """A manual backup must be restorable like any other: the tag added to
+        the name must not make _backup_target stop recognising it."""
+        client.post("/api/admin/backups", headers=csrf_headers)
+
+        listed = client.get("/api/admin/backups").json()["backups"]
+        assert any(".manual" in b["name"] for b in listed)
+
+    def test_missing_files_are_reported_not_fatal(
+        self, client, tmp_paths, fake_redis, valid_authelia_yml, csrf_headers,
+    ):
+        """orthanc.json absent is not a reason to back up nothing."""
+        r = client.post("/api/admin/backups", headers=csrf_headers)
+        assert r.status_code == 200, r.text
+        assert r.json()["created"]
+        assert any("missing" in s for s in r.json()["skipped"])
+
+
+class TestPublicUrl:
+    """Changing the public URL from the panel.
+
+    The domain appears once in .env and eleven times in configuration.yml --
+    every access_control rule plus the session cookie block. Getting one wrong
+    leaves Authelia answering 401 on everything, login page included, with
+    nothing in the interface able to repair it. That is not a hypothesis: it
+    happened, and it took hand-editing production YAML to undo.
+    """
+
+    @pytest.fixture
+    def env_file(self, tmp_path, monkeypatch):
+        path = tmp_path / ".env"
+        path.write_text(
+            "TZ=Europe/Paris\n"
+            "PUBLIC_URL=https://ancien.example.org\n"
+            "DOMAIN=ancien.example.org\n"
+            "LOG_LEVEL=INFO\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(admin_module, "ENV_FILE", path)
+        return path
+
+    @pytest.fixture
+    def authelia_full(self, tmp_path, monkeypatch):
+        """A configuration.yml shaped like the real one: the host appears in
+        every access rule, not only in the cookie block."""
+        path = tmp_path / "configuration.yml"
+        path.write_text("""---
+access_control:
+  rules:
+    - domain: ancien.example.org        # regle 1
+      policy: bypass
+    - domain: ancien.example.org        # regle 2
+      policy: one_factor
+session:
+  cookies:
+    - domain: ancien.example.org
+      authelia_url: https://ancien.example.org/auth
+      default_redirection_url: https://ancien.example.org/ui/app/
+""", encoding="utf-8")
+        monkeypatch.setattr(admin_module, "AUTHELIA_CONFIG", path)
+        return path
+
+    def test_every_occurrence_is_retargeted(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        authelia_full,
+    ):
+        r = client.post("/api/admin/network",
+                        json={"public_url": "https://nouveau.example.org"},
+                        headers=csrf_headers)
+
+        assert r.status_code == 200, r.text
+        texte = authelia_full.read_text(encoding="utf-8")
+        assert "ancien.example.org" not in texte, "une occurrence a survecu"
+        assert texte.count("nouveau.example.org") == 5
+        # .env suit, sinon nginx resterait sur l ancien domaine
+        env = env_file.read_text(encoding="utf-8")
+        assert "PUBLIC_URL=https://nouveau.example.org" in env
+        assert "DOMAIN=nouveau.example.org" in env
+        assert "TZ=Europe/Paris" in env, "les autres variables survivent"
+
+    def test_comments_survive(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        authelia_full,
+    ):
+        """Textual replacement, not a YAML round-trip: the file is heavily
+        commented and PyYAML would wipe all of it."""
+        client.post("/api/admin/network",
+                    json={"public_url": "https://nouveau.example.org"},
+                    headers=csrf_headers)
+        texte = authelia_full.read_text(encoding="utf-8")
+        assert "# regle 1" in texte and "# regle 2" in texte
+
+    def test_a_backup_is_taken(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        authelia_full,
+    ):
+        client.post("/api/admin/network",
+                    json={"public_url": "https://nouveau.example.org"},
+                    headers=csrf_headers)
+        copies = list(tmp_paths["backups"].glob("configuration.yml.bak.*"))
+        assert copies, "aucune sauvegarde avant reecriture"
+
+    def test_same_url_is_a_noop(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        authelia_full,
+    ):
+        """Reapplying the current URL must not rewrite anything, nor pile up
+        pointless backups."""
+        r = client.post("/api/admin/network",
+                        json={"public_url": "https://ancien.example.org"},
+                        headers=csrf_headers)
+        assert r.status_code == 200
+        assert r.json()["unchanged"] is True
+        assert not list(tmp_paths["backups"].glob("configuration.yml.bak.*"))
+
+    def test_http_refused(self, client, tmp_paths, fake_redis, csrf_headers,
+                          env_file, authelia_full):
+        r = client.post("/api/admin/network",
+                        json={"public_url": "http://nouveau.example.org"},
+                        headers=csrf_headers)
+        assert r.status_code == 400
+
+    def test_host_without_dot_refused(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        authelia_full,
+    ):
+        """RFC 6265: browsers drop a cookie set on a dotless host. Accepting
+        it would produce a stack that authenticates and forgets instantly."""
+        r = client.post("/api/admin/network",
+                        json={"public_url": "https://monpacs"},
+                        headers=csrf_headers)
+        assert r.status_code == 400
+        assert "cookie" in r.json()["detail"]
+
+    def test_path_refused(self, client, tmp_paths, fake_redis, csrf_headers,
+                          env_file, authelia_full):
+        r = client.post("/api/admin/network",
+                        json={"public_url": "https://nouveau.example.org/pacs"},
+                        headers=csrf_headers)
+        assert r.status_code == 400
+
+    def test_hand_edited_config_aborts(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        tmp_path, monkeypatch,
+    ):
+        """If the old host appears nowhere, the file no longer matches what
+        .env says: rewriting blind would make things worse."""
+        path = tmp_path / "configuration.yml"
+        path.write_text("session:\n  cookies:\n    - domain: autre.chose\n",
+                        encoding="utf-8")
+        monkeypatch.setattr(admin_module, "AUTHELIA_CONFIG", path)
+
+        r = client.post("/api/admin/network",
+                        json={"public_url": "https://nouveau.example.org"},
+                        headers=csrf_headers)
+        assert r.status_code == 500
+        assert "by hand" in r.json()["detail"]
+        assert path.read_text(encoding="utf-8") == \
+            "session:\n  cookies:\n    - domain: autre.chose\n"
+
+    def test_env_not_mounted_says_so(
+        self, client, tmp_paths, fake_redis, csrf_headers, authelia_full,
+        tmp_path, monkeypatch,
+    ):
+        """Without the .env mount the feature cannot work: say which line to
+        add, rather than failing obscurely."""
+        monkeypatch.setattr(admin_module, "ENV_FILE", tmp_path / "absent.env")
+        r = client.get("/api/admin/network")
+        assert r.status_code == 200
+        assert r.json()["editable"] is False

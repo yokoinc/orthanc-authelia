@@ -10,8 +10,10 @@ Depends: fastapi, redis.asyncio, pyyaml, argon2-cffi, httpx, filelock, pydantic
 Required env vars: ORTHANC_ADMIN_USER, ORTHANC_ADMIN_PASS, ORTHANC_URL, REDIS_URL
 """
 
+import asyncio
 import copy
 import json
+import logging
 import os
 import re
 import secrets as pysecrets
@@ -20,6 +22,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import redis.asyncio as aioredis
@@ -71,6 +74,24 @@ ORTHANC_AUTH_HEADERS = {"auth-token": ORTHANC_AUTH_TOKEN}
 #           "Permissions": [["post", "^/tools/reset$", "all|settings"]]
 ORTHANC_APPLY_MODE = os.environ.get("ORTHANC_APPLY_MODE", "restart")
 
+# Restarting Orthanc from the panel, through a Docker socket proxy.
+#
+# Remotely, SSH is not always available: with no way out from the interface,
+# a configuration change leaves the operator stuck inside their own panel,
+# reading "restart required" with no means of doing it.
+#
+# The Docker socket is deliberately NOT mounted into auth-service: handing it
+# to a web-facing service grants the equivalent of root on the host. The proxy
+# in front of it must expose the bare minimum -- POST=1, ALLOW_RESTARTS=1, and
+# everything else at 0, CONTAINERS included. That last point is not cosmetic:
+# with CONTAINERS=1, POST=1 opens the whole of /containers/*, POST
+# /containers/create included, and a privileged container mounting the host
+# root is then accepted -- exactly the escape this arrangement must prevent.
+#
+# Left empty, the feature is simply unavailable and the panel says so.
+DOCKER_PROXY_URL = os.getenv("DOCKER_PROXY_URL", "").rstrip("/")
+ORTHANC_CONTAINER = os.getenv("ORTHANC_CONTAINER", "orthanc-server")
+
 
 def _require_orthanc_creds():
     if not ORTHANC_USER or not ORTHANC_PASS:
@@ -86,6 +107,30 @@ BACKUPS_DIR = Path(os.getenv("ADMIN_BACKUPS_DIR", "/host/backups"))
 # Authelia's own configuration, where the session durations live. Separate from
 # AUTHELIA_YML, which is the accounts file.
 AUTHELIA_CONFIG = Path(os.getenv("ADMIN_AUTHELIA_CONFIG", "/host/authelia/configuration.yml"))
+
+# The .env file, at the project root. Mounted as a FILE rather than through
+# its directory: mounting the root would give the container write access to
+# docker-compose.yml and to the scripts. Consequence: writes happen in place,
+# see _write_env_var.
+ENV_FILE = Path(os.getenv("ADMIN_ENV_PATH", "/host/env/.env"))
+
+# Application settings, as opposed to bootstrap variables.
+#
+# A setting that only auth-service reads, once running, has no business in the
+# compose file: changing it there means editing a file and recreating the
+# container, for something the panel ought to offer. This file holds those
+# settings, and the panel writes it while the stack runs.
+#
+# It defaults into the backups directory because that one is ALREADY
+# bind-mounted read-write on every install -- so the store works without
+# anyone having to touch their compose file first. list_backups ignores it:
+# the listing keeps only the names _backup_target recognises.
+SETTINGS_FILE = Path(
+    os.getenv("ADMIN_SETTINGS_PATH", str(BACKUPS_DIR / "settings.json"))
+)
+
+# Hooked into auth_service's logger hierarchy, so LOG_LEVEL applies here too.
+logger = logging.getLogger("auth-service.admin")
 
 # Name of the Authelia group that grants access to the panel. Configurable
 # because the name is not standardised: this repo ships its examples with
@@ -192,6 +237,210 @@ def _atomic_write(path: Path, content: str) -> None:
             os.fsync(f.fileno())
     finally:
         tmp.unlink(missing_ok=True)
+
+
+_settings_cache: dict[str, Any] = {"key": None, "data": {}}
+
+
+def _read_settings() -> dict[str, Any]:
+    """Contents of the settings file. Empty dict when it does not exist yet.
+
+    Cached on (path, mtime): a setting is read on nearly every request, and
+    re-reading the file each time would mean dozens of reads per page.
+    """
+    try:
+        key = (str(SETTINGS_FILE), SETTINGS_FILE.stat().st_mtime)
+    except OSError:
+        # No file: fresh install, or no setting ever changed.
+        _settings_cache["key"] = None
+        _settings_cache["data"] = {}
+        return {}
+
+    if _settings_cache["key"] == key:
+        return _settings_cache["data"]
+
+    try:
+        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        # An unreadable settings file must not stop the service from
+        # answering: fall back to the defaults, and say so in the log rather
+        # than degrading in silence.
+        logger.warning("unreadable settings (%s), falling back to defaults", e)
+        data = {}
+
+    _settings_cache["key"] = key
+    _settings_cache["data"] = data
+    return data
+
+
+def _read_setting(name: str, env_var: str = "", default: Any = None) -> Any:
+    """A setting's value, falling back to the environment variable it replaces.
+
+    `env_var` keeps existing installations working: these settings used to be
+    passed through the compose file, and are still read from there until they
+    get redefined from the panel. The first write moves the value into the
+    settings file, after which the compose line has no further effect.
+    """
+    settings = _read_settings()
+    if name in settings:
+        return settings[name]
+    if env_var:
+        previous = os.getenv(env_var, "")
+        if previous:
+            return previous
+    return default
+
+
+def _write_setting(name: str, value: Any) -> None:
+    """Write one setting, creating the file and its directory when needed."""
+    try:
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise HTTPException(
+            503,
+            f"settings directory not writable ({e}). Check that "
+            f"'{SETTINGS_FILE.parent}' is bind-mounted read-write on "
+            f"auth-service.",
+        ) from e
+
+    settings = _read_settings()
+    settings[name] = value
+    _atomic_write(SETTINGS_FILE,
+                  json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+    # Invalidate explicitly: mtime granularity is sometimes one second, which
+    # would make two writes in the same second indistinguishable.
+    _settings_cache["key"] = None
+
+
+def _read_env_var(name: str) -> str:
+    """Read a variable from .env. Empty string when absent or unreadable."""
+    if not ENV_FILE.exists():
+        return ""
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line.startswith(f"{name}="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
+def _write_env_var(name: str, value: str) -> None:
+    """Replace (or add) name=value in .env, writing IN PLACE.
+
+    No write-tmp + rename here, unlike everywhere else in this module: .env is
+    a file bind-mount. The rename would fail (EBUSY) and, were it to succeed,
+    docker compose would keep reading the old inode. So we rewrite the same
+    file, after a backup -- an interrupted write would otherwise leave a
+    truncated .env, and the stack would no longer start.
+    """
+    if not ENV_FILE.exists():
+        raise HTTPException(
+            503,
+            "the .env file is not reachable from the container. Add the mount "
+            "'./.env:/host/env/.env:rw' to the auth-service service, then "
+            "recreate the container.",
+        )
+    _backup(ENV_FILE, tag="network")
+    lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
+    replaced = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith(f"{name}="):
+            lines[i] = f"{name}={value}"
+            replaced = True
+            break
+    if not replaced:
+        lines.append(f"{name}={value}")
+    ENV_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _normalise_public_url(raw: str) -> tuple[str, str]:
+    """Validate the public URL. Returns (origin, host without port).
+
+    The origin drives redirections, port included; the host is what session
+    cookies are scoped to -- a cookie never carries a port.
+    """
+    parsed = urlparse(raw.strip())
+    if parsed.scheme != "https":
+        raise HTTPException(400, "the public URL must start with https://")
+    if not parsed.hostname:
+        raise HTTPException(400, "host missing from the public URL")
+    if parsed.path.strip("/"):
+        raise HTTPException(
+            400,
+            "give the origin alone, with no path "
+            "(for example https://pacs.example.org)",
+        )
+    # RFC 6265: some browsers drop a cookie set on a host without a dot.
+    # "localhost" is the exception, "mypacs" is not.
+    if "." not in parsed.hostname and parsed.hostname != "localhost":
+        raise HTTPException(
+            400,
+            f"'{parsed.hostname}' has no dot: browsers will refuse the session "
+            f"cookie. Use a fully qualified name (pacs.example.org) or "
+            f"pacs.localhost.",
+        )
+    return f"https://{parsed.netloc}", parsed.hostname
+
+
+def _retarget_authelia_config(previous_origin: str, previous_host: str,
+                              origin: str, host: str) -> int:
+    """Point configuration.yml at the new public URL.
+
+    Textual replacement rather than a YAML load and re-serialise: the file is
+    heavily commented -- access rules, warnings about the cookie port -- and a
+    round-trip through PyYAML would wipe all of it.
+
+    The host appears in every access_control rule as well as in the session
+    cookie block, which is precisely why hand-editing it is error-prone: miss
+    one occurrence and Authelia answers 401 on everything, with the login page
+    itself unreachable.
+
+    Returns the number of substitutions made.
+    """
+    if not AUTHELIA_CONFIG.exists():
+        raise HTTPException(503, "Authelia's configuration.yml not found")
+    text = AUTHELIA_CONFIG.read_text(encoding="utf-8")
+    total = text.count(previous_origin) + text.count(previous_host)
+    if not total:
+        raise HTTPException(
+            500,
+            f"no trace of '{previous_host}' in configuration.yml: the file was "
+            f"edited by hand, change aborted",
+        )
+    _backup(AUTHELIA_CONFIG, tag="network")
+    # Full origin first: replacing the bare host would otherwise turn
+    # "https://old:30443" into "https://new:30443", keeping a port that no
+    # longer applies.
+    text = text.replace(previous_origin, origin).replace(previous_host, host)
+    _atomic_write(AUTHELIA_CONFIG, text)
+    return total
+
+
+async def _apply_public_url(new_url: str, actor: str) -> dict:
+    """Apply a new public URL to .env and to Authelia's configuration."""
+    origin, host = _normalise_public_url(new_url)
+    previous_origin = _read_env_var("PUBLIC_URL").rstrip("/")
+    if not previous_origin:
+        raise HTTPException(
+            500, "PUBLIC_URL absent from .env, change aborted")
+    if previous_origin == origin:
+        return {"ok": True, "unchanged": True, "public_url": origin}
+
+    _, previous_host = _normalise_public_url(previous_origin)
+    substitutions = _retarget_authelia_config(
+        previous_origin, previous_host, origin, host,
+    )
+    _write_env_var("PUBLIC_URL", origin)
+    _write_env_var("DOMAIN", host)
+    await _audit(
+        "network.public_url.changed", actor=actor,
+        old=previous_origin, new=origin, substitutions=substitutions,
+    )
+    return {
+        "ok": True,
+        "unchanged": False,
+        "public_url": origin,
+        "substitutions": substitutions,
+    }
 
 
 async def _audit(event: str, actor: str, **fields: Any) -> None:
@@ -643,6 +892,19 @@ class UserCreatePayload(BaseModel):
         return self
 
 
+class UserUpdatePayload(BaseModel):
+    """Partial update: only the fields provided are applied.
+
+    None means "leave alone", which allows changing groups without resending
+    the display name and e-mail, and disabling an account without rewriting
+    anything else.
+    """
+    displayname: str | None = Field(None, min_length=1, max_length=100)
+    email: EmailStr | None = None
+    groups: list[str] | None = None
+    disabled: bool | None = None
+
+
 class PasswordChangePayload(BaseModel):
     new_password: str = Field(..., min_length=12)
 
@@ -742,14 +1004,8 @@ def _validate_orthanc(config: dict, before: dict | None = None) -> None:
 
 async def _reload_orthanc() -> None:
     """POST /tools/reset: Orthanc re-parses the JSON and applies the new config."""
-    _require_orthanc_creds()
-    async with httpx.AsyncClient(timeout=10) as client:
-        r = await client.post(
-            f"{ORTHANC_URL}/tools/reset",
-            auth=(ORTHANC_USER, ORTHANC_PASS),
-            headers=ORTHANC_AUTH_HEADERS,
-        )
-        r.raise_for_status()
+    r = await _orthanc("POST", "/tools/reset", timeout=10)
+    r.raise_for_status()
 
 
 async def _orthanc_runs_our_file(config: dict) -> bool | None:
@@ -771,21 +1027,173 @@ async def _orthanc_runs_our_file(config: dict) -> bool | None:
     if not isinstance(expected, str):
         return None
     try:
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get(
-                f"{ORTHANC_URL}/system",
-                auth=(ORTHANC_USER, ORTHANC_PASS),
-                headers=ORTHANC_AUTH_HEADERS,
-            )
-            r.raise_for_status()
-            return r.json().get("Name") == expected
+        r = await _orthanc("GET", "/system", timeout=5)
+        r.raise_for_status()
+        return r.json().get("Name") == expected
     except (httpx.HTTPError, ValueError):
         return None
+
+
+# Settings whose applied value Orthanc exposes, and where to read it.
+#
+# Writing a value proves nothing about Orthanc applying it. Three ways to
+# diverge with nothing to signal it: an ORTHANC__* variable from the compose
+# file overriding the file, a field declared at the wrong place in the tree,
+# or a restart that never happened. The second is not theoretical --
+# StudyListColumns sat under OrthancExplorer2 while Explorer reads it under
+# UiOptions, so the setting had never had any effect since it existed.
+#
+# Only settings Orthanc reports back can appear here: the rest cannot be
+# checked, and pretending otherwise would be worse than saying nothing.
+ORTHANC_VERIFIABLE: dict[str, tuple[str, tuple[str, ...]]] = {
+    "Name": ("/system", ("Name",)),
+    "DicomAet": ("/system", ("DicomAet",)),
+    "DicomPort": ("/system", ("DicomPort",)),
+    "HttpPort": ("/system", ("HttpPort",)),
+    "StorageCompression": ("/system", ("StorageCompression",)),
+    "IngestTranscoding": ("/system", ("IngestTranscoding",)),
+}
+
+
+async def _check_effective_config() -> list[dict[str, Any]]:
+    """Compare what orthanc.json declares with what Orthanc applies.
+
+    Only returns divergences. A field absent from the file is not one:
+    Orthanc then applies its default, which is the expected behaviour. Nor is
+    a field Orthanc does not expose in this version.
+    """
+    try:
+        config = _load_orthanc_config()
+    except Exception:  # noqa: BLE001 - unreadable file, reported elsewhere
+        return []
+
+    responses: dict[str, dict] = {}
+    for endpoint in {e for e, _ in ORTHANC_VERIFIABLE.values()}:
+        try:
+            r = await _orthanc("GET", endpoint, timeout=5)
+            responses[endpoint] = r.json() if r.status_code == 200 else {}
+        except Exception:  # noqa: BLE001 - Orthanc mute: nothing to compare
+            responses[endpoint] = {}
+
+    mismatches = []
+    for path, (endpoint, access) in ORTHANC_VERIFIABLE.items():
+        wanted = config
+        for part in path.split("."):
+            if not isinstance(wanted, dict) or part not in wanted:
+                wanted = None
+                break
+            wanted = wanted[part]
+        if wanted is None:
+            continue  # not declared: the default applies
+
+        effective = responses.get(endpoint) or {}
+        for part in access:
+            if not isinstance(effective, dict) or part not in effective:
+                effective = None
+                break
+            effective = effective[part]
+        if effective is None:
+            continue  # Orthanc does not expose it in this version
+
+        if wanted != effective:
+            mismatches.append({
+                "field": path,
+                "in_file": wanted,
+                "applied_by_orthanc": effective,
+            })
+
+    return mismatches
+
+
+async def _wait_for_orthanc(attempts: int = 30, pause: int = 2) -> str:
+    """Wait for Orthanc to answer. Returns its version, or "" if it stays mute.
+
+    Orthanc opens its port before it has finished loading its plugins, so we
+    query /system, which only answers once the server is genuinely ready.
+    """
+    for _ in range(attempts):
+        await asyncio.sleep(pause)
+        try:
+            probe = await _orthanc("GET", "/system", timeout=5)
+            if probe.status_code == 200:
+                return probe.json().get("Version", "unknown")
+        except Exception:  # noqa: BLE001 - expected while restarting
+            pass
+    return ""
+
+
+def _latest_orthanc_backup() -> Path | None:
+    """The most recent orthanc.json backup, if any.
+
+    Names carry a timestamp (orthanc.json.bak.YYYYMMDD-HHMMSS), so
+    alphabetical order is chronological order.
+    """
+    prefix = ORTHANC_JSON.name + ".bak."
+    backups = sorted(BACKUPS_DIR.glob(prefix + "*"), reverse=True)
+    return backups[0] if backups else None
+
+
+async def _request_restart() -> None:
+    """Ask the Docker proxy to restart the container."""
+    async with httpx.AsyncClient(timeout=90) as client:
+        r = await client.post(
+            f"{DOCKER_PROXY_URL}/containers/{ORTHANC_CONTAINER}/restart",
+        )
+    if r.status_code == 404:
+        raise HTTPException(
+            502,
+            f"Container '{ORTHANC_CONTAINER}' not found. Check "
+            f"ORTHANC_CONTAINER in the compose file.",
+        )
+    if r.status_code not in (204, 304):
+        raise HTTPException(
+            502,
+            f"The Docker proxy refused the restart (HTTP {r.status_code}). "
+            f"Check ALLOW_RESTARTS on the socket-proxy service.",
+        )
 
 
 class OrthancConfigPayload(BaseModel):
     """PATCH body: {"changes": {"Name": "Foo", "DicomAet": "BAR"}}"""
     changes: dict[str, Any]
+
+
+class ModalityPayload(BaseModel):
+    """A declared DICOM device: an AE title, a host and a port."""
+    aet: str = Field(min_length=1, max_length=16)
+    host: str = Field(min_length=1, max_length=255)
+    port: int = Field(ge=1, le=65535)
+
+
+def _require_orthanc_creds() -> None:
+    if not ORTHANC_USER or not ORTHANC_PASS:
+        raise HTTPException(
+            503,
+            "ORTHANC_ADMIN_USER/ORTHANC_ADMIN_PASS are not set in .env -- the "
+            "endpoint is reachable but cannot call Orthanc",
+        )
+
+
+async def _orthanc(method: str, path: str, timeout: float = 15,
+                   **kwargs: Any) -> httpx.Response:
+    """Call Orthanc's API with the service account.
+
+    ORTHANC_AUTH_HEADERS carries the group token, which is what the
+    Authorization plugin resolves a profile from. Not Remote-User: the
+    plugin's TokenHttpHeaders lists ["X-Auth-User", "Remote-User",
+    "auth-token"] and the LAST recognised header wins, so sending Remote-User
+    alone resolves the profile of a *user* named admin rather than the admin
+    group -- a call that then passes for anonymous, a profile holding only
+    the upload permission.
+    """
+    _require_orthanc_creds()
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        return await client.request(
+            method, f"{ORTHANC_URL}{path}",
+            auth=(ORTHANC_USER, ORTHANC_PASS),
+            headers=ORTHANC_AUTH_HEADERS,
+            **kwargs,
+        )
 
 
 # ============================================================================
@@ -804,6 +1212,26 @@ CF_ACCESS_ENFORCED = os.getenv("CF_ACCESS_ENFORCED", "false").lower() == "true"
 # the cf-access-aud header Cloudflare returns on a refused request.
 CF_ACCESS_TEAM_DOMAIN = os.getenv("CF_ACCESS_TEAM_DOMAIN", "")
 CF_ACCESS_AUD = os.getenv("CF_ACCESS_AUD", "")
+
+
+# The three values above are read once, at import: changing them meant editing
+# the compose file and recreating the container. They are now resolved per
+# request, from the settings file, and fall back to the value the environment
+# supplied at startup -- so an installation that never touches the panel keeps
+# behaving exactly as before.
+def _cf_team_domain() -> str:
+    return _read_setting("cf_access_team_domain", default=CF_ACCESS_TEAM_DOMAIN)
+
+
+def _cf_aud() -> str:
+    return _read_setting("cf_access_aud", default=CF_ACCESS_AUD)
+
+
+def _cf_enforced() -> bool:
+    value = _read_setting("cf_access_enforced", default=CF_ACCESS_ENFORCED)
+    if isinstance(value, bool):
+        return value
+    return str(value).lower() == "true"
 
 
 
@@ -863,7 +1291,7 @@ async def setup_create_admin(payload: UserCreatePayload):
         "groups": payload.groups,
     }
     _write_authelia(data)
-    # Verrouille la fenetre : plus qu'un finalize acceptable maintenant
+    # Close the window: only one finalize is acceptable from now on
     await _r().set(SETUP_FIRST_ADMIN_KEY, "1")
     await _audit("setup.admin.created", actor="wizard", target=payload.username)
     return {"ok": True, "username": payload.username}
@@ -937,6 +1365,62 @@ async def change_password(
     return {"ok": True}
 
 
+@router.patch("/api/admin/users/{username}")
+async def update_user(
+    username: str,
+    payload: UserUpdatePayload,
+    admin: AdminUser = Depends(require_admin),
+):
+    """Modify an existing account without touching its password.
+
+    The panel could only create and delete: changing someone's group meant
+    destroying their account and recreating it, losing their password on the
+    way. And an account that should simply stop working -- someone gone, a
+    device retired -- had to be deleted outright, taking its history with it.
+
+    The "at least one active administrator" invariant is checked BEFORE
+    writing. _validate_authelia catches the case too, but only once the write
+    is under way, and it raises a bare ValueError: the operator would get a
+    500 with no reason.
+    """
+    data = _load_authelia()
+    if username not in data.get("users", {}):
+        raise HTTPException(404, "unknown user")
+
+    info = data["users"][username]
+    modified = []
+    if payload.displayname is not None:
+        info["displayname"] = payload.displayname
+        modified.append("displayname")
+    if payload.email is not None:
+        info["email"] = str(payload.email)
+        modified.append("email")
+    if payload.groups is not None:
+        info["groups"] = payload.groups
+        modified.append("groups")
+    if payload.disabled is not None:
+        info["disabled"] = payload.disabled
+        modified.append("disabled")
+
+    if not modified:
+        raise HTTPException(400, "no field to change")
+
+    if not _active_admins(data):
+        raise HTTPException(
+            400,
+            f"this change would leave no active administrator: {username} is "
+            f"the last one. Removing it from the admin group, or disabling "
+            f"it, would leave the stack with nobody able to administer it.",
+        )
+
+    _write_authelia(data)
+    await _audit(
+        "authelia.user.updated", admin.username, target=username,
+        fields=",".join(modified),
+    )
+    return {"ok": True, "modified": modified}
+
+
 @router.delete("/api/admin/users/{username}")
 async def delete_user(username: str, admin: AdminUser = Depends(require_admin)):
     if username == admin.username:
@@ -944,8 +1428,24 @@ async def delete_user(username: str, admin: AdminUser = Depends(require_admin)):
     data = _load_authelia()
     if username not in data.get("users", {}):
         raise HTTPException(404, "unknown user")
+
+    # Refuse BEFORE touching anything. _validate_authelia does catch the case,
+    # but only once _write_authelia is under way, and it raises a bare
+    # ValueError: the operator got a 500 instead of a reason. The account
+    # survived -- the write aborts before persisting -- yet an invariant that
+    # holds by accident of validation, and reports itself as a server error,
+    # is not a safeguard.
+    if not [u for u in _active_admins(data) if u != username]:
+        raise HTTPException(
+            400,
+            f"{username} is the last active administrator: deleting it would "
+            f"leave the stack with nobody able to administer it, and the only "
+            f"way back would be editing users_database.yml by hand. Create "
+            f"another administrator first.",
+        )
+
     del data["users"][username]
-    _write_authelia(data)  # enforces the "at least 1 active admin" invariant
+    _write_authelia(data)
     await _audit("authelia.user.deleted", admin.username, target=username)
     return {"ok": True}
 
@@ -1073,7 +1573,231 @@ async def update_orthanc_config(
         fields=",".join(payload.changes.keys()),
         backup=backup.name,
     )
+
+    # The reset answered 200, which proves Orthanc reloaded something -- not
+    # that it reloaded OUR file. When the two disagree, saying "saved" and
+    # stopping there sends the operator looking for the fault everywhere
+    # except where it is.
+    applied = await _orthanc_runs_our_file(config)
+    if applied is False:
+        return {
+            "ok": True,
+            "backup": backup.name,
+            "warning": (
+                "Saved, but Orthanc is not running on this file: its image "
+                "merges /etc/orthanc/*.json with the ORTHANC__* variables into "
+                "a copy at startup, and that copy is what a reload re-reads. "
+                "Restart the orthanc container for the change to take effect."
+            ),
+        }
+
     return {"ok": True, "backup": backup.name}
+
+
+
+@router.get("/api/admin/config-effective")
+async def config_effective(admin: AdminUser = Depends(require_admin)):
+    """Which settings Orthanc does not apply as written.
+
+    An empty list is the good answer: what the file declares is what runs.
+    """
+    return {"mismatches": await _check_effective_config()}
+
+@router.post("/api/admin/orthanc/restart")
+async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
+    """Restart the Orthanc container and wait for it to answer again.
+
+    A configuration change only takes effect after a restart: the orthancteam
+    image GENERATES /tmp/orthanc.json at startup, merging its defaults, the
+    files under /etc/orthanc/ and the ORTHANC__* variables, and that generated
+    file is what the process reads.
+
+    We wait for Orthanc to actually come back rather than answering as soon as
+    Docker hands control back. A configuration accepted on write may well stop
+    Orthanc from starting, and the operator must learn it here -- not by
+    finding a dead PACS later on.
+    """
+    if not DOCKER_PROXY_URL:
+        raise HTTPException(
+            503,
+            "Restart unavailable: DOCKER_PROXY_URL is not set. Enable the "
+            "socket-proxy service, or restart by hand with "
+            "'docker compose restart orthanc'.",
+        )
+
+    await _audit("orthanc.restart.requested", admin.username,
+                 container=ORTHANC_CONTAINER)
+
+    try:
+        await _request_restart()
+    except httpx.HTTPError as e:
+        await _audit("orthanc.restart.failed", admin.username, error=str(e))
+        raise HTTPException(502, f"Docker proxy unreachable: {e}") from e
+    except HTTPException:
+        await _audit("orthanc.restart.failed", admin.username,
+                     container=ORTHANC_CONTAINER)
+        raise
+
+    version = await _wait_for_orthanc()
+    if version:
+        await _audit("orthanc.restarted", admin.username,
+                     container=ORTHANC_CONTAINER)
+        # Answering is not the same as applying what we wrote: an ORTHANC__*
+        # variable from the compose file overrides the file silently.
+        mismatches = await _check_effective_config()
+        if mismatches:
+            await _audit("orthanc.config.divergent", admin.username,
+                         fields=",".join(m["field"] for m in mismatches))
+            return {
+                "ok": True,
+                "version": version,
+                "mismatches": mismatches,
+                "warning": (
+                    f"Orthanc restarted, but {len(mismatches)} setting(s) are "
+                    f"not applied as written. An ORTHANC__* variable in the "
+                    f"compose file is probably overriding them."
+                ),
+            }
+        return {"ok": True, "version": version,
+                "message": "Orthanc restarted, configuration applied."}
+
+    # Orthanc is not coming back. The likeliest cause is the configuration
+    # just written: a value can be of the right type, produce perfectly valid
+    # JSON, and still be unacceptable to it -- an out-of-range port, say.
+    # Leaving a PACS down while pointing at the logs is not an answer.
+    await _audit("orthanc.restart.no_response", admin.username,
+                 container=ORTHANC_CONTAINER)
+
+    backup = _latest_orthanc_backup()
+    if backup is None:
+        raise HTTPException(
+            504,
+            "Orthanc has not answered for 60 s and no backup of its "
+            "configuration is available. Check its logs "
+            "(docker compose logs orthanc).",
+        )
+
+    try:
+        shutil.copy2(backup, ORTHANC_JSON)
+        await _request_restart()
+    except Exception as e:  # noqa: BLE001 - we are already in the worst case
+        await _audit("orthanc.rollback.failed", admin.username,
+                     backup=backup.name, error=str(e))
+        raise HTTPException(
+            500,
+            f"Orthanc is not answering, and restoring {backup.name} failed "
+            f"({e}). Manual intervention required.",
+        ) from e
+
+    if await _wait_for_orthanc():
+        await _audit("orthanc.rolled_back", admin.username, backup=backup.name)
+        raise HTTPException(
+            502,
+            f"Orthanc did not restart with the new configuration: "
+            f"{backup.name} was restored, and it is answering again. The "
+            f"change was refused, the PACS is back up.",
+        )
+
+    await _audit("orthanc.rollback.no_response", admin.username,
+                 backup=backup.name)
+    raise HTTPException(
+        504,
+        f"Orthanc is still not answering after {backup.name} was restored. "
+        f"The cause therefore lies elsewhere than in the last change. Check "
+        f"its logs (docker compose logs orthanc).",
+    )
+
+
+# ============================================================================
+# Routes: /api/admin/modalities (declared DICOM devices)
+# ============================================================================
+#
+# DicomModalitiesInDatabase is enforced as true by _validate_orthanc, so a
+# device declared here is stored in the database and takes effect at once:
+# no restart, and no rewrite of orthanc.json.
+
+
+@router.get("/api/admin/modalities")
+async def list_modalities(admin: AdminUser = Depends(require_admin)):
+    """Declared DICOM devices, with their configuration.
+
+    Orthanc only returns the names; each device's configuration takes an
+    extra call. We gather them here so the display does not have to chain
+    requests.
+    """
+    r = await _orthanc("GET", "/modalities")
+    if r.status_code != 200:
+        raise HTTPException(r.status_code, f"Orthanc: {r.text[:200]}")
+
+    devices = []
+    for name in r.json():
+        detail = await _orthanc("GET", f"/modalities/{name}/configuration")
+        cfg = detail.json() if detail.status_code == 200 else {}
+        devices.append({
+            "name": name,
+            "aet": cfg.get("AET", ""),
+            "host": cfg.get("Host", ""),
+            "port": cfg.get("Port", 0),
+        })
+    devices.sort(key=lambda device: device["name"].lower())
+    return {"modalities": devices}
+
+
+@router.put("/api/admin/modalities/{name}")
+async def upsert_modality(
+    name: str,
+    payload: ModalityPayload,
+    admin: AdminUser = Depends(require_admin),
+):
+    """Declare a device, or update an existing one."""
+    if "/" in name or not name.strip():
+        raise HTTPException(400, "invalid name")
+
+    r = await _orthanc(
+        "PUT", f"/modalities/{name}",
+        json={"AET": payload.aet, "Host": payload.host, "Port": payload.port},
+    )
+    if r.status_code not in (200, 201):
+        raise HTTPException(r.status_code, f"Orthanc: {r.text[:200]}")
+
+    await _audit(
+        "orthanc.modality.saved", admin.username,
+        target=name, aet=payload.aet, host=payload.host, port=payload.port,
+    )
+    return {"ok": True}
+
+
+@router.delete("/api/admin/modalities/{name}")
+async def delete_modality(name: str, admin: AdminUser = Depends(require_admin)):
+    r = await _orthanc("DELETE", f"/modalities/{name}")
+    if r.status_code != 200:
+        raise HTTPException(r.status_code, f"Orthanc: {r.text[:200]}")
+    await _audit("orthanc.modality.deleted", admin.username, target=name)
+    return {"ok": True}
+
+
+@router.post("/api/admin/modalities/{name}/echo")
+async def echo_modality(name: str, admin: AdminUser = Depends(require_admin)):
+    """Connectivity test (C-ECHO).
+
+    Declaring a device says nothing about whether it answers. This call
+    spares having to diagnose, later on, a transfer failing for want of a
+    correct address or port.
+
+    A silent device is a result, not a failure: we answer 200 while
+    reporting it in the body, so the interface can show it rather than
+    presenting it as a server error.
+    """
+    r = await _orthanc("POST", f"/modalities/{name}/echo", json={})
+    reachable = r.status_code == 200
+    await _audit(
+        "orthanc.modality.echo", admin.username,
+        target=name, result="ok" if reachable else "failed",
+    )
+    return {
+        "reachable": reachable,
+        "detail": "" if reachable else r.text[:200],
+    }
 
 
 # ============================================================================
@@ -1084,11 +1808,13 @@ async def update_orthanc_config(
 async def cf_status(admin: AdminUser = Depends(require_admin)):
     """State of the Cloudflare Access verification.
 
-    There is nothing to set here. Cloudflare validates the service token at its
-    edge and relays a signed assertion; the origin checks that signature against
-    the team's published keys. Rotating a token is done in the Cloudflare
-    dashboard, and nothing on this side has to follow -- which is why the tab
-    reports rather than offers.
+    The service token itself is not settable here. Cloudflare validates it at
+    its edge and relays a signed assertion; the origin checks that signature
+    against the team's published keys. Rotating a token is done in the
+    Cloudflare dashboard, and nothing on this side has to follow.
+
+    What IS settable is what the origin pins: the team domain, the audience,
+    and whether verification is enforced at all.
     """
     checks = 0
     try:
@@ -1097,15 +1823,61 @@ async def cf_status(admin: AdminUser = Depends(require_admin)):
         pass
 
     return {
-        "team_domain": CF_ACCESS_TEAM_DOMAIN,
+        "team_domain": _cf_team_domain(),
         "aud_masked": (
-            CF_ACCESS_AUD[:8] + "…" + CF_ACCESS_AUD[-6:]
-            if len(CF_ACCESS_AUD) > 20 else CF_ACCESS_AUD
+            _cf_aud()[:8] + "…" + _cf_aud()[-6:]
+            if len(_cf_aud()) > 20 else _cf_aud()
         ),
-        "configured": bool(CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD),
-        "enforced": CF_ACCESS_ENFORCED,
+        "configured": bool(_cf_team_domain() and _cf_aud()),
+        "enforced": _cf_enforced(),
         "checks_ok": checks,
     }
+
+
+class CFAccessPayload(BaseModel):
+    """What the origin pins. The service token is not part of it."""
+    team_domain: str = Field(default="", max_length=255)
+    aud: str = Field(default="", max_length=128)
+    enforced: bool = False
+
+
+@router.put("/api/admin/cf-access")
+async def update_cf_access(
+    payload: CFAccessPayload,
+    admin: AdminUser = Depends(require_admin),
+):
+    """Pin the team domain, the audience and whether to enforce.
+
+    Written to the settings file and re-read on the next request: no restart,
+    and no editing of the compose file, which is the whole point -- these
+    three values used to be reachable only by recreating the container.
+
+    Enforcing without both values would answer 503 on every upload, so we
+    refuse the combination rather than let the operator lock the endpoint by
+    ticking a box.
+    """
+    team_domain = payload.team_domain.strip()
+    aud = payload.aud.strip()
+
+    if team_domain.startswith(("http://", "https://")):
+        team_domain = team_domain.split("//", 1)[1].rstrip("/")
+
+    if payload.enforced and not (team_domain and aud):
+        raise HTTPException(
+            400,
+            "enforcing requires both the team domain and the audience: "
+            "without them every upload would answer 503",
+        )
+
+    _write_setting("cf_access_team_domain", team_domain)
+    _write_setting("cf_access_aud", aud)
+    _write_setting("cf_access_enforced", payload.enforced)
+
+    await _audit(
+        "cf_access.updated", admin.username,
+        team_domain=team_domain, enforced=payload.enforced,
+    )
+    return {"ok": True, "enforced": payload.enforced}
 
 
 # ============================================================================
@@ -1123,7 +1895,7 @@ async def _cf_signing_key(kid: str):
 
     The issuer is NOT taken from the token: a forged assertion would simply
     name its own team, whose JWKS would then validate it happily. It comes from
-    CF_ACCESS_TEAM_DOMAIN, which is the whole point of pinning it.
+    the pinned team domain, which is the whole point of pinning it.
     """
     import jwt  # noqa: PLC0415 -- optional at import time, see verify_cf
 
@@ -1131,7 +1903,7 @@ async def _cf_signing_key(kid: str):
     if kid in _jwks_cache["keys"] and fresh:
         return _jwks_cache["keys"][kid]
 
-    url = f"https://{CF_ACCESS_TEAM_DOMAIN}/cdn-cgi/access/certs"
+    url = f"https://{_cf_team_domain()}/cdn-cgi/access/certs"
     async with httpx.AsyncClient(timeout=5) as client:
         r = await client.get(url)
         r.raise_for_status()
@@ -1165,10 +1937,10 @@ async def verify_cf(
 
     Fail closed throughout: anything unexpected answers 403 so nginx refuses
     the upload. 503 is reserved for "not configured", which nginx must never
-    reach in the first place -- the auth_request line and CF_ACCESS_TEAM_DOMAIN
-    belong together.
+    reach in the first place -- the auth_request line and the pinned team
+    domain belong together.
     """
-    if not CF_ACCESS_TEAM_DOMAIN or not CF_ACCESS_AUD:
+    if not _cf_team_domain() or not _cf_aud():
         return Response(status_code=503)  # not configured
     if not cf_access_jwt_assertion:
         return Response(status_code=403)
@@ -1189,8 +1961,8 @@ async def verify_cf(
             cf_access_jwt_assertion,
             key=key,
             algorithms=["RS256"],
-            audience=CF_ACCESS_AUD,
-            issuer=f"https://{CF_ACCESS_TEAM_DOMAIN}",
+            audience=_cf_aud(),
+            issuer=f"https://{_cf_team_domain()}",
         )
     except (jwt.InvalidTokenError, httpx.HTTPError, ValueError, KeyError):
         return Response(status_code=403)
@@ -1245,13 +2017,9 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
 
     # Orthanc API reachable (/system endpoint, less invasive than /tools/reset)
     try:
-        async with httpx.AsyncClient(timeout=3) as c:
-            r = await c.get(
-                f"{ORTHANC_URL}/system",
-                auth=(ORTHANC_USER, ORTHANC_PASS),
-                headers=ORTHANC_AUTH_HEADERS,
-            )
-            checks["orthanc_api"] = {"ok": r.status_code == 200, "detail": f"HTTP {r.status_code}"}
+        r = await _orthanc("GET", "/system", timeout=3)
+        checks["orthanc_api"] = {"ok": r.status_code == 200,
+                                 "detail": f"HTTP {r.status_code}"}
     except httpx.HTTPError as e:
         checks["orthanc_api"] = {"ok": False, "detail": f"HTTPError: {e}"}
 
@@ -1433,6 +2201,110 @@ def _backup_target(name: str) -> Path | None:
         if name.startswith(path.name + ".bak."):
             return path
     return None
+
+
+@router.get("/api/admin/network")
+async def admin_network_get(admin: AdminUser = Depends(require_admin)):
+    """Current public URL, and whether it can be changed from here."""
+    return {
+        "public_url": _read_env_var("PUBLIC_URL"),
+        "editable": ENV_FILE.exists(),
+    }
+
+
+class PublicUrlPayload(BaseModel):
+    public_url: str = Field(min_length=8, max_length=255)
+
+
+@router.post("/api/admin/network")
+async def admin_network(
+    payload: PublicUrlPayload,
+    admin: AdminUser = Depends(require_admin),
+):
+    """Change the public URL, in .env and in Authelia's configuration.
+
+    The domain appears once in .env and eleven times in configuration.yml --
+    every access_control rule plus the session cookie block. Changing it by
+    hand means getting all of them right; missing one leaves Authelia
+    answering 401 on everything, login page included, with nothing in the
+    interface able to repair it.
+
+    Takes effect once the stack restarts, and requires logging back in at the
+    new address: the session cookie is bound to the previous domain.
+    """
+    result = await _apply_public_url(payload.public_url, admin.username)
+    if not result.get("unchanged"):
+        result["restart_required"] = True
+    return result
+
+
+@router.get("/api/admin/audit")
+async def read_audit(
+    limit: int = 100,
+    admin: AdminUser = Depends(require_admin),
+):
+    """Audit log, most recent event first.
+
+    The stream had been fed since day one but nothing read it: account
+    changes, configuration writes and rejected CSRF attempts piled up with no
+    way for anyone to consult them. On a PACS that traceability matters
+    beyond convenience.
+    """
+    limit = max(1, min(limit, 500))
+    try:
+        raw = await _r().xrevrange(AUDIT_STREAM, count=limit)
+    except Exception as e:  # noqa: BLE001 - Redis down must not break the panel
+        raise HTTPException(503, f"audit log unreadable: {e}") from e
+
+    entries = []
+    for identifier, fields in raw:
+        # event, actor and ts are always there; the rest depends on the event
+        # type (target, changed fields, backup involved) and is grouped so the
+        # display does not have to know about them.
+        details = {k: v for k, v in fields.items()
+                   if k not in ("event", "actor", "ts")}
+        entries.append({
+            "id": identifier,
+            "event": fields.get("event", "?"),
+            "actor": fields.get("actor", "?"),
+            "ts": int(fields.get("ts", 0) or 0),
+            "details": details,
+        })
+
+    return {"entries": entries, "count": len(entries)}
+
+
+@router.post("/api/admin/backups")
+async def create_backup(admin: AdminUser = Depends(require_admin)):
+    """Deliberate backup of the configuration files.
+
+    Copies were only ever created in reaction to a panel write: taking a
+    restore point before a risky operation -- a version upgrade, an edit made
+    by hand -- was impossible, although that is precisely when one wants it.
+    """
+    files = [
+        (AUTHELIA_YML, "accounts"),
+        (ORTHANC_JSON, "Orthanc configuration"),
+        (AUTHELIA_CONFIG, "Authelia configuration"),
+    ]
+
+    created, skipped = [], []
+    for path, label in files:
+        if path and path.exists():
+            try:
+                dest = _backup(path, tag="manual")
+                created.append(dest.name)
+            except OSError as e:  # disk full, insufficient rights
+                skipped.append(f"{label}: {e}")
+        else:
+            skipped.append(f"{label}: file missing")
+
+    if not created:
+        raise HTTPException(
+            500, "no file could be backed up: " + "; ".join(skipped))
+
+    await _audit("backup.created", admin.username, files=",".join(created))
+    return {"ok": True, "created": created, "skipped": skipped}
 
 
 @router.get("/api/admin/backups")
