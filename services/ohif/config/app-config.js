@@ -9,6 +9,38 @@ const urlParams = new URLSearchParams(window.location.search);
 const shareToken = urlParams.get('token');
 
 window.config = {
+
+  // =============================================================================
+  // LIBELLES FRANCAIS DE LA LISTE D'ETUDES (necessaire depuis OHIF 3.13)
+  // =============================================================================
+  // La liste d'etudes a ete reecrite en 3.13 : elle vient desormais de
+  // @ohif/ui-next, dont les composants portent leurs libelles en dur, sans
+  // aucun appel a t(). Les fichiers de traduction fr/ n'y peuvent rien -- en
+  // 3.12 c'etait WorkList.tsx qui appelait t('StudyList:Modality'), ce code
+  // n'existe plus.
+  //
+  // On passe donc par customizationService. On ne REMPLACE pas les colonnes :
+  // une colonne fournie en donnee perd ses cellules (jetons de modalite, mise
+  // en forme des dates) et redevient du texte brut. L'operateur $set ne
+  // reecrit que meta.label et laisse le reste intact.
+  //
+  // Les index suivent l'ordre de StudyList.defaultColumns :
+  //   0 patient  1 mrn  2 studyDateTime  3 modalities
+  //   4 description  5 accession  6 instances  7 actions
+  //
+  // Accents en \uXXXX volontairement : ce fichier est servi sans en-tete de
+  // charset, un accent brut ressortirait en mojibake selon le navigateur.
+  customizationService: {
+    'workList.columns': {
+      '0': { meta: { label: { $set: 'Nom du patient' } } },
+      '1': { meta: { label: { $set: 'Num\u00e9ro DSN' } } },
+      '2': { meta: { label: { $set: 'Date de l\u2019\u00e9tude' } } },
+      '3': { meta: { label: { $set: 'Modalit\u00e9' } } },
+      '4': { meta: { label: { $set: 'Description' } } },
+      '5': { meta: { label: { $set: 'Num\u00e9ro d\u2019acc\u00e8s' } } },
+      '6': { meta: { label: { $set: 'Instances' } } },
+    },
+  },
   // =============================================================================
   // ROUTING & UI CONFIGURATION
   // =============================================================================
