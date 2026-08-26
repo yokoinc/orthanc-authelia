@@ -5,14 +5,22 @@
 # ===============================================
 
 # Environment variables (contains sensitive data)
+#
+# ENUMERER LES SUFFIXES NE MARCHE PAS. Cette liste a ete une enumeration
+# (.env.local, .env.bak, .env.bak.*) et elle a laisse passer, le 2026-08-26,
+# `.env.avant-rotation-20260826-040016` : les cinq secrets fraichement
+# generes se sont retrouves indexes, prets a partir sur un depot PUBLIC,
+# une heure apres avoir ete changes precisement parce qu'ils avaient fuite.
+# Un `git add -A` suffisait.
+#
+# Regle : on ignore TOUT ce qui commence par .env, et on rouvre nommement
+# les seuls fichiers destines a etre publies.
 .env
-.env.local
-.env.production
-.env.development
-
-# Backup environment files
-.env.backup
-.env.bak
+.env.*
+!.env.example
+!.env.*.example
+# Verrous poses par filelock pendant une ecriture du panel.
+*.lock
 
 # ===============================================
 # Docker and Container Data
@@ -73,10 +81,24 @@ orthanc.log
 *.p12
 *.pfx
 
-# Authelia database and config with secrets
-services/authelia/config/db.sqlite3
-services/authelia/config/notification.txt
-services/authelia/config/users_database.yml
+# Fichiers propres a l'installation, porteurs de secrets.
+#
+# Le `*` final n'est pas decoratif : sans lui, `orthanc.json` est protege mais
+# `orthanc.json.bak-20260530-1002` ne l'est pas, et c'est justement la copie
+# qui a failli partir sur GitHub le 2026-08-25 avec le mot de passe de service
+# en clair. Meme piege pour db.sqlite3 et ses sauvegardes horodatees.
+# Toute variante -- .bak, .save, .rotation-, .avant-rotation- -- est couverte.
+services/authelia/config/db.sqlite3*
+services/authelia/config/notification.txt*
+services/authelia/config/users_database.yml*
+services/authelia/config/configuration.yml*
+services/orthanc/config/orthanc.json*
+docker-compose.yml
+docker-compose.yml.*
+docker-compose.override.yml
+docker-compose.override.yml.*
+!docker-compose.yml.example
+!docker-compose.override.yml.example
 
 # SSH keys
 id_rsa
@@ -156,9 +178,32 @@ Dockerfile.local
 *.7z
 
 # Backup files
+#
+# `*.bak` seul ne suffit pas : les sauvegardes horodatees de ce depot sont
+# nommees `fichier.bak-20260530-1002`, `docker-compose.yml.save.1`,
+# `orthanc.json.rotation-20260825-1632`... et le motif `*.bak` ne couvre
+# aucune d'entre elles. Constate le 2026-08-25 : un `git add -A` aurait
+# publie six fichiers contenant des mots de passe en clair, dont
+# `services/orthanc/config/orthanc.json.bak-20260530-1002`, alors meme que
+# `orthanc.json` est correctement ignore. Le fichier est protege, sa copie
+# ne l'etait pas.
 *.bak
+*.bak-*
+*.bak.*
 *.backup
+*.backup-*
 *.old
+*.save
+*.save.*
+*.rotation-*
+*.orig
+
+# Rotation ponctuelle des secrets (2026-08-25). Le paquet contient les
+# nouvelles valeurs en clair, le script les applique. Les deux disparaissent
+# une fois la rotation faite -- d'ici la, ils ne doivent surtout pas partir
+# au commit.
+.rot-bundle
+rotate-secrets.sh
 
 # ===============================================
 # PACS Specific Files
@@ -178,6 +223,10 @@ Dockerfile.local
 
 # OHIF build artifacts
 services/ohif/docker/*/platform/app/dist/
+# Sorties de build du frontend, quel que soit le service. Le motif ci-dessus
+# ne visait qu OHIF : les artefacts Vue de auth-service passaient au travers
+# et se faisaient indexer par un git add -A.
+dist/
 services/ohif/docker/*/platform/app/node_modules/
 services/ohif/docker/*/platform/app/.next/
 services/ohif/docker/*/platform/app/build/
