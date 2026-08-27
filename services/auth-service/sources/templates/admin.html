@@ -33,6 +33,21 @@
                                             border: 1px solid var(--oe2-border-subtle);
                                             color: var(--oe2-nav-color); padding: 5px 8px;
                                             border-radius: 2px; font-size:var(--oe2-fs-tiny); }
+        /* Le « ? » qui porte l'explication d'un reglage. Discret au repos,
+           net au survol et au focus clavier. cursor: help plutot que pointer :
+           il n'y a rien a cliquer, seulement a lire. */
+        .aide {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 14px; height: 14px; margin-left: 5px;
+            border: 1px solid var(--oe2-border); border-radius: 50%;
+            font-size: 10px; line-height: 1; font-weight: var(--oe2-fw-regular);
+            color: var(--oe2-muted); cursor: help; user-select: none;
+            vertical-align: middle;
+        }
+        .aide:hover, .aide:focus-visible {
+            color: var(--oe2-body-color); border-color: var(--oe2-accent);
+            outline: none;
+        }
         /* Le bandeau est en surimpression, pas dans le flux.
            Il vivait sous les onglets, en haut du panneau : l'operateur qui
            clique « Redemarrer Orthanc » regarde un bouton situe bien plus bas,
@@ -217,16 +232,16 @@
                 <details style="margin-top:20px">
                     <summary style="font-size:var(--oe2-fs-small);cursor:pointer;color:var(--oe2-accent-soft)">+ Déclarer un équipement</summary>
                     <form id="add-modality-form" style="margin-top:12px;max-width:520px">
-                        <div class="form-row"><label>Nom</label>
+                        <div class="form-row"><label>Nom<span class="aide" tabindex="0" role="note" title="Libelle affiche dans la liste. Purement indicatif : ce n'est pas lui qui identifie l'equipement sur le reseau DICOM, c'est l'AET.">?</span></label>
                             <input name="name" required pattern="[A-Za-z0-9._-]{1,64}"
                                    title="Lettres, chiffres, point, tiret, souligné">
                         </div>
-                        <div class="form-row"><label>AET</label>
+                        <div class="form-row"><label>AET<span class="aide" tabindex="0" role="note" title="Application Entity Title : le nom DICOM de l'equipement distant. Doit correspondre EXACTEMENT a ce qui est configure sur lui, casse comprise, sinon la connexion est refusee.">?</span></label>
                             <input name="aet" required maxlength="16"
                                    title="16 caractères maximum, imposé par la norme DICOM">
                         </div>
-                        <div class="form-row"><label>Hôte</label><input name="host" required></div>
-                        <div class="form-row"><label>Port</label>
+                        <div class="form-row"><label>Hôte<span class="aide" tabindex="0" role="note" title="Adresse IP ou nom de l'equipement distant, tel que le serveur Orthanc peut l'atteindre.">?</span></label><input name="host" required></div>
+                        <div class="form-row"><label>Port<span class="aide" tabindex="0" role="note" title="Port DICOM sur lequel l'equipement distant ecoute. 104 ou 11112 selon les constructeurs.">?</span></label>
                             <input type="number" name="port" required min="1" max="65535" value="104">
                         </div>
                         <button type="submit" class="oe2-btn oe2-btn--primary">
@@ -249,14 +264,14 @@
                 <div id="cf-status" style="font-size:var(--oe2-fs-small)">Chargement…</div>
 
                 <form id="cf-form" style="margin-top:20px;max-width:560px">
-                    <div class="form-row"><label>Domaine d'équipe</label>
+                    <div class="form-row"><label>Domaine d'équipe<span class="aide" tabindex="0" role="note" title="Domaine Cloudflare Zero Trust, de la forme monequipe.cloudflareaccess.com. Il fige l'emetteur accepte : sans lui, une assertion signee par n'importe quelle autre equipe Cloudflare serait valide.">?</span></label>
                         <input name="team_domain" placeholder="mon-equipe.cloudflareaccess.com">
                     </div>
-                    <div class="form-row"><label>Audience (AUD)</label>
+                    <div class="form-row"><label>Audience (AUD)<span class="aide" tabindex="0" role="note" title="Identifiant de l'application Cloudflare Access qui protege le depot DICOM. Fige le destinataire : une assertion emise pour une autre application de la meme equipe est refusee.">?</span></label>
                         <input name="aud" placeholder="Identifiant de l'application Cloudflare">
                     </div>
                     <div class="form-row" style="align-items:flex-start">
-                        <label>Vérification</label>
+                        <label>Vérification<span class="aide" tabindex="0" role="note" title="Quand elle est active, nginx exige une assertion Cloudflare valide sur /api-upload/. A n'activer qu'une fois le domaine d'equipe ET l'audience renseignes, sinon tout depot est refuse.">?</span></label>
                         <div>
                             <label style="font-weight:normal;display:flex;gap:6px;align-items:center">
                                 <input type="checkbox" name="enforced" style="width:auto">

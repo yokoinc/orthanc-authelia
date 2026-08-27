@@ -961,6 +961,58 @@ ORTHANC_EDITABLE_PATHS = {
 }
 
 
+# A quoi sert chaque reglage, en une phrase. L'onglet Orthanc affichait le nom
+# brut de la cle et rien d'autre : "DicomAlwaysAllowStore" ou "StableAge" ne
+# disent rien a qui n'a pas lu la documentation d'Orthanc, et un PACS se regle
+# rarement par un specialiste d'Orthanc. Sert d'infobulle sur le "?" a cote de
+# chaque champ.
+ORTHANC_AIDE = {
+    "Name": "Nom de cette instance, affiche dans l'interface et annonce aux autres serveurs.",
+    "DicomAet": "Identifiant DICOM de ce serveur (Application Entity Title). C'est le nom que les modalites doivent connaitre pour lui envoyer des images.",
+    "RemoteAccessAllowed": "Autorise l'acces a l'API depuis une autre machine que le serveur lui-meme. Necessaire ici, nginx etant dans un autre conteneur.",
+    "DicomServerEnabled": "Active le service DICOM. Sans lui, aucune modalite ne peut envoyer d'images directement.",
+    "DicomPort": "Port d'ecoute DICOM. 4242 par convention ; a declarer a l'identique sur les modalites.",
+    "DicomCheckCalledAet": "Refuse les connexions dont l'AET appele ne correspond pas au notre. Protege d'un envoi mal adresse.",
+    "DicomAlwaysAllowEcho": "Accepte les tests de connectivite (C-ECHO) de n'importe quel equipement, meme inconnu. Sans risque : aucun echange de donnees.",
+    "DicomAlwaysAllowStore": "Accepte l'ENVOI D'IMAGES de n'importe quel equipement, meme non declare. Pratique, mais laisse n'importe qui deposer sur le PACS s'il atteint le port DICOM.",
+    "DicomAlwaysAllowFind": "Accepte les RECHERCHES d'un equipement non declare. Une recherche revele des noms de patients.",
+    "DicomAlwaysAllowMove": "Accepte les demandes de TRANSFERT d'un equipement non declare : il peut se faire envoyer des etudes.",
+    "DicomScpTimeout": "Delai, en secondes, avant d'abandonner une connexion DICOM entrante qui ne repond plus.",
+    "DicomThreadsCount": "Nombre de connexions DICOM traitees simultanement.",
+    "DicomModalitiesInDatabase": "Conserve la liste des modalites en base plutot que dans le fichier de configuration. Necessaire pour que l'onglet Modalites survive a un redemarrage.",
+    "OrthancPeersInDatabase": "Idem pour la liste des autres serveurs Orthanc apparies.",
+    "StorageCompression": "Compresse les fichiers stockes. Economise de l'espace, coute du temps de calcul a chaque lecture et ecriture.",
+    "MaximumStorageSize": "Taille maximale du stockage, en Mo. 0 = sans limite. Au-dela, Orthanc supprime selon MaximumStorageMode.",
+    "MaximumPatientCount": "Nombre maximal de patients conserves. 0 = sans limite.",
+    "MaximumStorageMode": "Ce qui est supprime quand une limite ci-dessus est atteinte : les etudes les plus anciennes, ou rien (les nouveaux envois sont alors refuses).",
+    "StoreMD5ForAttachments": "Calcule une empreinte de chaque fichier pour detecter une corruption. Coute du temps de calcul a l'ecriture.",
+    "HttpPort": "Port de l'interface web et de l'API. nginx s'y connecte ; le changer impose d'ajuster nginx.",
+    "HttpTimeout": "Delai, en secondes, avant d'abandonner une requete HTTP.",
+    "HttpCompressionEnabled": "Compresse les reponses HTTP. ATTENTION : nginx injecte les entrees « Partages » et « Administration » dans le menu d'Orthanc Explorer par substitution de texte, ce qui est impossible sur une reponse compressee. Activer ceci fait disparaitre ces deux entrees, sans autre signe.",
+    "StableAge": "Delai, en secondes, sans nouvelle image avant qu'une etude soit consideree terminee. C'est ce qui declenche les traitements de fin d'examen.",
+    "OverwriteInstances": "Que faire quand une image deja presente est recue a nouveau : la remplacer, ou ignorer l'envoi.",
+    "ConcurrentJobs": "Nombre de taches de fond executees en parallele (envois, anonymisations, archives).",
+    "JobsHistorySize": "Nombre de taches terminees conservees dans l'historique.",
+    "SaveJobs": "Conserve les taches en cours au redemarrage, au lieu de les perdre.",
+    "SynchronousCMove": "Attend la fin d'un transfert avant de repondre a la modalite. Certains equipements anciens l'exigent.",
+    "LogLevel": "Verbosite des journaux. « verbose » ou « trace » sont utiles pour diagnostiquer, mais remplissent le disque.",
+    "DeidentifyLogs": "Masque les identifiants de patients dans les journaux. A laisser actif : les journaux sont souvent lus, copies et transmis.",
+    "DefaultEncoding": "Jeu de caracteres suppose quand une image n'en declare pas. Latin1 pour du materiel europeen ancien, UTF-8 sinon.",
+    "LimitFindResults": "Nombre maximal de resultats renvoyes par une recherche. Protege d'une requete trop large qui bloquerait le serveur.",
+    "LimitFindInstances": "Meme limite, appliquee au niveau des images.",
+    "IngestTranscoding": "Recompresse les images dans ce format a la reception. Economise de l'espace, mais transforme les donnees a l'arrivee.",
+    "IngestTranscodingOfUncompressed": "Applique aussi cette recompression aux images qui arrivent non compressees.",
+    "DicomWeb.Enable": "Active DICOMweb. Indispensable : c'est par la que le visualiseur OHIF lit les images.",
+    "DicomWeb.Root": "Chemin de base de l'API DICOMweb. Doit correspondre a ce que nginx proxifie et a ce que l'app-config d'OHIF appelle.",
+    "DicomWeb.EnableWado": "Active WADO-URI, l'ancien protocole de recuperation d'images. Encore utilise par certains visualiseurs.",
+    "DicomWeb.StowMaxInstances": "Nombre maximal d'images acceptees en un seul envoi STOW-RS.",
+    "DicomWeb.StowMaxSize": "Taille maximale, en Mo, d'un envoi STOW-RS.",
+    "DicomWeb.EnableMetadata": "Expose les metadonnees DICOMweb, dont le visualiseur a besoin pour afficher une etude sans telecharger toutes les images.",
+    "DicomWeb.PublicRoot": "URL de DICOMweb telle que le NAVIGATEUR la voit, qui differe du chemin interne quand on est derriere un proxy.",
+    "AcceptedTransferSyntaxes": "Formats de compression acceptes a la reception. Restreindre cette liste fait refuser les images qui arrivent dans un autre format.",
+}
+
+
 def _apply_scalar_change(config: dict, dotted: str, value: Any) -> None:
     """Set config[a][b][c] = value. Refuses if the path overwrites a dict/array."""
     if dotted not in ORTHANC_EDITABLE_PATHS:
@@ -1467,7 +1519,7 @@ async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
                 break
             node = node[k]
         result[dotted] = node
-    return {"editable": result}
+    return {"editable": result, "aide": ORTHANC_AIDE}
 
 
 @router.patch("/api/admin/orthanc/config")

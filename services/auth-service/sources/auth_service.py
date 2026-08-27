@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 import secrets
 import uuid
 import time
+import datetime
 import json
 import redis
 import os
@@ -651,7 +652,8 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
 async def decode_token(request: Request):
     body = await request.json()
     
-    token_key = body.get("token-key", "")
+    # token-key : le greffon d'Orthanc envoie le NOM du parametre ou il a
+    # trouve le jeton (par ex. "token"). Sans usage ici, on ne le lit pas.
     token_value = normalize_bearer_token(body.get("token-value", ""))
     
     # Check if token exists and is valid in Redis
@@ -676,9 +678,9 @@ async def decode_token(request: Request):
             "error-code": "invalid"
         })
     
-    resource = resources[0]
-    orthanc_id = resource.get("OrthancId", resource.get("orthanc-id", ""))
-    level = resource.get("Level", resource.get("level", "study"))
+    # Seul l'UID DICOM sert ici a construire l'URL du visualiseur, et il est
+    # deja extrait plus haut. OrthancId et Level du jeton ne servent pas a ce
+    # niveau : le perimetre est applique plus loin, par check_resource_access.
     token_type = token_data.get("token_type", "")
     
     # Generate redirect URL - always use /share/ route for token handling
@@ -717,12 +719,40 @@ async def create_token(token_type: str, request: Request):
     # Extract parameters from Authorization plugin request (PascalCase)
     request_id = body.get("Id", body.get("id", ""))
     resources = body.get("Resources", body.get("resources", []))
-    expiration_date = body.get("ExpirationDate", body.get("expiration-date"))
     validity_duration = body.get("ValidityDuration", body.get("validity-duration", DEFAULT_TOKEN_VALIDITY_SECONDS))
-    
+
     # Handle case where ValidityDuration is 0 (unlimited in Authorization Plugin)
     if validity_duration == 0:
         validity_duration = UNLIMITED_TOKEN_DURATION
+
+    # ExpirationDate : le greffon d'autorisation d'Orthanc peut demander une
+    # date d'expiration explicite au lieu d'une duree. Elle etait LUE PUIS
+    # IGNOREE -- un appelant qui demandait une date precise recevait
+    # silencieusement la duree par defaut (7 jours), sans erreur ni trace.
+    # Trouve a l'analyse statique le 2026-08-27 (variable assignee, jamais
+    # utilisee). Aucun appelant du depot ne l'envoie aujourd'hui, mais le
+    # greffon le peut : mieux vaut l'honorer que de mentir sur la duree d'un
+    # lien qui donne acces a des images de patients.
+    date_expiration = body.get("ExpirationDate", body.get("expiration-date"))
+    if date_expiration:
+        try:
+            texte = str(date_expiration).replace("Z", "+00:00")
+            instant = datetime.datetime.fromisoformat(texte)
+            if instant.tzinfo is None:
+                instant = instant.replace(tzinfo=datetime.timezone.utc)
+            restant = instant.timestamp() - time.time()
+            if restant <= 0:
+                raise HTTPException(400, "ExpirationDate est deja passee")
+            validity_duration = restant
+        except HTTPException:
+            raise
+        except (ValueError, TypeError, OverflowError) as err:
+            # On refuse plutot que de retomber sur la duree par defaut : une
+            # date mal formee doit se voir, pas produire un jeton dont personne
+            # ne connait la duree reelle.
+            raise HTTPException(
+                400, f"ExpirationDate illisible ({date_expiration!r}) : {err}"
+            ) from err
     
     # Generate unique token
     token = str(uuid.uuid4())

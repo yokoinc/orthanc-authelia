@@ -303,6 +303,30 @@ document.getElementById('add-modality-form').addEventListener('submit', async (e
     } catch (err) { showMsg(err.message, false); }
 });
 
+/**
+ * Rend un « ? » cliquable portant l'explication d'un reglage.
+ *
+ * L'onglet Orthanc affichait le nom brut de la cle et rien d'autre.
+ * "DicomAlwaysAllowStore" ou "StableAge" ne disent rien a qui n'a pas lu la
+ * documentation d'Orthanc -- et un PACS se regle rarement par un specialiste
+ * d'Orthanc.
+ *
+ * Le texte passe par title= plutot que par une infobulle maison : il survit au
+ * clavier, au lecteur d'ecran et a la copie, ce qu'une div positionnee ne fait
+ * pas gratuitement. tabindex le rend atteignable sans souris.
+ *
+ * Echappement obligatoire : ces textes viennent du serveur et finissent dans
+ * un attribut HTML.
+ */
+function aide(texte) {
+    if (!texte) return '';
+    const t = String(texte)
+        .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return ` <span class="aide" tabindex="0" role="note" title="${t}"
+                   aria-label="Explication : ${t}">?</span>`;
+}
+
 // ============ ORTHANC CONFIG ============
 async function loadOrthanc() {
     const container = document.getElementById('orthanc-fields');
@@ -321,7 +345,7 @@ async function loadOrthanc() {
             } else {
                 control = `<input type="text" id="${inputId}" data-key="${key}" value="${value ?? ''}">`;
             }
-            return `<div class="form-row"><label>${key}</label>${control}</div>`;
+            return `<div class="form-row"><label for="${inputId}">${key}${aide(data.aide?.[key])}</label>${control}</div>`;
         }).join('');
     } catch (e) {
         container.innerHTML = `<div class="msg msg--err" style="display:block">${e.message}</div>`;
@@ -544,8 +568,9 @@ async function loadSession() {
         const data = await api('/api/admin/session');
         container.innerHTML = Object.entries(data.durations).map(([key, value]) => `
             <div class="form-row">
-                <label title="${data.labels[key] || ''}">${key}</label>
-                <input name="${key}" value="${value ?? ''}" pattern="(\\d+[smhdwMy])+" required>
+                <label for="sess-${key}">${key}${aide(data.labels[key])}</label>
+                <input id="sess-${key}" name="${key}" value="${value ?? ''}"
+                       pattern="(\\d+[smhdwMy])+" required>
             </div>
             <div style="font-size:11px;color:var(--oe2-muted);margin:-6px 0 10px">
                 ${data.labels[key] || ''}
