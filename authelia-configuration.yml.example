@@ -102,6 +102,7 @@ access_control:
       resources:
         - "^/auth/admin.*$"
         - "^/api/admin/.*$"
+        - "^/auth/tokens.*$"
 
     # Authelia authentication pages - bypass authentication (must be accessible)
     - domain: ${AUTHELIA_DOMAIN}
