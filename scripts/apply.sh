@@ -54,13 +54,25 @@ sleep 6
 
 echo "== Verification =="
 docker ps --filter name=orthanc- --format '   {{.Names}} | {{.Status}}'
-echo "   --- routes ---"
-for r in /auth/ /api/state /ui/app/ /ohif/; do
-    code=$(curl -sk -o /dev/null -w '%{http_code}' -H "Host: ${DOMAIN:-pacs.yokoinc.ovh}" \
-           "https://localhost:30443$r" 2>/dev/null || echo '???')
-    printf '   %-14s %s\n' "$r" "$code"
-done
-echo "   attendu : /auth/ 200, /api/state 200, /ui/app/ 302, /ohif/ 302"
+
+# Le domaine se lit dans .env, jamais en dur. nginx reecrit Host vers DOMAIN et
+# Authelia refuse tout ce qui ne correspond pas a son domaine de cookie : tester
+# avec un domaine perime renvoie des 403 qui font croire a une panne, ou pire,
+# des 200 rassurants sur la mauvaise cible. Le panneau sait changer le domaine
+# (onglet reseau, il couvre .env et les onze occurrences de configuration.yml),
+# donc cette valeur bouge sans prevenir.
+DOMAINE=$(grep -E '^DOMAIN=' .env 2>/dev/null | cut -d= -f2- | tr -d '\r')
+if [ -z "$DOMAINE" ]; then
+    echo "   DOMAIN introuvable dans .env -- verification des routes ignoree."
+else
+    echo "   --- routes (domaine : $DOMAINE) ---"
+    for r in /auth/ /api/state /ui/app/ /ohif/; do
+        code=$(curl -sk -o /dev/null -w '%{http_code}' -H "Host: $DOMAINE" \
+               "https://localhost:30443$r" 2>/dev/null || echo '???')
+        printf '   %-14s %s\n' "$r" "$code"
+    done
+    echo "   attendu : /auth/ 200, /api/state 200, /ui/app/ 302, /ohif/ 302"
+fi
 echo "   --- erreurs nginx sur la derniere minute ---"
 docker logs --since 60s orthanc-nginx 2>&1 | grep -c 'Connection refused' || true
 echo "   (0 = les upstreams sont bien resolus)"
