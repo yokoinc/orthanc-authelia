@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 import secrets
@@ -1070,6 +1070,67 @@ async def share_redirect(request: Request):
                              ohif_url=viewer_url)
     
     return HTMLResponse(content=content)
+
+@app.get("/api/internal/verify-share", include_in_schema=False)
+def verify_share(request: Request, token: str = ""):
+    """Valide un jeton de partage pour nginx. 204 si valide, 403 sinon.
+
+    Le jeton est lu dans l'en-tete X-Original-URI, que nginx renseigne avec
+    l'URI de la requete cliente. Le parametre `token` reste accepte pour un
+    appel direct, mais nginx ne peut pas s'en servir : dans le contexte d'une
+    sous-requete auth_request, $arg_token ressort VIDE. Passer par
+    $request_uri est la seule facon fiable de faire traverser la valeur.
+
+    Remplace le contournement aveugle d'Authelia. Les regles `bypass`
+    (^/dicom-web.*token=.*$ et ^/wado.*token=.*$) se declenchaient sur la SEULE
+    PRESENCE de la chaine "token=" dans l'URL, sans rien verifier :
+
+        GET /dicom-web/studies?token=nimportequoi
+          -> 200, 264 Ko, 209 etudes, depuis Internet, sans compte.
+
+    La validation etait censee revenir au greffon d'autorisation d'Orthanc.
+    Elle n'avait jamais lieu : Orthanc n'extrait pas le parametre ?token= sur
+    /dicom-web/studies, auth-service ne le voyait donc jamais. Mesure et
+    fermeture le 2026-08-27 ; ce point d'entree est ce qui permet de rouvrir le
+    partage sans rouvrir la faille.
+
+    Modele : /api/internal/verify-cf, interroge par nginx via
+    `auth_request /_verify-cf`. Meme principe, meme discipline -- on echoue
+    ferme, tout imprevu repond 403.
+
+    NE COMPTE PAS L'USAGE. nginx appelle ce point d'entree a CHAQUE requete du
+    visualiseur : une etude, ce sont des centaines d'appels dicom-web. Y
+    brancher increment_token_usage epuiserait un jeton de 50 usages en une
+    seule consultation. Le decompte reste ou il etait, sur /share/ (une fois
+    par ouverture de lien) et dans /tokens/validate.
+    """
+    if not token:
+        uri = request.headers.get("x-original-uri", "")
+        parsed = urllib.parse.urlparse(uri)
+        token = (urllib.parse.parse_qs(parsed.query).get("token") or [""])[0]
+
+    token = normalize_bearer_token(token or "")
+    if not token:
+        return Response(status_code=403)
+
+    donnees = get_token(token)
+    if not donnees:
+        logger.warning("Partage refuse : jeton inconnu (%s...)", token[:8])
+        return Response(status_code=403)
+
+    if time.time() >= donnees.get("expires_at", 0):
+        delete_token(token)
+        logger.warning("Partage refuse : jeton expire (%s...)", token[:8])
+        return Response(status_code=403)
+
+    # Le quota reste verifie, sans etre consomme : un jeton deja epuise ne doit
+    # plus rien ouvrir, meme si /share/ ne l'a pas encore supprime.
+    if donnees.get("current_uses", 0) >= donnees.get("max_uses", 999999):
+        logger.warning("Partage refuse : quota epuise (%s...)", token[:8])
+        return Response(status_code=403)
+
+    return Response(status_code=204)
+
 
 @app.get("/health")
 def health_check():
