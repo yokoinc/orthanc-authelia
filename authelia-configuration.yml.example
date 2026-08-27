@@ -103,12 +103,35 @@ access_control:
         - "^/manifest.json$"        # Web app manifest
         - "^/favicon.ico$"          # Favicon
     
-    # Share links with tokens - bypass authentication for specific paths
+    # Liens de partage : contournement de l'authentification.
+    #
+    # ATTENTION -- ces regles se declenchent sur la SEULE PRESENCE de la chaine
+    # "token=" dans l'URL. Elles ne valident rien. La validation etait censee
+    # etre faite ensuite par le greffon d'autorisation d'Orthanc.
+    #
+    # Elle ne l'est pas. Mesure sur une installation reelle le 2026-08-27 :
+    #
+    #   GET https://<domaine>/dicom-web/studies?token=nimportequoi
+    #     -> 200, 264 Ko, 209 etudes : noms de patients, dates, descriptions.
+    #        Depuis Internet, sans compte, sans trace d'echec de connexion.
+    #
+    # Chaine complete : Authelia contourne ; Orthanc n'extrait PAS le parametre
+    # ?token= sur /dicom-web/studies (auth-service ne le voit jamais, verifie
+    # dans les journaux) ; la requete est servie sous le profil anonyme ; et
+    # l'enumeration QIDO n'est gouvernee ni par les permissions ni par la
+    # portee d'etiquettes -- les deux ont ete restreintes sans effet.
+    #
+    # Les deux regles qui donnaient acces aux DONNEES (/dicom-web et /wado) ont
+    # donc ete retirees. Les trois qui restent ne servent que les visualiseurs
+    # eux-memes (HTML, JS) : sans /dicom-web ni /wado, ils n'affichent aucune
+    # image.
+    #
+    # Consequence assumee : les liens de partage ne fonctionnent pas tant que
+    # le flux n'aura pas ete refait avec une validation reelle du jeton.
+    # NE PAS remettre ces deux lignes sans cette validation.
     - domain: ${AUTHELIA_DOMAIN}
       policy: bypass                # Allow without authentication
       resources:
-        - "^/dicom-web.*token=.*$"  # DICOM-Web API with token
-        - "^/wado.*token=.*$"       # WADO API with token
         - "^/ohif.*token=.*$"       # OHIF with token
         - "^/volview.*token=.*$"    # VolView (served at /volview/) with token
         - "^/stone-webviewer.*token=.*$"  # Stone Web Viewer with token

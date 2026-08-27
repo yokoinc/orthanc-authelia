@@ -580,7 +580,20 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
         return JSONResponse(content={
             "name": "Anonymous",
             "user-id": None,
-            "authorized-labels": ["*"],
+            # [] et NON ["*"]. La portee d'etiquettes gouverne l'ENUMERATION,
+            # independamment des permissions : avec ["*"], un anonyme sans
+            # aucun droit de lecture obtenait quand meme la liste complete des
+            # etudes par /dicom-web/studies -- noms de patients, dates,
+            # descriptions. Verifie exploitable depuis Internet le 2026-08-27,
+            # 209 etudes exposees.
+            #
+            # Le commentaire d'origine justifiait ["*"] par : "le seul chemin
+            # qui atteint Orthanc anonymement est /api-upload/, protege par
+            # Cloudflare Access". L'hypothese etait fausse : les regles bypass
+            # d'Authelia (^/dicom-web.*token=.*$ et ses quatre soeurs) se
+            # declenchent sur la simple presence de "token=" dans l'URL et
+            # ouvrent un second chemin anonyme, celui-la sans aucun garde.
+            "authorized-labels": [],
             "permissions": ["upload"],
             "groups": [],
             "validity": CACHE_VALIDITY_USER_SESSION
@@ -594,6 +607,34 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
         user_name = TRANSLATIONS["ui"]["doctor"]
         permissions = ["view", "download", "upload", "share", "send", "edit-labels"]
     else:
+        # Cette branche recevait TOUTE valeur non reconnue et lui accordait
+        # view + download sur "authorized-labels": ["*"]. C'etait une faille
+        # exploitable par n'importe qui, sans compte :
+        #
+        #   GET /dicom-web/studies?token=nimportequoi   -> 200, 209 etudes
+        #
+        # Le chemin complet : les regles `bypass` d'Authelia se declenchent sur
+        # la simple presence de "token=" dans l'URL (^/dicom-web.*token=.*$ et
+        # ses quatre soeurs) ; Orthanc appelle alors /user/get-profile avec la
+        # valeur du parametre ; et ce `else` la prenait pour un utilisateur
+        # externe legitime. Verifie exploitable depuis Internet le 2026-08-27.
+        #
+        # Les seules valeurs licites ici sont les jetons de partage, emis par ce
+        # service et conserves dans Redis. Tout le reste doit retomber sur le
+        # profil anonyme -- depot autorise, aucune lecture.
+        jeton = get_token(group)
+        if not jeton or time.time() >= jeton.get("expires_at", 0):
+            logger.warning(
+                "Profil refuse : jeton inconnu ou expire (%s...)", group[:8]
+            )
+            return JSONResponse(content={
+                "name": "Anonymous",
+                "user-id": None,
+                "authorized-labels": ["*"],
+                "permissions": ["upload"],
+                "groups": [],
+                "validity": CACHE_VALIDITY_SHARE_TOKEN
+            })
         user_name = TRANSLATIONS["ui"]["external_user"]
         permissions = ["view", "download"]
 
