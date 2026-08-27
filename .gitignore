@@ -198,10 +198,9 @@ Dockerfile.local
 *.rotation-*
 *.orig
 
-# Rotation ponctuelle des secrets (2026-08-25). Le paquet contient les
-# nouvelles valeurs en clair, le script les applique. Les deux disparaissent
-# une fois la rotation faite -- d'ici la, ils ne doivent surtout pas partir
-# au commit.
+# Paquets de secrets et scripts de rotation ponctuels. La rotation du
+# 2026-08-26 en a produit deux, tous deux supprimes depuis ; le motif reste
+# pour la prochaine, ces fichiers portant des secrets en clair.
 .rot-bundle
 rotate-secrets.sh
 
