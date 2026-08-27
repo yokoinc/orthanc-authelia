@@ -41,7 +41,8 @@ services:
       retries: 5
       start_period: 30s
     networks:
-      - orthanc-network
+      orthanc-network:
+        ipv4_address: 192.168.80.11
 
   # ---------------------------------------------------------------------------
   # OPTIONAL: Local PostgreSQL (uncomment to use instead of external database)
@@ -121,7 +122,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - orthanc-network
+      orthanc-network:
+        ipv4_address: 192.168.80.12
 
   # =============================================================================
   # AUTHENTICATION SERVICES
@@ -170,7 +172,8 @@ services:
       redis:
         condition: service_healthy
     networks:
-      - orthanc-network
+      orthanc-network:
+        ipv4_address: 192.168.80.13
 
   authelia:
     image: authelia/authelia:4.39.5
@@ -182,7 +185,8 @@ services:
     volumes:
       - ./services/authelia/config:/config
     networks:
-      - orthanc-network
+      orthanc-network:
+        ipv4_address: 192.168.80.14
     environment:
       - TZ=${TZ}
       - AUTHELIA_SESSION_SECRET=${AUTHELIA_SESSION_SECRET}
@@ -212,8 +216,9 @@ services:
     volumes:
       - ./services/orthanc/config/orthanc.json:/etc/orthanc/orthanc.json:ro
     networks:
-      - orthanc-network
-      - database  # Remove this line if using local PostgreSQL
+      orthanc-network:
+        ipv4_address: 192.168.80.15
+      database:  # Remove this line if using local PostgreSQL
     environment:
       # PostgreSQL credentials kept for backward compatibility / scripts that may
       # reference them; the actual PostgreSQL config Orthanc uses comes from
@@ -252,7 +257,8 @@ services:
     depends_on:
       - orthanc
     networks:
-      - orthanc-network
+      orthanc-network:
+        ipv4_address: 192.168.80.16
 
   # =============================================================================
   # REVERSE PROXY & LOAD BALANCER
@@ -290,7 +296,8 @@ services:
       - ohif
       - auth-service
     networks:
-      - orthanc-network
+      orthanc-network:
+        ipv4_address: 192.168.80.17
 
 # =============================================================================
 # PERSISTENT STORAGE
@@ -310,6 +317,25 @@ networks:
   orthanc-network:
     name: orthanc-network
     driver: bridge
+    # Sous-reseau declare et adresses fixes, pour une raison precise : nginx
+    # resout ses upstreams UNE SEULE FOIS, au demarrage, et garde le resultat.
+    # Recreer un conteneur lui en donne une nouvelle -- sur cette installation,
+    # authelia et auth-service ont un jour echange les leurs, et nginx a envoye
+    # les requetes d'authentification vers le panneau d'administration et
+    # inversement. Symptome : "connect() failed (111: Connection refused)" sur
+    # /api/verify, plus aucun menu dans Orthanc Explorer, plus aucune session,
+    # et rien de visible cote utilisateur.
+    #
+    # Avec des adresses fixes, la resolution mise en cache par nginx reste
+    # valable indefiniment. C'est preferable a la resolution dynamique
+    # (resolver 127.0.0.11 + variable dans proxy_pass), qui imposerait de
+    # reecrire les 38 proxy_pass de nginx.ssl.conf en reproduisant a la main la
+    # semantique d'URI de chacun -- une erreur sur /wado ou /dicom-web y perd
+    # la chaine de requete, donc les images, sans message d'erreur.
+    ipam:
+      config:
+        - subnet: 192.168.80.0/20
+          gateway: 192.168.80.1
   database:  # Remove this section if using local PostgreSQL
     external: true
     name: database

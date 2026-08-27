@@ -46,6 +46,37 @@ else
     docker-compose up -d --no-build
 fi
 
+# ---------------------------------------------------------------------------
+# Montage de .env : detection du decrochage
+# ---------------------------------------------------------------------------
+# .env est monte DANS auth-service en montage de FICHIER (et non de dossier :
+# monter la racine donnerait a un service expose au web l'acces en ecriture a
+# docker-compose.yml et aux scripts). Un montage de fichier suit l'INODE, pas
+# le chemin.
+#
+# Consequence : tout outil qui ecrit par remplacement atomique -- `sed -i`, la
+# plupart des editeurs -- cree un nouveau fichier et le renomme par-dessus.
+# L'inode change, le conteneur reste accroche a l'ancien, devenu orphelin. Il
+# lit alors indefiniment une version figee, et ses propres ecritures partent
+# dans le vide EN CROYANT REUSSIR.
+#
+# Constate le 2026-08-27 : apres la rotation des secrets (faite au `sed -i`),
+# le panneau lisait encore les anciennes valeurs, celles qui avaient fuite.
+# Rien ne le signalait.
+#
+# On ne peut pas interdire `sed -i` a tout le monde. On peut le detecter.
+if [ -f .env ] && docker ps --format '{{.Names}}' | grep -q '^orthanc-auth-service$'; then
+    INODE_HOTE=$(stat -c %i .env 2>/dev/null || echo "?")
+    INODE_CONTENEUR=$(docker exec orthanc-auth-service stat -c %i /host/env/.env 2>/dev/null || echo "?")
+    if [ "$INODE_HOTE" != "?" ] && [ "$INODE_CONTENEUR" != "?" ] \
+       && [ "$INODE_HOTE" != "$INODE_CONTENEUR" ]; then
+        echo "== .env decroche du conteneur (inode $INODE_CONTENEUR contre $INODE_HOTE) =="
+        echo "   Le panneau lisait un fichier fantome. Recreation d'auth-service."
+        docker-compose up -d --force-recreate --no-deps --no-build auth-service >/dev/null
+        sleep 4
+    fi
+fi
+
 # Toujours, sans condition. Un redemarrage de nginx coute deux secondes ;
 # oublier de le faire coute une panne d'authentification silencieuse.
 echo "== Rafraichissement des adresses vues par nginx =="
