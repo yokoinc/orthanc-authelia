@@ -1,6 +1,6 @@
 # ORTHANC-AUTHELIA
 
-Medical PACS solution based on Orthanc with Authelia authentication (SSO, 2FA, RBAC), OHIF viewer, and custom token management system.
+Medical PACS solution based on Orthanc with Authelia authentication (SSO, group-based access control), OHIF viewer, and custom token management system.
 
 **Platform Support**: x86-64 Linux only
 
@@ -8,7 +8,7 @@ Medical PACS solution based on Orthanc with Authelia authentication (SSO, 2FA, R
 
 ORTHANC-AUTHELIA is a complete Picture Archiving and Communication System (PACS) for small to medium healthcare structures. It combines:
 - **Orthanc PACS** - Industry-standard DICOM server with PostgreSQL storage
-- **Authelia** - Modern authentication with SSO and 2FA
+- **Authelia** - Single sign-on and group-based access control. **No second factor on this deployment**: every access_control rule is `one_factor`, and no TOTP or WebAuthn credential is registered. The password is the only barrier -- hence the zxcvbn policy and the tightened brute-force regulation. See docs/EXPLOITATION.md
 - **OHIF Viewer v3.12.0** - Professional medical imaging viewer
 - **Custom Auth-Service** - Token-based external sharing with OE2-themed management UI
 - **Multiple Viewers** - OHIF, Stone Web Viewer, and VolView for different use cases
@@ -54,7 +54,7 @@ Component versions as defined in `docker-compose.yml` (keep this table in sync w
         ▼                                                ▼
 ┌───────────────────┐                          ┌────────────────────┐
 │ Authelia          │ ----────> REDIS <─────── │ Auth-Service       │
-│ (SSO + 2FA)       │                          │ (token validation) │
+│ (SSO, 1 factor)   │                          │ (token validation) │
 └───────────────────┘                          └────────────────────┘
         │                                                │
         ▼                                                ▼

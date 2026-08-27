@@ -62,12 +62,23 @@ authentication_backend:
 # =============================================================================
 # PASSWORD POLICY
 # =============================================================================
-# Disabled for medical environment - managed externally
+# Cette installation n'utilise QUE le mot de passe : le second facteur est
+# ecarte. Le mot de passe est donc la seule chose entre Internet et des images
+# de patients -- raison de plus pour exiger qu'il tienne debout.
+#
+# zxcvbn plutot que `standard` : il mesure la resistance reelle a une attaque
+# par dictionnaire au lieu de compter des majuscules. "P@ssw0rd!" satisfait
+# toutes les regles de composition classiques et tombe en quelques secondes.
+# Score 3 sur 4 = "safely unguessable".
+#
+# Portee : les parcours d'Authelia (reinitialisation). La CREATION de comptes
+# passe par le panneau, qui impose 12 caracteres minimum de son cote.
 password_policy:
   standard:
-    enabled: false                  # Disable standard password requirements
+    enabled: false                  # remplace par zxcvbn, plus pertinent
   zxcvbn:
-    enabled: false                  # Disable zxcvbn password strength checker
+    enabled: true
+    min_score: 3
 
 # =============================================================================
 # ACCESS CONTROL RULES
@@ -126,9 +137,11 @@ access_control:
     # eux-memes (HTML, JS) : sans /dicom-web ni /wado, ils n'affichent aucune
     # image.
     #
-    # Consequence assumee : les liens de partage ne fonctionnent pas tant que
-    # le flux n'aura pas ete refait avec une validation reelle du jeton.
-    # NE PAS remettre ces deux lignes sans cette validation.
+    # Le partage a ete refait depuis : nginx valide le jeton par auth_request
+    # vers /_verify-share (existence en base, peremption, quota) sur /dicom-web
+    # et /wado, puis Orthanc en restreint le perimetre a l'etude couverte.
+    # NE PAS remettre ces deux lignes de contournement : la validation se fait
+    # desormais dans nginx, pas en faisant confiance a une chaine de caracteres.
     - domain: ${AUTHELIA_DOMAIN}
       policy: bypass                # Allow without authentication
       resources:
@@ -186,10 +199,17 @@ session:
 # RATE LIMITING & BRUTE FORCE PROTECTION
 # =============================================================================
 # Protect against authentication attacks
+# Sans second facteur, seule barriere contre une attaque par dictionnaire.
+# 5 essais / 2 min / 5 min de bannissement laissaient ~60 tentatives par heure
+# en continu, sans jamais bloquer durablement. 3 / 5 min / 15 min ramenent cela
+# a une douzaine : assez tolerant pour deux fautes de frappe, assez couteux
+# pour rendre l'attaque sans interet.
+#
+# Le bannissement vit dans db.sqlite3 : un redemarrage ne le leve pas.
 regulation:
-  max_retries: 5                   # Maximum failed login attempts
-  find_time: 2m                    # Time window for counting failures
-  ban_time: 5m                     # Ban duration after max retries
+  max_retries: 3                   # Maximum failed login attempts
+  find_time: 5m                    # Time window for counting failures
+  ban_time: 15m                    # Ban duration after max retries
 
 # =============================================================================
 # DATA STORAGE CONFIGURATION

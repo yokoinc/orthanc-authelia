@@ -144,9 +144,19 @@ access_control:
   default_policy: deny
 
   rules:
+    # NOTE. Cet exemple prescrivait `two_factor`, que l'installation n'applique
+    # nulle part : les quatre regles reelles sont en `one_factor`, et aucun
+    # TOTP ni WebAuthn n'est enregistre. Une documentation qui promet un second
+    # facteur absent est pire qu'une documentation muette -- on croit protege
+    # ce qui ne l'est pas. Aligne sur la realite le 2026-08-27.
+    #
+    # Passer reellement en `two_factor` reste souhaitable, mais impose
+    # d'enroler un authentificateur AVANT de basculer, sous peine de se
+    # verrouiller dehors. Ecarte pour cette installation.
+
     # Admin-only routes
     - domain: pacs.yourdomain.com
-      policy: two_factor
+      policy: one_factor
       subject:
         - "group:admin"
       resources:
@@ -154,7 +164,7 @@ access_control:
 
     # Doctor access
     - domain: pacs.yourdomain.com
-      policy: two_factor
+      policy: one_factor
       subject:
         - "group:admin"
         - "group:doctor"
