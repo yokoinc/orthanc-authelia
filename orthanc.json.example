@@ -119,7 +119,7 @@
     "WebServiceUserProfileUrl": "http://auth-service:8000/user/get-profile",
     "WebServiceTokenCreationBaseUrl": "http://auth-service:8000/tokens/",
     "WebServiceUsername": "share-user",
-    "WebServicePassword": "your-auth-password-here",
+    "WebServicePassword": "set-via-env-AUTH_PASSWORD",
     "StandardConfigurations": [
       "orthanc-explorer-2",
       "ohif",
