@@ -10,12 +10,15 @@
 #      (un par un pour rester sous la limite Cloudflare 100MB par requete)
 #   4. Les echecs sont logges dans _failed-files.txt pour retry ulterieur
 #
-# MODE RETRY (aucun CD insere) :
+# MODE REPRISE (aucun CD insere) :
 #   1. Cherche le dossier d'import le plus recent contenant un _failed-files.txt
+#      non vide ; a defaut, le plus recent qui contient encore des fichiers --
+#      un fichier est supprime des son upload reussi, donc ce qui reste n'est
+#      jamais parti (cas d'un import interrompu avant meme la phase d'upload).
 #   2. Archive l'ancienne liste, retente l'upload de chaque fichier
 #   3. Les nouveaux echecs (s'il en reste) ecrivent un nouveau _failed-files.txt
 #
-# Si ni CD ni dossier avec failed-files trouves -> erreur explicite.
+# Si ni CD ni dossier exploitable -> erreur explicite.
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -388,42 +391,91 @@ if ($drive) {
     # un _failed-files.txt non vide, et on retente les uploads.
     Update-Status -Phase 'Pas de CD - recherche d''un retry possible...' -Max 0
 
-    $candidate = Get-ChildItem -Path $importBase -Directory -ErrorAction SilentlyContinue |
-        Where-Object {
-            $f = Join-Path $_.FullName '_failed-files.txt'
-            (Test-Path $f) -and ((Get-Item $f).Length -gt 0)
-        } |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
+    # Deux pistes, dans cet ordre.
+    #
+    # 1. Un _failed-files.txt non vide : la piste precise. L'upload a eu lieu et
+    #    a laisse la liste de ce qui n'est pas passe.
+    #
+    # 2. A defaut, un dossier qui contient encore des fichiers. C'est un
+    #    invariant du script : chaque fichier est supprime des son upload reussi,
+    #    et le dossier date est efface quand tout est passe. Un fichier encore
+    #    la n'a donc JAMAIS ete envoye.
+    #
+    # La piste 2 manquait, et c'est exactement le cas qu'ouvrait le plantage CRC :
+    # l'import mourait pendant la copie, donc avant tout upload, donc sans jamais
+    # ecrire de _failed-files.txt. Cinq dossiers de 790 images copiees attendaient
+    # ainsi sur le disque pendant que le script repondait « aucun dossier ne
+    # contient de fichiers a retenter ».
+    $tousDossiers = @(Get-ChildItem -Path $importBase -Directory -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending)
+
+    $candidate = $tousDossiers | Where-Object {
+        $f = Join-Path $_.FullName '_failed-files.txt'
+        (Test-Path $f) -and ((Get-Item $f).Length -gt 0)
+    } | Select-Object -First 1
+
+    $reprisePartielle = $false
+    if (-not $candidate) {
+        $candidate = $tousDossiers | Where-Object {
+            @(Get-ChildItem -LiteralPath $_.FullName -Recurse -File -Force -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -notlike '_*' -and $_.Name -ne 'DICOMDIR' }).Count -gt 0
+        } | Select-Object -First 1
+        if ($candidate) { $reprisePartielle = $true }
+    }
 
     if (-not $candidate) {
-        Fail "Aucun CD insere, et aucun dossier dans $importBase ne contient de fichiers a retenter."
+        Fail "Aucun CD insere, et aucun dossier dans $importBase ne contient de fichiers a envoyer."
     }
 
     $mode = 'retry'
     $dst = $candidate.FullName
-    $srcRoot = "(retry du dossier $($candidate.Name))"
+    $srcRoot = "(reprise du dossier $($candidate.Name))"
     $previousFailedPath = Join-Path $dst '_failed-files.txt'
-
-    # Lit la liste, ne garde que les fichiers qui existent toujours sur disque
     $dicomFiles = New-Object System.Collections.Generic.List[string]
-    Get-Content -Path $previousFailedPath -Encoding UTF8 | ForEach-Object {
-        $line = $_.Trim()
-        if ($line -and (Test-Path -LiteralPath $line)) {
-            $dicomFiles.Add($line)
+
+    if ($reprisePartielle) {
+        # Import interrompu avant l'upload : on reprend tout ce qui est la.
+        # On revalide la signature DICM plutot que de faire confiance au nom :
+        # un fichier tronque par une erreur de lecture ne doit pas partir.
+        # DICOMDIR est ecarte, Orthanc n'en fait rien.
+        Update-Status -Phase 'Reprise : verification des fichiers copies...' -Max 0
+        foreach ($f in (Get-ChildItem -LiteralPath $dst -Recurse -File -Force -ErrorAction SilentlyContinue)) {
+            if ($f.Name -like '_*' -or $f.Name -eq 'DICOMDIR' -or $f.Length -lt 132) { continue }
+            $fs = $null
+            try {
+                $fs = [System.IO.File]::OpenRead($f.FullName)
+                $fs.Seek(128, 'Begin') | Out-Null
+                $buf = New-Object byte[] 4
+                $null = $fs.Read($buf, 0, 4)
+                if ($buf[0] -eq 0x44 -and $buf[1] -eq 0x49 -and $buf[2] -eq 0x43 -and $buf[3] -eq 0x4D) {
+                    $dicomFiles.Add($f.FullName)
+                }
+            } catch { }
+            finally { if ($fs) { $fs.Close() } }
+        }
+    } else {
+        # Lit la liste, ne garde que les fichiers qui existent toujours sur disque
+        Get-Content -Path $previousFailedPath -Encoding UTF8 | ForEach-Object {
+            $line = $_.Trim()
+            if ($line -and (Test-Path -LiteralPath $line)) {
+                $dicomFiles.Add($line)
+            }
         }
     }
     $copied = $dicomFiles.Count
 
     if ($copied -eq 0) {
-        Fail "_failed-files.txt trouve mais aucun fichier listing ne existe encore sur disque: $previousFailedPath"
+        Fail "Dossier $($candidate.Name) retenu, mais aucun fichier DICOM exploitable n'y subsiste."
     }
 
     # Archive l'ancienne liste pour historique (les nouveaux echecs ecriront un fichier vierge)
-    $archivedPath = Join-Path $dst ("_failed-files.txt.previous-" + (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'))
-    Move-Item -LiteralPath $previousFailedPath -Destination $archivedPath -Force
+    if (Test-Path $previousFailedPath) {
+        $archivedPath = Join-Path $dst ("_failed-files.txt.previous-" + (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'))
+        Move-Item -LiteralPath $previousFailedPath -Destination $archivedPath -Force
+    }
 
-    Update-Status -Phase "PHASE 2/2 : Mode retry ($copied fichier(s) a retenter)" -Current 0 -Max $copied -Counter "0 / $copied" -Details "Source: $($candidate.Name)"
+    $libelle = if ($reprisePartielle) { 'import interrompu' } else { 'retry' }
+    Update-Status -Phase "PHASE 2/2 : Reprise ($libelle) - $copied fichier(s)" -Current 0 -Max $copied -Counter "0 / $copied" -Details "Source: $($candidate.Name)"
 }
 
 # --- Upload Orthanc fichier par fichier
