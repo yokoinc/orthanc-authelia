@@ -773,8 +773,20 @@ async def create_token(token_type: str, request: Request):
     # Generate URL based on token type
     base_url = get_base_url(request)
     
-    if token_type == "viewer-instant-link":
-        # For instant links, no URL returned - Explorer 2 builds it directly
+    # Les jetons « instant-link » servent a signer une action qu'Explorer 2
+    # declenche lui-meme : il construit l'URL et n'attend de nous que le jeton.
+    # Orthanc en demande trois -- viewer-instant-link, download-instant-link et
+    # meddream-instant-link (vus dans ses journaux).
+    #
+    # Seul viewer-instant-link etait reconnu. Les deux autres tombaient dans la
+    # branche « publication » et recevaient une URL /share/?token=... ;
+    # Explorer 2 y navigue, et /share/ ne connait pas ce type de jeton : il
+    # retombe sur son visualiseur par defaut. Resultat : cliquer « telecharger
+    # l'etude » ouvrait l'etude dans OHIF au lieu de livrer le fichier.
+    #
+    # Le test porte donc sur le suffixe, pas sur un nom precis : un futur
+    # <quelquechose>-instant-link se comportera correctement d'office.
+    if token_type.endswith("-instant-link"):
         response_data = {
             "Token": token,  # PascalCase for Authorization Plugin
             "Url": None      # Explorer 2 will build the URL directly
