@@ -97,8 +97,8 @@ def _require_orthanc_creds():
     if not ORTHANC_USER or not ORTHANC_PASS:
         raise HTTPException(
             503,
-            "ORTHANC_ADMIN_USER/ORTHANC_ADMIN_PASS not configured in .env — "
-            "the endpoint is available but cannot call Orthanc",
+            "ORTHANC_ADMIN_USER/ORTHANC_ADMIN_PASS ne sont pas definis dans .env — "
+            "la route repond mais ne peut pas appeler Orthanc",
         )
 
 AUTHELIA_YML = Path(os.getenv("ADMIN_AUTHELIA_PATH", "/host/authelia.yml"))
@@ -298,8 +298,8 @@ def _write_setting(name: str, value: Any) -> None:
     except OSError as e:
         raise HTTPException(
             503,
-            f"settings directory not writable ({e}). Check that "
-            f"'{SETTINGS_FILE.parent}' is bind-mounted read-write on "
+            f"dossier de reglages non modifiable ({e}). Verifiez que "
+            f"'{SETTINGS_FILE.parent}' est monte en lecture-ecriture sur "
             f"auth-service.",
         ) from e
 
@@ -335,9 +335,9 @@ def _write_env_var(name: str, value: str) -> None:
     if not ENV_FILE.exists():
         raise HTTPException(
             503,
-            "the .env file is not reachable from the container. Add the mount "
-            "'./.env:/host/env/.env:rw' to the auth-service service, then "
-            "recreate the container.",
+            "le fichier .env n'est pas accessible depuis le conteneur. Ajoutez le montage "
+            "'./.env:/host/env/.env:rw' au service auth-service, puis "
+            "recreez le conteneur.",
         )
     _backup(ENV_FILE, tag="network")
     lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
@@ -360,23 +360,23 @@ def _normalise_public_url(raw: str) -> tuple[str, str]:
     """
     parsed = urlparse(raw.strip())
     if parsed.scheme != "https":
-        raise HTTPException(400, "the public URL must start with https://")
+        raise HTTPException(400, "L'adresse publique doit commencer par https://")
     if not parsed.hostname:
-        raise HTTPException(400, "host missing from the public URL")
+        raise HTTPException(400, "adresse publique sans nom d'hote")
     if parsed.path.strip("/"):
         raise HTTPException(
             400,
-            "give the origin alone, with no path "
-            "(for example https://pacs.example.org)",
+            "indiquez l'origine seule, sans chemin "
+            "(par exemple https://pacs.example.org)",
         )
     # RFC 6265: some browsers drop a cookie set on a host without a dot.
     # "localhost" is the exception, "mypacs" is not.
     if "." not in parsed.hostname and parsed.hostname != "localhost":
         raise HTTPException(
             400,
-            f"'{parsed.hostname}' has no dot: browsers will refuse the session "
-            f"cookie. Use a fully qualified name (pacs.example.org) or "
-            f"pacs.localhost.",
+            f"'{parsed.hostname}' ne contient pas de point : les navigateurs refuseront "
+            f"le cookie de session. Utilisez un nom pleinement qualifie (pacs.example.org) "
+            f"ou pacs.localhost.",
         )
     return f"https://{parsed.netloc}", parsed.hostname
 
@@ -403,8 +403,8 @@ def _retarget_authelia_config(previous_origin: str, previous_host: str,
     if not total:
         raise HTTPException(
             500,
-            f"no trace of '{previous_host}' in configuration.yml: the file was "
-            f"edited by hand, change aborted",
+            f"aucune trace de '{previous_host}' dans configuration.yml : le fichier a "
+            f"ete modifie a la main, changement abandonne",
         )
     _backup(AUTHELIA_CONFIG, tag="network")
     # Full origin first: replacing the bare host would otherwise turn
@@ -469,10 +469,10 @@ async def require_admin(request: Request) -> AdminUser:
     username = request.headers.get("remote-user", "")
     groups_raw = request.headers.get("remote-groups", "")
     if not username:
-        raise HTTPException(401, "authentication required")
+        raise HTTPException(401, "authentification requise")
     groups = [g.strip() for g in groups_raw.split(",") if g.strip()]
     if ADMIN_GROUP not in groups:
-        raise HTTPException(403, f"group {ADMIN_GROUP} required")
+        raise HTTPException(403, f"groupe {ADMIN_GROUP} requis")
     return AdminUser(username=username, groups=groups)
 
 
@@ -654,14 +654,14 @@ def _load_authelia() -> dict:
     try:
         raw = AUTHELIA_YML.read_text(encoding="utf-8")
     except OSError as e:
-        raise HTTPException(500, f"authelia yml unreadable: {e}") from e
+        raise HTTPException(500, f"users_database.yml illisible : {e}") from e
     try:
         data = yaml.safe_load(raw)
     except yaml.YAMLError as e:
         raise HTTPException(
             500,
-            f"authelia yml corrupt: {e}. Restore a backup through "
-            "POST /api/admin/backups/restore.",
+            f"users_database.yml corrompu : {e}. Restaurez une sauvegarde depuis "
+            "l'onglet Sauvegardes du panneau.",
         ) from e
     return data or {"users": {}}
 
@@ -812,14 +812,14 @@ def _load_orthanc_config() -> dict:
     try:
         raw = ORTHANC_JSON.read_text(encoding="utf-8")
     except OSError as e:
-        raise HTTPException(500, f"orthanc.json unreadable: {e}") from e
+        raise HTTPException(500, f"orthanc.json illisible : {e}") from e
     try:
         return json.loads(_mask_jsonc_comments(raw))
     except json.JSONDecodeError as e:
         raise HTTPException(
             500,
-            f"orthanc.json corrupt: {e}. Restore a backup through "
-            "POST /api/admin/backups/restore.",
+            f"orthanc.json corrompu : {e}. Restaurez une sauvegarde depuis "
+            "l'onglet Sauvegardes du panneau.",
         ) from e
 
 
@@ -861,7 +861,7 @@ def _write_authelia(data: dict) -> None:
             _validate_authelia(reloaded)
             _atomic_write(AUTHELIA_YML, serialized)
     except Timeout as e:
-        raise HTTPException(423, "file locked by another admin, retry in 5s") from e
+        raise HTTPException(423, "fichier verrouille par un autre administrateur, reessayez dans 5 s") from e
 
 
 # An account's identity is the key it has in users_database.yml -- that is what
@@ -906,6 +906,17 @@ def _verifier_groupes(groupes: list[str]) -> None:
             f"Valeurs acceptees : {', '.join(sorted(GROUPES_CONNUS))}. "
             "Un groupe absent des regles d'Authelia donne un compte qui se "
             "connecte mais recoit 403 sur tout."
+        )
+    # Un seul groupe. Ce ne sont pas des droits qui s'additionnent mais trois
+    # roles exclusifs, et rien en aval ne sait cumuler : les regles d'Authelia
+    # s'arretent a la PREMIERE qui correspond, et la carte $groups de nginx
+    # choisit un seul jeton. « admin + external » ne donne donc pas un acces
+    # restreint, il donne admin -- l'inverse de ce que l'operateur croit cocher.
+    if len(set(groupes)) > 1:
+        raise ValueError(
+            f"un seul groupe par compte (recu : {', '.join(groupes)}). "
+            "Les trois roles sont exclusifs : Authelia applique la premiere "
+            "regle qui correspond, donc cumuler ne restreint rien, cela elargit."
         )
 
 
@@ -1241,14 +1252,14 @@ async def _request_restart() -> None:
     if r.status_code == 404:
         raise HTTPException(
             502,
-            f"Container '{ORTHANC_CONTAINER}' not found. Check "
-            f"ORTHANC_CONTAINER in the compose file.",
+            f"Conteneur '{ORTHANC_CONTAINER}' introuvable. Verifiez "
+            f"ORTHANC_CONTAINER dans le fichier compose.",
         )
     if r.status_code not in (204, 304):
         raise HTTPException(
             502,
-            f"The Docker proxy refused the restart (HTTP {r.status_code}). "
-            f"Check ALLOW_RESTARTS on the socket-proxy service.",
+            f"Le proxy Docker a refuse le redemarrage (HTTP {r.status_code}). "
+            f"Verifiez ALLOW_RESTARTS sur le service socket-proxy.",
         )
 
 
@@ -1268,8 +1279,8 @@ def _require_orthanc_creds() -> None:
     if not ORTHANC_USER or not ORTHANC_PASS:
         raise HTTPException(
             503,
-            "ORTHANC_ADMIN_USER/ORTHANC_ADMIN_PASS are not set in .env -- the "
-            "endpoint is reachable but cannot call Orthanc",
+            "ORTHANC_ADMIN_USER/ORTHANC_ADMIN_PASS ne sont pas definis dans .env -- la "
+            "route repond mais ne peut pas appeler Orthanc",
         )
 
 
@@ -1370,18 +1381,26 @@ async def setup_create_admin(payload: UserCreatePayload):
     To add further admins afterwards: POST /api/admin/users (auth required).
     """
     if (await _r().get(SETUP_KEY)) == "1":
-        raise HTTPException(409, "setup already finalised, use /api/admin/users")
+        raise HTTPException(409, "installation deja finalisee : passez par la gestion des comptes")
     if (await _r().get(SETUP_FIRST_ADMIN_KEY)) == "1":
         raise HTTPException(
             409,
-            "an admin has already been created — finalise the setup (POST "
-            "/auth/setup/finalize) then use /api/admin/users to add more",
+            "un administrateur existe deja — finalisez l'installation, puis "
+            "utilisez la gestion des comptes pour en ajouter d'autres",
         )
-    if ADMIN_GROUP not in payload.groups:
-        payload.groups.append(ADMIN_GROUP)
+    # Le tout premier compte est l'administrateur, point. On REMPLACE la liste
+    # au lieu d'y ajouter le groupe : un append aurait produit « admin +
+    # doctor », un cumul que le reste de la chaine ne sait pas traiter (Authelia
+    # s'arrete a la premiere regle qui correspond) et que _verifier_groupes
+    # refuse desormais.
+    payload.groups = [ADMIN_GROUP]
     data = _load_authelia()
     if payload.username in data.get("users", {}):
-        raise HTTPException(409, f"user {payload.username} already exists")
+        raise HTTPException(
+            409,
+            f"L'adresse {payload.username} est deja utilisee. Elle identifie "
+            "le compte et ne peut pas servir deux fois.",
+        )
     data.setdefault("users", {})[payload.username] = {
         "disabled": False,
         "displayname": payload.displayname,
@@ -1400,10 +1419,10 @@ async def setup_create_admin(payload: UserCreatePayload):
 async def setup_finalize():
     """Final step: check the active-admin invariant, then flip the flag."""
     if (await _r().get(SETUP_KEY)) == "1":
-        raise HTTPException(409, "setup already finalised")
+        raise HTTPException(409, "installation deja finalisee")
     admins = _active_admins(_load_authelia())
     if not admins:
-        raise HTTPException(400, "create an admin first (POST /auth/setup/create-admin)")
+        raise HTTPException(400, "creez d'abord un administrateur")
     await _r().set(SETUP_KEY, "1")
     await _r().delete(SETUP_FIRST_ADMIN_KEY)  # setup lock lifted, no longer useful
     await _audit("setup.finalized", actor="wizard", admin_count=len(admins))
@@ -1436,7 +1455,20 @@ async def list_users(admin: AdminUser = Depends(require_admin)):
 async def add_user(payload: UserCreatePayload, admin: AdminUser = Depends(require_admin)):
     data = _load_authelia()
     if payload.username in data.get("users", {}):
-        raise HTTPException(409, "user already exists")
+        # L'adresse EST l'identifiant : c'est la cle qu'Authelia cherche dans
+        # users_database.yml. Le message doit le dire, sinon l'operateur voit un
+        # refus sur un formulaire ou il n'a jamais saisi de « nom d'utilisateur ».
+        # Et il doit mentionner le compte desactive : celui-ci occupe toujours
+        # l'adresse tout en n'apparaissant pas comme un compte vivant.
+        existant = data["users"][payload.username]
+        etat = "desactive" if existant.get("disabled") else "actif"
+        raise HTTPException(
+            409,
+            f"L'adresse {payload.username} est deja utilisee par un compte "
+            f"{etat}. C'est elle qui identifie le compte : elle ne peut pas "
+            "servir deux fois. Modifiez le compte existant, ou supprimez-le "
+            "avant de recreer l'adresse.",
+        )
     data.setdefault("users", {})[payload.username] = {
         "disabled": False,
         "displayname": payload.displayname,
@@ -1457,7 +1489,7 @@ async def change_password(
 ):
     data = _load_authelia()
     if username not in data.get("users", {}):
-        raise HTTPException(404, "unknown user")
+        raise HTTPException(404, "compte inconnu")
     data["users"][username]["password"] = _hasher.hash(payload.new_password)
     _write_authelia(data)
     await _audit("authelia.password.changed", admin.username, target=username)
@@ -1484,16 +1516,34 @@ async def update_user(
     """
     data = _load_authelia()
     if username not in data.get("users", {}):
-        raise HTTPException(404, "unknown user")
+        raise HTTPException(404, "compte inconnu")
 
     info = data["users"][username]
     modified = []
     if payload.displayname is not None:
         info["displayname"] = payload.displayname
         modified.append("displayname")
-    if payload.email is not None:
-        info["email"] = str(payload.email)
+    # Changer l'adresse, c'est RENOMMER le compte. L'adresse est la cle sous
+    # laquelle Authelia range le compte dans users_database.yml, et c'est donc
+    # elle qu'on saisit pour se connecter -- le champ `email:` n'en est qu'une
+    # copie. Le code ne mettait a jour que cette copie : l'operateur voyait la
+    # nouvelle adresse dans la liste, et la personne continuait a devoir se
+    # connecter avec l'ancienne. Un ecart muet, decouvert seulement au prochain
+    # essai de connexion.
+    nouveau_nom = username
+    if payload.email is not None and str(payload.email) != username:
+        nouveau_nom = str(payload.email)
+        if nouveau_nom in data["users"]:
+            raise HTTPException(
+                409,
+                f"L'adresse {nouveau_nom} est deja utilisee par un autre "
+                "compte. Elle sert d'identifiant : elle ne peut pas etre "
+                "partagee.",
+            )
+        info["email"] = nouveau_nom
         modified.append("email")
+    elif payload.email is not None:
+        info["email"] = str(payload.email)
     if payload.groups is not None:
         info["groups"] = payload.groups
         modified.append("groups")
@@ -1502,14 +1552,20 @@ async def update_user(
         modified.append("disabled")
 
     if not modified:
-        raise HTTPException(400, "no field to change")
+        raise HTTPException(400, "aucun champ a modifier")
+
+    # Le renommage se fait apres coup, pour que les controles ci-dessus aient
+    # travaille sur l'entree encore en place. Le mot de passe suit l'entree :
+    # il vit dans info, on ne le retouche pas.
+    if nouveau_nom != username:
+        data["users"][nouveau_nom] = data["users"].pop(username)
 
     if not _active_admins(data):
         raise HTTPException(
             400,
-            f"this change would leave no active administrator: {username} is "
-            f"the last one. Removing it from the admin group, or disabling "
-            f"it, would leave the stack with nobody able to administer it.",
+            f"ce changement ne laisserait aucun administrateur actif : {username} est "
+            f"le dernier. Le retirer du groupe admin, ou le desactiver, priverait "
+            f"l'installation de toute administration.",
         )
 
     _write_authelia(data)
@@ -1517,16 +1573,18 @@ async def update_user(
         "authelia.user.updated", admin.username, target=username,
         fields=",".join(modified),
     )
-    return {"ok": True, "modified": modified}
+    # renomme : signale a l'interface qu'il faut prevenir l'operateur --
+    # la personne devra se connecter avec la nouvelle adresse.
+    return {"ok": True, "modified": modified, "renomme": nouveau_nom if nouveau_nom != username else None}
 
 
 @router.delete("/api/admin/users/{username}")
 async def delete_user(username: str, admin: AdminUser = Depends(require_admin)):
     if username == admin.username:
-        raise HTTPException(400, "you cannot delete yourself")
+        raise HTTPException(400, "vous ne pouvez pas supprimer votre propre compte")
     data = _load_authelia()
     if username not in data.get("users", {}):
-        raise HTTPException(404, "unknown user")
+        raise HTTPException(404, "compte inconnu")
 
     # Refuse BEFORE touching anything. _validate_authelia does catch the case,
     # but only once _write_authelia is under way, and it raises a bare
@@ -1537,10 +1595,10 @@ async def delete_user(username: str, admin: AdminUser = Depends(require_admin)):
     if not [u for u in _active_admins(data) if u != username]:
         raise HTTPException(
             400,
-            f"{username} is the last active administrator: deleting it would "
-            f"leave the stack with nobody able to administer it, and the only "
-            f"way back would be editing users_database.yml by hand. Create "
-            f"another administrator first.",
+            f"{username} est le dernier administrateur actif : le supprimer priverait "
+            f"l'installation de toute administration, et le seul retour possible "
+            f"serait de modifier users_database.yml a la main. Creez "
+            f"un autre administrateur d'abord.",
         )
 
     del data["users"][username]
@@ -1602,18 +1660,18 @@ async def update_orthanc_config(
                 reparsed = json.loads(_mask_jsonc_comments(serialized))
             except json.JSONDecodeError as e:
                 raise HTTPException(
-                    500, f"invalid orthanc.json edit, nothing written: {e}",
+                    500, f"modification d'orthanc.json invalide, rien n'a ete ecrit : {e}",
                 ) from e
             if reparsed != config:
                 raise HTTPException(
                     500,
-                    "orthanc.json edit inconsistent with the requested changes, "
-                    "nothing written",
+                    "la modification d'orthanc.json ne correspond pas a ce qui etait demande, "
+                    "rien n'a ete ecrit",
                 )
 
             _atomic_write(ORTHANC_JSON, serialized)
     except Timeout as e:
-        raise HTTPException(423, "orthanc.json locked, retry") from e
+        raise HTTPException(423, "orthanc.json verrouille, reessayez") from e
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
@@ -1655,9 +1713,9 @@ async def update_orthanc_config(
             )
             raise HTTPException(
                 502,
-                f"Orthanc reload failed ({reset_error}). Auto-rollback failed too "
-                f"({rollback_err}). Inconsistent state, manual restore required: "
-                f"backup={backup.name}",
+                f"Le rechargement d'Orthanc a echoue ({reset_error}). Le retour arriere "
+                f"automatique a echoue aussi ({rollback_err}). Etat incoherent, restauration "
+                f"manuelle necessaire : sauvegarde={backup.name}",
             ) from e
         await _audit(
             "orthanc.config.rolled_back",
@@ -1667,8 +1725,8 @@ async def update_orthanc_config(
         )
         raise HTTPException(
             502,
-            f"Orthanc reload failed ({reset_error}). Automatic rollback performed "
-            f"from {backup.name}. Config left in its previous state.",
+            f"Le rechargement d'Orthanc a echoue ({reset_error}). Retour arriere automatique "
+            f"effectue depuis {backup.name}. La configuration est revenue a son etat precedent.",
         ) from e
 
     await _audit(
@@ -1724,8 +1782,8 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
     if not DOCKER_PROXY_URL:
         raise HTTPException(
             503,
-            "Restart unavailable: DOCKER_PROXY_URL is not set. Enable the "
-            "socket-proxy service, or restart by hand with "
+            "Redemarrage indisponible : DOCKER_PROXY_URL n'est pas defini. Activez le "
+            "service socket-proxy, ou redemarrez a la main avec "
             "'docker compose restart orthanc'.",
         )
 
@@ -1736,7 +1794,7 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
         await _request_restart()
     except httpx.HTTPError as e:
         await _audit("orthanc.restart.failed", admin.username, error=str(e))
-        raise HTTPException(502, f"Docker proxy unreachable: {e}") from e
+        raise HTTPException(502, f"proxy Docker injoignable : {e}") from e
     except HTTPException:
         await _audit("orthanc.restart.failed", admin.username,
                      container=ORTHANC_CONTAINER)
@@ -1776,8 +1834,8 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
     if backup is None:
         raise HTTPException(
             504,
-            "Orthanc has not answered for 60 s and no backup of its "
-            "configuration is available. Check its logs "
+            "Orthanc ne repond plus depuis 60 s et aucune sauvegarde de sa "
+            "configuration n'est disponible. Consultez ses journaux "
             "(docker compose logs orthanc).",
         )
 
@@ -1789,26 +1847,26 @@ async def restart_orthanc(admin: AdminUser = Depends(require_admin)):
                      backup=backup.name, error=str(e))
         raise HTTPException(
             500,
-            f"Orthanc is not answering, and restoring {backup.name} failed "
-            f"({e}). Manual intervention required.",
+            f"Orthanc ne repond pas, et la restauration de {backup.name} a echoue "
+            f"({e}). Intervention manuelle necessaire.",
         ) from e
 
     if await _wait_for_orthanc():
         await _audit("orthanc.rolled_back", admin.username, backup=backup.name)
         raise HTTPException(
             502,
-            f"Orthanc did not restart with the new configuration: "
-            f"{backup.name} was restored, and it is answering again. The "
-            f"change was refused, the PACS is back up.",
+            f"Orthanc n'a pas redemarre avec la nouvelle configuration : "
+            f"{backup.name} a ete restauree et il repond de nouveau. La "
+            f"modification est refusee, le PACS est de nouveau en service.",
         )
 
     await _audit("orthanc.rollback.no_response", admin.username,
                  backup=backup.name)
     raise HTTPException(
         504,
-        f"Orthanc is still not answering after {backup.name} was restored. "
-        f"The cause therefore lies elsewhere than in the last change. Check "
-        f"its logs (docker compose logs orthanc).",
+        f"Orthanc ne repond toujours pas apres la restauration de {backup.name}. "
+        f"La cause est donc ailleurs que dans la derniere modification. Consultez "
+        f"ses journaux (docker compose logs orthanc).",
     )
 
 
@@ -1855,7 +1913,7 @@ async def upsert_modality(
 ):
     """Declare a device, or update an existing one."""
     if "/" in name or not name.strip():
-        raise HTTPException(400, "invalid name")
+        raise HTTPException(400, "nom invalide")
 
     r = await _orthanc(
         "PUT", f"/modalities/{name}",
@@ -2108,7 +2166,7 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
     except FileNotFoundError:
         checks["authelia_yml"] = {"ok": False, "detail": "file missing"}
     except (yaml.YAMLError, OSError) as e:
-        checks["authelia_yml"] = {"ok": False, "detail": f"parse error: {e}"}
+        checks["authelia_yml"] = {"ok": False, "detail": f"erreur de lecture : {e}"}
 
     try:
         if ORTHANC_JSON.exists():
@@ -2117,7 +2175,7 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
         else:
             checks["orthanc_json"] = {"ok": False, "detail": "file missing"}
     except (json.JSONDecodeError, OSError) as e:
-        checks["orthanc_json"] = {"ok": False, "detail": f"parse error: {e}"}
+        checks["orthanc_json"] = {"ok": False, "detail": f"erreur de lecture : {e}"}
 
     # Orthanc API reachable (/system endpoint, less invasive than /tools/reset)
     try:
@@ -2170,7 +2228,7 @@ def _read_session_durations() -> dict[str, str | None]:
     try:
         raw = AUTHELIA_CONFIG.read_text(encoding="utf-8")
     except OSError as e:
-        raise HTTPException(500, f"Authelia configuration unreadable: {e}") from e
+        raise HTTPException(500, f"configuration d'Authelia illisible : {e}") from e
 
     lines = raw.split("\n")
     start, end = _session_block_bounds(lines)
@@ -2233,13 +2291,13 @@ async def update_session(
     """
     changes = {k: v for k, v in payload.model_dump().items() if v}
     if not changes:
-        raise HTTPException(400, "no duration supplied")
+        raise HTTPException(400, "aucune duree fournie")
     for key, value in changes.items():
         if not _DURATION_RE.match(value):
             raise HTTPException(
                 400,
                 f"{key}: '{value}' is not an Authelia duration — a number "
-                "followed by s, m, h, d, w, M or y, e.g. 15m or 1h30m",
+                "suivi de s, m, h, d, w, M ou y, par exemple 15m ou 1h30m",
             )
 
     lock = FileLock(str(AUTHELIA_CONFIG) + ".lock", timeout=5)
@@ -2253,22 +2311,22 @@ async def update_session(
             try:
                 reparsed = yaml.safe_load(patched) or {}
             except yaml.YAMLError as e:
-                raise HTTPException(500, f"invalid edit, nothing written: {e}") from e
+                raise HTTPException(500, f"modification invalide, rien n'a ete ecrit : {e}") from e
             session = reparsed.get("session") or {}
             for key, value in changes.items():
                 if str(session.get(key)) != value:
                     raise HTTPException(
                         500,
                         f"{key} re-read as {session.get(key)!r} instead of {value!r}, "
-                        "nothing written",
+                        "rien n'a ete ecrit",
                     )
 
             backup = _backup(AUTHELIA_CONFIG)
             _atomic_write(AUTHELIA_CONFIG, patched)
     except Timeout as e:
-        raise HTTPException(423, "Authelia configuration locked, retry") from e
+        raise HTTPException(423, "configuration d'Authelia verrouillee, reessayez") from e
     except OSError as e:
-        raise HTTPException(500, f"Authelia configuration unwritable: {e}") from e
+        raise HTTPException(500, f"configuration d'Authelia non modifiable : {e}") from e
 
     await _audit(
         "authelia.session.updated",
@@ -2358,7 +2416,7 @@ async def read_audit(
     try:
         raw = await _r().xrevrange(AUDIT_STREAM, count=limit)
     except Exception as e:  # noqa: BLE001 - Redis down must not break the panel
-        raise HTTPException(503, f"audit log unreadable: {e}") from e
+        raise HTTPException(503, f"journal d'audit illisible : {e}") from e
 
     entries = []
     for identifier, fields in raw:
@@ -2455,11 +2513,11 @@ async def restore_backup(
     """Restore a backup from /host/backups/ onto its original file."""
     src = BACKUPS_DIR / backup_name
     if not src.exists() or ".bak." not in backup_name:
-        raise HTTPException(404, "backup not found or invalid name")
+        raise HTTPException(404, "sauvegarde introuvable ou nom invalide")
 
     dest = _backup_target(backup_name)
     if dest is None:
-        raise HTTPException(400, "unsupported backup type")
+        raise HTTPException(400, "type de sauvegarde non pris en charge")
 
     # The state being replaced is itself backed up first: a restore aimed at the
     # wrong file stays undoable.

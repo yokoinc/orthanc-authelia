@@ -161,9 +161,12 @@
                 <h2 style="font-size:var(--oe2-fs-small);margin:0 0 12px">Utilisateurs Authelia</h2>
                 <table class="data-table" id="users-table">
                     <thead>
-                        <tr><th>Login</th><th>Nom</th><th>Email</th><th>Groupes</th><th>État</th><th></th></tr>
+                        <!-- Pas de colonne « Login » : l'adresse EST l'identifiant
+                             (Authelia cherche cette cle dans users_database.yml).
+                             Les deux colonnes affichaient la meme valeur cote a cote. -->
+                        <tr><th>Adresse (identifiant)</th><th>Nom</th><th>Groupe</th><th>État</th><th></th></tr>
                     </thead>
-                    <tbody><tr><td colspan="6" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
+                    <tbody><tr><td colspan="5" style="text-align:center;color:var(--oe2-muted)">Chargement…</td></tr></tbody>
                 </table>
 
                 <div id="edit-user-panel" hidden style="margin-top:20px;max-width:520px;
@@ -177,10 +180,10 @@
                         <div class="form-row"><label>Email</label>
                             <input type="email" name="email" required></div>
                         <div class="form-row"><label>Groupes</label>
-                            <select name="groups" multiple size="3" style="height:auto">
-                                <option value="admins">admins</option>
-                                <option value="doctor">doctor</option>
-                                <option value="external">external</option>
+                            <select name="groups">
+                                <option value="admin">Administrateur — accès complet et panneau d'administration</option>
+                                <option value="doctor">Médecin — consultation, dépôt et partage d'études</option>
+                                <option value="external">Externe — consultation seule</option>
                             </select>
                         </div>
                         <button type="submit" class="oe2-btn oe2-btn--primary">
@@ -203,10 +206,10 @@
                         <div class="form-row"><label>Nom affiché</label><input name="displayname" required></div>
                         <div class="form-row"><label>Mot de passe</label><input type="password" name="password" required minlength="12"></div>
                         <div class="form-row"><label>Groupes</label>
-                            <select name="groups" multiple size="3" style="height:auto">
-                                <option value="admins">admins</option>
-                                <option value="doctor" selected>doctor</option>
-                                <option value="external">external</option>
+                            <select name="groups">
+                                <option value="admin">Administrateur — accès complet et panneau d'administration</option>
+                                <option value="doctor" selected>Médecin — consultation, dépôt et partage d'études</option>
+                                <option value="external">Externe — consultation seule</option>
                             </select>
                         </div>
                         <button type="submit" class="oe2-btn oe2-btn--primary">

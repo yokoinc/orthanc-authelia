@@ -129,7 +129,6 @@ async function loadUsers() {
             <tr>
                 <td><strong>${u.username}</strong></td>
                 <td>${u.displayname || ''}</td>
-                <td>${u.email || ''}</td>
                 <td>${(u.groups || []).map(g =>
                     `<span class="badge-${g === GROUPE_ADMIN ? 'admin' : 'doctor'}">${g}</span>`
                 ).join(' ')}</td>
@@ -155,11 +154,11 @@ async function loadUsers() {
                 </td>
             </tr>
         `;
-        }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--oe2-muted)">Aucun user</td></tr>';
+        }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--oe2-muted)">Aucun compte</td></tr>';
         usersCache = data.users;
         verrouMotif = adminsActifs <= 1 ? MOTIF_VERROU : '';
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="6">Erreur : ${e.message}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5">Erreur : ${e.message}</td></tr>`;
     }
 }
 
@@ -193,7 +192,7 @@ document.getElementById('edit-user-form').addEventListener('submit', async (e) =
     const username = e.target.dataset.username;
     const groups = Array.from(e.target.groups.selectedOptions).map(o => o.value);
     try {
-        await api(`/api/admin/users/${encodeURIComponent(username)}`, {
+        const res = await api(`/api/admin/users/${encodeURIComponent(username)}`, {
             method: 'PATCH',
             body: {
                 displayname: e.target.displayname.value,
@@ -201,7 +200,13 @@ document.getElementById('edit-user-form').addEventListener('submit', async (e) =
                 groups,
             },
         });
-        showMsg(`${username} modifie`, true);
+        showMsg(
+            res.renomme
+                ? `Compte renomme : la connexion se fait desormais avec ${res.renomme}, `
+                  + `plus avec ${username}. Le mot de passe est inchange.`
+                : `${username} modifie`,
+            true,
+        );
         closeEdit();
         loadUsers();
     } catch (err) { showMsg(err.message, false); }
@@ -237,7 +242,7 @@ async function deleteUser(username) {
     if (!ok) return;
     try {
         await api(`/api/admin/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
-        showMsg(`User ${username} supprime`, true);
+        showMsg(`Compte ${username} supprime`, true);
         loadUsers();
     } catch (e) { showMsg(e.message, false); }
 }

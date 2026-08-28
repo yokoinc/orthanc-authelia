@@ -584,7 +584,7 @@ class TestFileLock:
                 "changes": {"Name": "should not succeed"},
             }, headers=csrf_headers)
             assert r.status_code == 423
-            assert "locked" in r.text.lower()
+            assert "verrouille" in r.text.lower()
         finally:
             holder.join()
 
@@ -619,7 +619,7 @@ class TestAutoRollback:
             }, headers=csrf_headers)
 
             assert r.status_code == 502
-            assert "rollback" in r.text.lower()
+            assert "retour arriere" in r.text.lower()
             # The mock was indeed called twice (initial + rollback)
             assert reset_route.call_count == 2
 
@@ -718,7 +718,7 @@ class TestSetupLockout:
             "password": "second-admin-12345",
         })
         assert r2.status_code == 409
-        assert "already been created" in r2.text.lower()
+        assert "existe deja" in r2.text.lower()
 
     def test_finalize_clears_lock_next_setup_impossible_anyway(
         self, client, tmp_paths, fake_redis, redis_sync,
@@ -795,8 +795,8 @@ class TestCorruptConfig:
 
         r = client.get("/api/admin/users")
         assert r.status_code == 500
-        assert "corrupt" in r.text.lower()
-        assert "backups" in r.text.lower()
+        assert "corrompu" in r.text.lower()
+        assert "sauvegarde" in r.text.lower()
 
     def test_corrupt_orthanc_json_returns_readable_500(
         self, client, tmp_paths, fake_redis, csrf_headers,
@@ -806,8 +806,8 @@ class TestCorruptConfig:
 
         r = client.get("/api/admin/orthanc/config")
         assert r.status_code == 500
-        assert "corrupt" in r.text.lower()
-        assert "backups" in r.text.lower()
+        assert "corrompu" in r.text.lower()
+        assert "sauvegarde" in r.text.lower()
 
 
 # ============================================================================
@@ -1379,7 +1379,7 @@ class TestLastAdminProtected:
         r = client.delete("/api/admin/users/admin.principal", headers=csrf_headers)
 
         assert r.status_code == 400, r.text
-        assert "last active administrator" in r.json()["detail"]
+        assert "dernier administrateur actif" in r.json()["detail"]
         # And the account is still there, untouched.
         remaining = yaml.safe_load(tmp_paths["authelia"].read_text())
         assert "admin.principal" in remaining["users"]
@@ -1538,7 +1538,7 @@ class TestRestartOrthanc:
             r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
 
         assert r.status_code == 504
-        assert "no backup" in r.json()["detail"]
+        assert "aucune sauvegarde" in r.json()["detail"]
 
     def test_configuration_restored_and_orthanc_restarts(
         self, client, tmp_paths, fake_redis, csrf_headers, _wired, redis_sync,
@@ -1723,7 +1723,7 @@ class TestUserUpdate:
                          json={"groups": ["doctor"]}, headers=csrf_headers)
 
         assert r.status_code == 400, r.text
-        assert "administrator" in r.json()["detail"]
+        assert "administrateur actif" in r.json()["detail"]
         # And nothing was written.
         record = yaml.safe_load(tmp_paths["authelia"].read_text())["users"]["cuffel.gregory"]
         assert "admins" in record["groups"]
@@ -1942,7 +1942,7 @@ session:
                         json={"public_url": "https://nouveau.example.org"},
                         headers=csrf_headers)
         assert r.status_code == 500
-        assert "by hand" in r.json()["detail"]
+        assert "a la main" in r.json()["detail"]
         assert path.read_text(encoding="utf-8") == \
             "session:\n  cookies:\n    - domain: autre.chose\n"
 
