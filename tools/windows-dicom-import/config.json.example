@@ -1,0 +1,5 @@
+{
+  "localFolder": "C:\DICOM-Import",
+  "orthancUrl": "https://pacs.example.org",
+  "orthancUser": "compte-de-depot"
+}

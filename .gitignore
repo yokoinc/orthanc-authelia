@@ -360,3 +360,11 @@ registry/
 
 # Generated deployment files
 docker-compose.yml
+
+# Poste d'import Windows : identifiants du depot DICOM.
+# config.json contient l'URL, le compte et -- en retro-compat -- le mot de passe
+# et le jeton de service Cloudflare en clair. config.secrets.dpapi.json est
+# chiffre par DPAPI, donc lie a la machine ET au compte Windows : il n'a aucun
+# sens ailleurs, et le publier revient quand meme a publier un secret.
+tools/windows-dicom-import/config.json
+tools/windows-dicom-import/config.secrets.dpapi.json
