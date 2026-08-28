@@ -650,10 +650,16 @@ if ($mode -eq 'import') {
     $lines.Add("Destination: $dst")
     $lines.Add("$copied fichier(s) DICOM copie(s) (sur $scanned scannes).")
     if ($ejectMsg) { $lines.Add($ejectMsg) }
-} else {
-    $lines.Add("Mode: Retry des fichiers echoues")
+} elseif ($reprisePartielle) {
+    # Distinction utile : « retry » laisse croire que des envois avaient echoue,
+    # alors qu'ici l'import precedent s'etait arrete avant meme d'en tenter un.
+    $lines.Add("Mode: Reprise d'un import interrompu")
     $lines.Add("Dossier: $dst")
-    $lines.Add("$copied fichier(s) a retenter.")
+    $lines.Add("$copied fichier(s) copie(s) mais jamais envoye(s).")
+} else {
+    $lines.Add("Mode: Nouvelle tentative sur les envois echoues")
+    $lines.Add("Dossier: $dst")
+    $lines.Add("$copied fichier(s) a renvoyer.")
 }
 if ($unreadable.Count -gt 0) {
     # Le fait, sans conseil ni consigne : l'operateur sait quoi faire d'un CD
