@@ -11,12 +11,12 @@
 #   4. Les echecs sont logges dans _failed-files.txt pour retry ulterieur
 #
 # MODE REPRISE (aucun CD insere) :
-#   1. Cherche le dossier d'import le plus recent contenant un _failed-files.txt
-#      non vide ; a defaut, le plus recent qui contient encore des fichiers --
-#      un fichier est supprime des son upload reussi, donc ce qui reste n'est
-#      jamais parti (cas d'un import interrompu avant meme la phase d'upload).
-#   2. Archive l'ancienne liste, retente l'upload de chaque fichier
-#   3. Les nouveaux echecs (s'il en reste) ecrivent un nouveau _failed-files.txt
+#   1. Rassemble TOUS les dossiers en attente (liste d'echecs non vide, ou
+#      fichiers encore presents) : rien ne s'accumule d'un lancement a l'autre.
+#      Un fichier est supprime des son upload reussi, donc ce qui reste n'est
+#      jamais parti (import interrompu avant meme la phase d'upload).
+#   2. Archive les anciennes listes, envoie tout, puis supprime les dossiers
+#      vides. 3. Les echecs restants ecrivent un nouveau _failed-files.txt
 #
 # Si ni CD ni dossier exploitable -> erreur explicite.
 
@@ -409,37 +409,61 @@ if ($drive) {
     $tousDossiers = @(Get-ChildItem -Path $importBase -Directory -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending)
 
-    $candidate = $tousDossiers | Where-Object {
+    # TOUS les dossiers en attente, pas seulement le plus recent. Le menage de
+    # fin de course n'efface que les dossiers effectivement envoyes : n'en
+    # traiter qu'un laissait les autres s'accumuler indefiniment, a relancer un
+    # a un. Orthanc dedoublonne sur le SOP Instance UID, donc reenvoyer une
+    # etude deja presente ne cree rien -- c'est sans risque, juste plus long.
+    $enAttente = @($tousDossiers | Where-Object {
         $f = Join-Path $_.FullName '_failed-files.txt'
-        (Test-Path $f) -and ((Get-Item $f).Length -gt 0)
-    } | Select-Object -First 1
+        ((Test-Path $f) -and ((Get-Item $f).Length -gt 0)) -or
+        @(Get-ChildItem -LiteralPath $_.FullName -Recurse -File -Force -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notlike '_*' -and $_.Name -ne 'DICOMDIR' }).Count -gt 0
+    })
 
-    $reprisePartielle = $false
-    if (-not $candidate) {
-        $candidate = $tousDossiers | Where-Object {
-            @(Get-ChildItem -LiteralPath $_.FullName -Recurse -File -Force -ErrorAction SilentlyContinue |
-                Where-Object { $_.Name -notlike '_*' -and $_.Name -ne 'DICOMDIR' }).Count -gt 0
-        } | Select-Object -First 1
-        if ($candidate) { $reprisePartielle = $true }
-    }
-
-    if (-not $candidate) {
+    if (-not $enAttente) {
         Fail "Aucun CD insere, et aucun dossier dans $importBase ne contient de fichiers a envoyer."
     }
+
+    # Le plus recent sert de point de chute pour _failed-files.txt et le journal
+    # d'erreurs. La boucle d'upload sait deja travailler sur des chemins
+    # repartis dans plusieurs dossiers dates.
+    $candidate = $enAttente[0]
+
+    # « Reprise » s'il existe au moins un dossier sans liste d'echecs : ces
+    # fichiers n'ont jamais ete envoyes, ils n'ont pas echoue.
+    $reprisePartielle = [bool](@($enAttente | Where-Object {
+        $f = Join-Path $_.FullName '_failed-files.txt'
+        -not ((Test-Path $f) -and ((Get-Item $f).Length -gt 0))
+    }).Count)
 
     $mode = 'retry'
     $dst = $candidate.FullName
     $srcRoot = "(reprise du dossier $($candidate.Name))"
-    $previousFailedPath = Join-Path $dst '_failed-files.txt'
     $dicomFiles = New-Object System.Collections.Generic.List[string]
 
-    if ($reprisePartielle) {
+    Update-Status -Phase "Reprise : inventaire de $($enAttente.Count) dossier(s)..." -Max 0
+    foreach ($dossier in $enAttente) {
+        $listeEchecs = Join-Path $dossier.FullName '_failed-files.txt'
+
+        if ((Test-Path $listeEchecs) -and ((Get-Item $listeEchecs).Length -gt 0)) {
+            # Des envois ont echoue : on s'en tient a la liste, elle est precise.
+            Get-Content -Path $listeEchecs -Encoding UTF8 | ForEach-Object {
+                $line = $_.Trim()
+                if ($line -and (Test-Path -LiteralPath $line)) { $dicomFiles.Add($line) }
+            }
+            # Archivee pour historique : la nouvelle liste sera ecrite a la fin.
+            $arch = Join-Path $dossier.FullName (
+                '_failed-files.txt.previous-' + (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'))
+            Move-Item -LiteralPath $listeEchecs -Destination $arch -Force
+            continue
+        }
+
         # Import interrompu avant l'upload : on reprend tout ce qui est la.
         # On revalide la signature DICM plutot que de faire confiance au nom :
         # un fichier tronque par une erreur de lecture ne doit pas partir.
         # DICOMDIR est ecarte, Orthanc n'en fait rien.
-        Update-Status -Phase 'Reprise : verification des fichiers copies...' -Max 0
-        foreach ($f in (Get-ChildItem -LiteralPath $dst -Recurse -File -Force -ErrorAction SilentlyContinue)) {
+        foreach ($f in (Get-ChildItem -LiteralPath $dossier.FullName -Recurse -File -Force -ErrorAction SilentlyContinue)) {
             if ($f.Name -like '_*' -or $f.Name -eq 'DICOMDIR' -or $f.Length -lt 132) { continue }
             $fs = $null
             try {
@@ -453,29 +477,18 @@ if ($drive) {
             } catch { }
             finally { if ($fs) { $fs.Close() } }
         }
-    } else {
-        # Lit la liste, ne garde que les fichiers qui existent toujours sur disque
-        Get-Content -Path $previousFailedPath -Encoding UTF8 | ForEach-Object {
-            $line = $_.Trim()
-            if ($line -and (Test-Path -LiteralPath $line)) {
-                $dicomFiles.Add($line)
-            }
-        }
     }
     $copied = $dicomFiles.Count
 
     if ($copied -eq 0) {
-        Fail "Dossier $($candidate.Name) retenu, mais aucun fichier DICOM exploitable n'y subsiste."
+        Fail "Aucun fichier DICOM exploitable ne subsiste dans $importBase."
     }
 
-    # Archive l'ancienne liste pour historique (les nouveaux echecs ecriront un fichier vierge)
-    if (Test-Path $previousFailedPath) {
-        $archivedPath = Join-Path $dst ("_failed-files.txt.previous-" + (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'))
-        Move-Item -LiteralPath $previousFailedPath -Destination $archivedPath -Force
-    }
+    # (les listes d'echecs ont deja ete archivees dossier par dossier ci-dessus)
 
-    $libelle = if ($reprisePartielle) { 'import interrompu' } else { 'retry' }
-    Update-Status -Phase "PHASE 2/2 : Reprise ($libelle) - $copied fichier(s)" -Current 0 -Max $copied -Counter "0 / $copied" -Details "Source: $($candidate.Name)"
+    $libelle = if ($reprisePartielle) { 'import interrompu' } else { 'envois echoues' }
+    $source = if ($enAttente.Count -gt 1) { "$($enAttente.Count) dossiers" } else { $candidate.Name }
+    Update-Status -Phase "PHASE 2/2 : Reprise ($libelle) - $copied fichier(s)" -Current 0 -Max $copied -Counter "0 / $copied" -Details "Source: $source"
 }
 
 # --- Upload Orthanc fichier par fichier
@@ -654,11 +667,11 @@ if ($mode -eq 'import') {
     # Distinction utile : « retry » laisse croire que des envois avaient echoue,
     # alors qu'ici l'import precedent s'etait arrete avant meme d'en tenter un.
     $lines.Add("Mode: Reprise d'un import interrompu")
-    $lines.Add("Dossier: $dst")
+    $lines.Add("Dossier(s): $($enAttente.Count) en attente dans $importBase")
     $lines.Add("$copied fichier(s) copie(s) mais jamais envoye(s).")
 } else {
     $lines.Add("Mode: Nouvelle tentative sur les envois echoues")
-    $lines.Add("Dossier: $dst")
+    $lines.Add("Dossier(s): $($enAttente.Count) en attente dans $importBase")
     $lines.Add("$copied fichier(s) a renvoyer.")
 }
 if ($unreadable.Count -gt 0) {
