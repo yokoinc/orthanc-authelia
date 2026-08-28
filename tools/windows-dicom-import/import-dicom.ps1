@@ -303,36 +303,23 @@ if ($drive) {
             if (-not (Test-Path $targetDir)) {
                 New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
             }
-            # DEUX tentatives, pas plus. Sur un disque sale une relecture
-            # aboutit assez souvent (le lecteur repositionne la tete), mais elle
-            # coute cher : face a un secteur abime, le pilote Windows insiste
-            # deja tout seul pendant 30 s a 2 min AVANT de rendre la main. Trois
-            # tentatives faisaient donc jusqu'a six minutes sur un seul fichier,
-            # fenetre figee -- l'import avait l'air plante alors qu'il avancait.
-            #
-            # Rien ne peut repeindre la fenetre pendant un Copy-Item : l'appel
-            # est synchrone et bloque le thread de l'interface. On previent donc
-            # AVANT de se bloquer, pour que l'operateur voie ou on en est.
+            # Une seule tentative. Pas de relecture : face a un secteur abime,
+            # le pilote Windows insiste deja tout seul 30 s a 2 min avant de
+            # rendre la main, et chaque essai supplementaire rajoute autant.
+            # Un import se fait entre deux patients -- illisible, c'est illisible,
+            # on passe. Ce qui est perdu est compte et annonce a la fin.
             $copyOk = $false
             $lastErr = ''
-            for ($attempt = 1; $attempt -le 2 -and -not $copyOk; $attempt++) {
-                if ($attempt -gt 1) {
-                    # Pas de nom de fichier ici : potentiellement du PII.
-                    Update-Status -Details "Secteur difficile, relecture ($attempt/2)..."
-                }
-                try {
-                    Copy-Item -LiteralPath $file.FullName -Destination $target -Force
-                    $copyOk = $true
-                } catch {
-                    $lastErr = $_.Exception.Message
-                    # Copy-Item laisse derriere lui un fichier tronque quand il
-                    # meurt en cours de route. On l'efface avant de retenter,
-                    # sinon un reste partiel pourrait etre envoye a Orthanc.
-                    Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
-                    if ($attempt -lt 2) { Start-Sleep -Milliseconds 400 }
-                }
+            try {
+                Copy-Item -LiteralPath $file.FullName -Destination $target -Force
+                $copyOk = $true
+            } catch {
+                $lastErr = $_.Exception.Message
+                # Copy-Item laisse un fichier tronque derriere lui quand il meurt
+                # en cours de route : on l'efface, un reste partiel ne doit jamais
+                # partir vers Orthanc.
+                Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
             }
-            if ($attempt -gt 2) { Update-Status -Details '' }
 
             if (-not $copyOk) {
                 $unreadable.Add("$($file.FullName)  [copie impossible] $lastErr")
@@ -367,40 +354,6 @@ if ($drive) {
     if ($unreadable.Count -gt 0) {
         $unreadablePath = Join-Path $dst '_unreadable-files.txt'
         Set-Content -LiteralPath $unreadablePath -Value $unreadable -Encoding UTF8
-
-        # On previent ICI, a la fin de la copie, et pas seulement dans le resume
-        # final : l'upload qui suit dure longtemps, et il n'y a aucune raison
-        # d'envoyer une etude incomplete dans Orthanc si l'operateur prefere
-        # nettoyer le disque et tout reprendre. La question lui laisse le choix.
-        $q = @"
-$($unreadable.Count) fichier(s) n'ont PAS pu etre lus sur le disque
-($copied copie(s) avec succes).
-
-L'etude sera donc INCOMPLETE dans Orthanc.
-
-Liste : $unreadablePath
-
-Conseil : nettoyer le disque (chiffon doux, du centre vers le bord) et
-relancer -- une relecture aboutit souvent au second passage.
-
-Envoyer quand meme les $copied fichier(s) vers Orthanc ?
-"@
-        $rep = [System.Windows.Forms.MessageBox]::Show(
-            $q, 'Import DICOM - disque abime', 'YesNo', 'Warning')
-        if ($rep -ne [System.Windows.Forms.DialogResult]::Yes) {
-            # Le dossier date est conserve tel quel : les fichiers deja copies
-            # et _unreadable-files.txt restent disponibles pour une reprise.
-            Close-Status
-            $msgStop = @"
-Import interrompu a la demande de l'operateur.
-
-$copied fichier(s) copie(s) localement, non envoyes.
-Dossier conserve : $dst
-Illisibles : $($unreadable.Count) (voir _unreadable-files.txt)
-"@
-            Show-Box -Message $msgStop -Icon 'Warning'
-            exit 0
-        }
     }
 
     # Copie aussi DICOMDIR s'il existe (pratique en local, Orthanc l'ignore).
@@ -651,16 +604,10 @@ if ($mode -eq 'import') {
     $lines.Add("$copied fichier(s) a retenter.")
 }
 if ($unreadable.Count -gt 0) {
-    # Volontairement place avant le bilan d'upload, et non en bas de popup :
-    # c'est l'information qui doit decider l'operateur a nettoyer le disque et
-    # a relancer, pas une note de bas de page.
-    $lines.Add('')
-    $lines.Add("ATTENTION : $($unreadable.Count) fichier(s) ILLISIBLE(S) sur le disque.")
-    $lines.Add("Ils ne sont PAS dans Orthanc : l'etude importee est incomplete.")
-    $lines.Add("Nettoyez le disque (chiffon doux, du centre vers le bord) puis")
-    $lines.Add("relancez : une relecture aboutit souvent au second passage.")
+    # Le fait, sans conseil ni consigne : l'operateur sait quoi faire d'un CD
+    # abime, et l'import se fait entre deux patients.
+    $lines.Add("$($unreadable.Count) fichier(s) illisible(s) sur le disque, non importe(s).")
     $lines.Add("Liste : $(Join-Path $dst '_unreadable-files.txt')")
-    $lines.Add('')
 }
 $lines.Add($pushMsg)
 $summary = $lines -join "`r`n"

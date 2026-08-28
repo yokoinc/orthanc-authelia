@@ -13,17 +13,14 @@ Le script choisit son mode tout seul :
 
 ## Disques abîmés
 
-Un CD rayé ou sale rend certains secteurs illisibles. Le script ne s'arrête
-pas dessus : il tente une relecture, note le fichier dans
-`_unreadable-files.txt`, et poursuit. À la fin de la copie il annonce le
-nombre de fichiers perdus et demande s'il faut envoyer l'étude quand même,
-puisqu'elle sera incomplète.
+Un CD rayé ou sale rend certains secteurs illisibles. Le script ne s'arrête pas
+dessus et ne pose aucune question : le fichier est noté dans
+`_unreadable-files.txt`, le compteur de la fenêtre l'affiche, et la copie
+continue. Le décompte figure dans le résumé final.
 
-Face à ce message : nettoyer le disque (chiffon doux, du centre vers le bord)
-et relancer. Une relecture aboutit souvent au second passage.
-
-Pendant une relecture la fenêtre peut se figer une à deux minutes : c'est le
-pilote Windows qui insiste sur le secteur, pas un blocage du script.
+Aucune relecture n'est tentée : face à un secteur abîmé, le pilote Windows
+insiste déjà 30 s à 2 min tout seul avant de rendre la main. Pendant ce temps
+la fenêtre paraît figée -- c'est le pilote, pas le script.
 
 ## Configuration
 
