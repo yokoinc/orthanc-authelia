@@ -164,7 +164,7 @@ def valid_authelia_yml(tmp_paths):
                 "displayname": "Gregory Cuffel",
                 "email": "cuffel.gregory@gmail.com",
                 "password": hasher.hash("initial-admin-password"),
-                "groups": ["admins", "doctors"],
+                "groups": ["admins", "doctor"],
             },
         },
     }
@@ -269,7 +269,7 @@ class TestSetupWizard:
             "displayname": "Gregory",
             "email": "cuffel@example.com",
             "password": "long-password-1234",
-            "groups": ["doctors"],  # NOT admins
+            "groups": ["doctor"],  # PAS le groupe admin
         })
         assert r.status_code == 200
         yml = yaml.safe_load(tmp_paths["authelia"].read_text())
@@ -1688,7 +1688,7 @@ class TestUserUpdate:
                                 "groups": ["admins"]},
             "docteur.parti": {"disabled": False, "displayname": "Parti",
                               "email": "p@example.com", "password": password,
-                              "groups": ["doctors"]},
+                              "groups": ["doctor"]},
         }}
         tmp_paths["authelia"].write_text(yaml.safe_dump(data))
 
@@ -1720,7 +1720,7 @@ class TestUserUpdate:
         -- not a 500, which does not tell a deliberate refusal from a
         failure."""
         r = client.patch("/api/admin/users/cuffel.gregory",
-                         json={"groups": ["doctors"]}, headers=csrf_headers)
+                         json={"groups": ["doctor"]}, headers=csrf_headers)
 
         assert r.status_code == 400, r.text
         assert "administrator" in r.json()["detail"]

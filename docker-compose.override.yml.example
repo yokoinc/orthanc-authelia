@@ -87,7 +87,7 @@ services:
       # users_database.yml, the `subject: "group:..."` of the Authelia
       # configuration and nginx's $groups map. Module default: "admins".
       # An existing install often uses "admin", singular.
-      - ADMIN_GROUP=admins
+      - ADMIN_GROUP=admin
       - ADMIN_ORTHANC_PATH=/host/orthanc/orthanc.json
       - ADMIN_AUTHELIA_PATH=/host/authelia/users_database.yml
       - ADMIN_BACKUPS_DIR=/host/backups

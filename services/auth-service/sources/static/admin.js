@@ -88,17 +88,50 @@ document.querySelectorAll('.admin-tab').forEach(btn => {
 });
 
 // ============ USERS ============
+// Doit correspondre a ADMIN_GROUP cote auth-service. Le badge testait
+// 'admins' au pluriel : il ne s'est jamais applique, l'administrateur
+// s'affichait avec la pastille bleue des medecins.
+const GROUPE_ADMIN = 'admin';
+
+const MOTIF_VERROU =
+    "Dernier administrateur actif : le desactiver ou le supprimer fermerait "
+    + "le panneau d'administration a tout le monde, et il n'existe pas de porte "
+    + "de service -- il faudrait repasser par SSH sur le NAS. Nommez un second "
+    + "administrateur d'abord. Le nom et l'adresse, eux, restent modifiables.";
+
+// Renseigne au chargement de la liste ; sert au message affiche si l'operateur
+// clique quand meme sur un bouton verrouille.
+let verrouMotif = '';
+
+function expliquerVerrou() {
+    showMsg(verrouMotif || MOTIF_VERROU, false);
+}
+
 async function loadUsers() {
     const tbody = document.querySelector('#users-table tbody');
     try {
         const data = await api('/api/admin/users');
-        tbody.innerHTML = data.users.map(u => `
+        // Combien d'administrateurs peuvent encore ouvrir ce panneau. Sert a
+        // verrouiller les boutons sur le dernier d'entre eux : le supprimer ou
+        // le desactiver fermerait l'administration a tout le monde, et il n'y
+        // a pas de porte de service -- il faudrait repasser par SSH.
+        const adminsActifs = data.users.filter(
+            u => (u.groups || []).includes(GROUPE_ADMIN) && !u.disabled,
+        ).length;
+        tbody.innerHTML = data.users.map(u => {
+        const estAdmin = (u.groups || []).includes(GROUPE_ADMIN);
+        // Le verrou porte sur le dernier administrateur ACTIF -- exactement la
+        // meme regle que celle deja appliquee cote API (_active_admins).
+        // L'interface ne fait que la rendre visible : sans cela les boutons
+        // s'affichaient normalement et l'operateur recevait un refus apres coup.
+        const verrouille = estAdmin && !u.disabled && adminsActifs <= 1;
+        return `
             <tr>
                 <td><strong>${u.username}</strong></td>
                 <td>${u.displayname || ''}</td>
                 <td>${u.email || ''}</td>
                 <td>${(u.groups || []).map(g =>
-                    `<span class="badge-${g === 'admins' ? 'admin' : 'doctor'}">${g}</span>`
+                    `<span class="badge-${g === GROUPE_ADMIN ? 'admin' : 'doctor'}">${g}</span>`
                 ).join(' ')}</td>
                 <td>${u.disabled
                     ? '<span style="color:var(--oe2-danger)">désactivé</span>'
@@ -107,18 +140,24 @@ async function loadUsers() {
                     <button class="oe2-btn oe2-btn--sm" onclick="openEdit('${u.username}')">
                         <i class="fa-solid fa-pen"></i> Modifier
                     </button>
-                    <button class="oe2-btn oe2-btn--sm"
-                            onclick="toggleDisabled('${u.username}', ${!!u.disabled})">
+                    <button class="oe2-btn oe2-btn--sm${verrouille ? ' btn-verrouille' : ''}"
+                            ${verrouille
+                              ? `onclick="expliquerVerrou()" aria-disabled="true"`
+                              : `onclick="toggleDisabled('${u.username}', ${!!u.disabled})"`}>
                         <i class="fa-solid fa-power-off"></i> ${u.disabled ? 'Activer' : 'Désactiver'}
                     </button>
-                    <button class="oe2-btn oe2-btn--danger oe2-btn--sm"
-                            onclick="deleteUser('${u.username}')">
+                    <button class="oe2-btn oe2-btn--danger oe2-btn--sm${verrouille ? ' btn-verrouille' : ''}"
+                            ${verrouille
+                              ? `onclick="expliquerVerrou()" aria-disabled="true"`
+                              : `onclick="deleteUser('${u.username}')"`}>
                         <i class="fa-solid fa-trash"></i> Supprimer
                     </button>
                 </td>
             </tr>
-        `).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--oe2-muted)">Aucun user</td></tr>';
+        `;
+        }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--oe2-muted)">Aucun user</td></tr>';
         usersCache = data.users;
+        verrouMotif = adminsActifs <= 1 ? MOTIF_VERROU : '';
     } catch (e) {
         tbody.innerHTML = `<tr><td colspan="6">Erreur : ${e.message}</td></tr>`;
     }
@@ -323,27 +362,45 @@ function aide(texte) {
     const t = String(texte)
         .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
         .replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    return ` <span class="aide" tabindex="0" role="note" title="${t}"
+    // data-aide plutot que title : l'infobulle native tarde une seconde a
+    // sortir, s'efface toute seule, et ne s'affichait pas du tout ici. La bulle
+    // est donc dessinee en CSS (.aide::after) -- instantanee et lisible.
+    return ` <span class="aide" tabindex="0" role="note" data-aide="${t}"
                    aria-label="Explication : ${t}">?</span>`;
 }
 
 // ============ ORTHANC CONFIG ============
+// Valeurs telles que lues au chargement de l'onglet. L'enregistrement s'y
+// compare pour n'envoyer que ce qui a reellement change.
+let orthancCharge = {};
+
 async function loadOrthanc() {
     const container = document.getElementById('orthanc-fields');
     try {
         const data = await api('/api/admin/orthanc/config');
+        orthancCharge = data.editable;   // reference pour le diff a l'enregistrement
         container.innerHTML = Object.entries(data.editable).map(([key, value]) => {
             const inputId = 'orth-' + key.replace(/\./g, '_');
             let control;
-            if (typeof value === 'boolean' || value === null) {
+            // Le type vient du serveur, pas de la valeur. Un reglage ABSENT
+            // d'orthanc.json arrive a null : `typeof null === 'object'`, et le
+            // test precedent (`typeof value === 'boolean' || value === null`)
+            // attrapait donc TOUS les absents en menu true/false. DicomScpTimeout
+            // et DicomThreadsCount, qui sont des entiers, s'affichaient ainsi en
+            // booleens -- et enregistrer y aurait ecrit `true`.
+            const type = data.types?.[key] || (value === null ? 'str' : typeof value);
+            if (type === 'bool' || typeof value === 'boolean') {
                 control = `<select id="${inputId}" data-key="${key}">
+                    <option value="" ${value === null ? 'selected' : ''}>(non defini)</option>
                     <option value="true" ${value === true ? 'selected' : ''}>true</option>
                     <option value="false" ${value === false ? 'selected' : ''}>false</option>
                 </select>`;
-            } else if (typeof value === 'number' || value === null) {
-                control = `<input type="number" id="${inputId}" data-key="${key}" value="${value ?? ''}">`;
+            } else if (type === 'int' || typeof value === 'number') {
+                control = `<input type="number" id="${inputId}" data-key="${key}" value="${value ?? ''}"
+                                  placeholder="non defini">`;
             } else {
-                control = `<input type="text" id="${inputId}" data-key="${key}" value="${value ?? ''}">`;
+                control = `<input type="text" id="${inputId}" data-key="${key}" value="${value ?? ''}"
+                                  placeholder="non defini">`;
             }
             return `<div class="form-row"><label for="${inputId}">${key}${aide(data.aide?.[key])}</label>${control}</div>`;
         }).join('');
@@ -389,11 +446,25 @@ document.getElementById('orthanc-form').addEventListener('submit', async (e) => 
     const changes = {};
     document.querySelectorAll('#orthanc-fields [data-key]').forEach(input => {
         const key = input.dataset.key;
-        let val = input.value;
-        if (input.tagName === 'SELECT') val = (val === 'true');
-        else if (input.type === 'number') val = val === '' ? 0 : Number(val);
+        const brut = input.value;
+        // Un champ vide veut dire « pas defini dans orthanc.json », pas « zero ».
+        // L'ancienne boucle envoyait TOUS les champs et convertissait le vide en
+        // 0 : ouvrir cet onglet puis cliquer Enregistrer suffisait a ecrire
+        // MaximumStorageSize: 0, DicomScpTimeout: 0 et false sur une quinzaine
+        // de reglages jamais touches.
+        if (brut === '') return;
+        let val = brut;
+        if (input.tagName === 'SELECT') val = (brut === 'true');
+        else if (input.type === 'number') val = Number(val);
+        // Et on n'envoie que les differences : reecrire a l'identique creerait
+        // une sauvegarde et reclamerait un redemarrage d'Orthanc pour rien.
+        if (val === orthancCharge[key]) return;
         changes[key] = val;
     });
+    if (Object.keys(changes).length === 0) {
+        showMsg('Aucune modification.', true);
+        return;
+    }
     try {
         const data = await api('/api/admin/orthanc/config', {
             method: 'PATCH',

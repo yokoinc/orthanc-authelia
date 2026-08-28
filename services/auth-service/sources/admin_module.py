@@ -872,13 +872,50 @@ def _write_authelia(data: dict) -> None:
 _USERNAME_RE = re.compile(r"^[a-zA-Z0-9._%+-]{3,64}(@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})?$")
 
 
+# Les seuls groupes qui donnent quelque chose. Ils doivent correspondre, au
+# caractere pres, aux `subject: "group:..."` de la configuration Authelia, a la
+# carte $groups de nginx et aux permissions d'auth_service.get_user_profile.
+#
+# Un groupe hors de cette liste ne provoque aucune erreur nulle part : le
+# compte se cree, la connexion reussit, et l'utilisateur recolte un 403 sur
+# tout, sans que rien n'explique pourquoi. C'est arrive le 2026-08-27 -- le
+# panneau attribuait par defaut "doctors" au pluriel quand Authelia n'accorde
+# l'acces qu'a "doctor". Un s.
+GROUPES_CONNUS = frozenset({ADMIN_GROUP, "doctor", "external"})
+
+
+def _verifier_groupes(groupes: list[str]) -> None:
+    """Refuse une liste vide, ou un groupe qu'aucune regle ne reconnait.
+
+    Le groupe est OBLIGATOIRE : c'est lui, et lui seul, qui determine ce qu'un
+    compte peut faire -- les regles d'Authelia s'appuient dessus, la carte
+    $groups de nginx en derive le jeton envoye a Orthanc, et
+    get_user_profile en tire les permissions. Sans groupe, le compte se cree,
+    la connexion reussit, et tout repond 403. Un compte muet plutot qu'une
+    erreur : c'est le pire des deux mondes.
+    """
+    if not groupes:
+        raise ValueError(
+            "groupe obligatoire : un compte sans groupe peut se connecter mais "
+            f"n'a acces a rien. Valeurs acceptees : {', '.join(sorted(GROUPES_CONNUS))}."
+        )
+    inconnus = [g for g in groupes if g not in GROUPES_CONNUS]
+    if inconnus:
+        raise ValueError(
+            f"groupe(s) inconnu(s) : {', '.join(inconnus)}. "
+            f"Valeurs acceptees : {', '.join(sorted(GROUPES_CONNUS))}. "
+            "Un groupe absent des regles d'Authelia donne un compte qui se "
+            "connecte mais recoit 403 sur tout."
+        )
+
+
 class UserCreatePayload(BaseModel):
     # Optional: with no explicit login, the e-mail address is the identity.
     username: str | None = Field(default=None, max_length=100)
     displayname: str = Field(..., min_length=1, max_length=100)
     email: EmailStr
     password: str = Field(..., min_length=12)
-    groups: list[str] = Field(default_factory=lambda: ["doctors"])
+    groups: list[str] = Field(default_factory=lambda: ["doctor"])
 
     @model_validator(mode="after")
     def _resolve_identity(self):
@@ -889,6 +926,7 @@ class UserCreatePayload(BaseModel):
                 "username: 3 to 64 characters among letters, digits and . _ % + - "
                 "optionally followed by an e-mail domain"
             )
+        _verifier_groupes(self.groups)
         return self
 
 
@@ -903,6 +941,15 @@ class UserUpdatePayload(BaseModel):
     email: EmailStr | None = None
     groups: list[str] | None = None
     disabled: bool | None = None
+
+    @model_validator(mode="after")
+    def _verifier(self):
+        # None = "ne pas toucher". Une liste FOURNIE, elle, doit etre valide :
+        # vider les groupes d'un compte existant reviendrait a le desactiver
+        # sans le dire, et le proprietaire du compte ne verrait qu'un 403.
+        if self.groups is not None:
+            _verifier_groupes(self.groups)
+        return self
 
 
 class PasswordChangePayload(BaseModel):
@@ -1519,7 +1566,12 @@ async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
                 break
             node = node[k]
         result[dotted] = node
-    return {"editable": result, "aide": ORTHANC_AIDE}
+    # Le type doit venir d'ici, pas etre devine cote page a partir de la valeur.
+    # Un reglage absent d'orthanc.json arrive a null, et `typeof null` ne dit
+    # rien : la page affichait alors DicomScpTimeout et DicomThreadsCount, qui
+    # sont des entiers, sous forme de menu true/false.
+    types = {k: t.__name__ for k, t in ORTHANC_EDITABLE_PATHS.items()}
+    return {"editable": result, "aide": ORTHANC_AIDE, "types": types}
 
 
 @router.patch("/api/admin/orthanc/config")
