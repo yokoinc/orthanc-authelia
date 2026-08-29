@@ -93,17 +93,55 @@ docker ps --filter name=orthanc- --format '   {{.Names}} | {{.Status}}'
 # (onglet reseau, il couvre .env et les onze occurrences de configuration.yml),
 # donc cette valeur bouge sans prevenir.
 DOMAINE=$(grep -E '^DOMAIN=' .env 2>/dev/null | cut -d= -f2- | tr -d '\r')
+ECHECS=0
+
 if [ -z "$DOMAINE" ]; then
     echo "   DOMAIN introuvable dans .env -- verification des routes ignoree."
+    ECHECS=$((ECHECS + 1))
 else
     echo "   --- routes (domaine : $DOMAINE) ---"
-    for r in /auth/ /api/state /ui/app/ /ohif/; do
+    # Chaque route porte le code qu'on ATTEND d'elle, et on compare.
+    #
+    # Le script se contentait d'afficher les codes puis la ligne « attendu :
+    # ... », sans jamais confronter les deux, et sortait toujours en succes. Un
+    # /auth/ en 502 s'affichait a cote de « attendu 200 » et le deploiement
+    # passait pour reussi -- il fallait lire soi-meme, a chaque fois.
+    for paire in "/auth/:200" "/api/state:200" "/ui/app/:302" "/ohif/:302"; do
+        route=${paire%:*}
+        attendu=${paire##*:}
         code=$(curl -sk -o /dev/null -w '%{http_code}' -H "Host: $DOMAINE" \
-               "https://localhost:30443$r" 2>/dev/null || echo '???')
-        printf '   %-14s %s\n' "$r" "$code"
+               "https://localhost:30443$route" 2>/dev/null || echo '000')
+        if [ "$code" = "$attendu" ]; then
+            printf '   %-14s %s\n' "$route" "$code"
+        else
+            printf '   %-14s %s   <-- ATTENDU %s\n' "$route" "$code" "$attendu"
+            ECHECS=$((ECHECS + 1))
+        fi
     done
-    echo "   attendu : /auth/ 200, /api/state 200, /ui/app/ 302, /ohif/ 302"
 fi
+
 echo "   --- erreurs nginx sur la derniere minute ---"
-docker logs --since 60s orthanc-nginx 2>&1 | grep -c 'Connection refused' || true
-echo "   (0 = les upstreams sont bien resolus)"
+# Le motif ne cherchait que « Connection refused ». Or la panne rencontree le
+# 2026-08-29 -- Authelia refusant de demarrer -- faisait ecrire a nginx
+# « host not found in upstream », que ce filtre ne voyait pas : il affichait 0
+# et annoncait des upstreams bien resolus pendant que la pile etait a terre.
+MOTIFS='Connection refused|host not found in upstream|no live upstreams|upstream timed out|\[emerg\]|\[alert\]'
+ERREURS=$(docker logs --since 60s orthanc-nginx 2>&1 | grep -cE "$MOTIFS" || true)
+echo "   $ERREURS"
+if [ "$ERREURS" -gt 0 ]; then
+    echo "   ^ upstream injoignable ou configuration refusee -- extrait :"
+    docker logs --since 60s orthanc-nginx 2>&1 | grep -E "$MOTIFS" | tail -3 | sed 's/^/     /'
+    ECHECS=$((ECHECS + 1))
+else
+    echo "   (0 = aucun upstream injoignable, aucune erreur de configuration)"
+fi
+
+echo
+if [ "$ECHECS" -eq 0 ]; then
+    echo "== Deploiement verifie : tout est conforme =="
+    exit 0
+fi
+echo "== ATTENTION : $ECHECS verification(s) en echec, voir ci-dessus =="
+echo "   La pile tourne peut-etre malgre tout, mais elle ne repond pas comme"
+echo "   attendu. Ne pas considerer ce deploiement comme reussi."
+exit 1
