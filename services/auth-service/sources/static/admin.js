@@ -449,6 +449,25 @@ function aide(texte) {
 // compare pour n'envoyer que ce qui a reellement change.
 let orthancCharge = {};
 
+
+// Ce qu'Orthanc applique quand le reglage est absent du fichier.
+//
+// « non defini » etait exact et inutile : l'operateur veut savoir ce que fait
+// le serveur, pas ce que le fichier tait. Les valeurs viennent du serveur
+// (ORTHANC_DEFAUTS), extraites de la configuration de reference qu'Orthanc
+// emet lui-meme -- elles correspondent donc a la version installee.
+function texteDefaut(cle, defauts) {
+    var d = defauts && Object.prototype.hasOwnProperty.call(defauts, cle)
+            ? defauts[cle] : undefined;
+    if (d === undefined || d === null) {
+        // Les DicomWeb.* n'ont pas de defaut connu de nous : leurs valeurs
+        // appartiennent au greffon. Mieux vaut ne rien annoncer que d'inventer.
+        return 'non défini';
+    }
+    if (Array.isArray(d)) return 'non défini — Orthanc applique : ' + d.join(', ');
+    return 'non défini — Orthanc applique : ' + d;
+}
+
 async function loadOrthanc() {
     const container = document.getElementById('orthanc-fields');
     try {
@@ -466,16 +485,16 @@ async function loadOrthanc() {
             const type = data.types?.[key] || (value === null ? 'str' : typeof value);
             if (type === 'bool' || typeof value === 'boolean') {
                 control = `<select id="${inputId}" data-key="${key}">
-                    <option value="" ${value === null ? 'selected' : ''}>(non défini — Orthanc applique son défaut)</option>
+                    <option value="" ${value === null ? 'selected' : ''}>(${texteDefaut(key, data.defauts)})</option>
                     <option value="true" ${value === true ? 'selected' : ''}>true</option>
                     <option value="false" ${value === false ? 'selected' : ''}>false</option>
                 </select>`;
             } else if (type === 'int' || typeof value === 'number') {
                 control = `<input type="number" id="${inputId}" data-key="${key}" value="${value ?? ''}"
-                                  placeholder="non défini — Orthanc applique son défaut">`;
+                                  placeholder="${texteDefaut(key, data.defauts)}">`;
             } else {
                 control = `<input type="text" id="${inputId}" data-key="${key}" value="${value ?? ''}"
-                                  placeholder="non défini — Orthanc applique son défaut">`;
+                                  placeholder="${texteDefaut(key, data.defauts)}">`;
             }
             return `<div class="form-row"><label for="${inputId}">${key}${aide(data.aide?.[key])}</label>${control}</div>`;
         }).join('');

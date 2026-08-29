@@ -1627,6 +1627,73 @@ async def delete_user(username: str, admin: AdminUser = Depends(require_admin)):
     return {"ok": True}
 
 
+# Valeurs par defaut d'Orthanc, telles que LUI les declare.
+#
+# Un champ vide dans le panneau ne disait pas ce qui s'applique reellement.
+# « non defini » est exact mais inutile : l'operateur veut savoir ce que fait
+# le serveur, pas ce que le fichier ne dit pas.
+#
+# Ces valeurs ne sont PAS recopiees d'une documentation : elles sont extraites
+# de la configuration de reference qu'Orthanc emet lui-meme, donc elles
+# correspondent a la version reellement installee. Pour les regenerer apres une
+# montee de version :
+#
+#     docker exec orthanc-server Orthanc --config=/tmp/defaut.json
+#     docker cp orthanc-server:/tmp/defaut.json .
+#
+# puis relever les cles de ORTHANC_EDITABLE_PATHS dans ce fichier.
+# Genere le 2026-08-29 depuis orthancteam/orthanc:26.6.1.
+#
+# Les entrees DicomWeb.* valent None : leurs defauts appartiennent au greffon
+# DICOMweb, absent de la configuration de reference du coeur. On prefere ne rien
+# afficher plutot que d'annoncer une valeur qu'on n'a pas mesuree.
+ORTHANC_DEFAUTS = {
+    "AcceptedTransferSyntaxes": ["1.2.840.10008.1.*"],
+    "ConcurrentJobs": 2,
+    "DefaultEncoding": "Latin1",
+    "DeidentifyLogs": True,
+    "DicomAet": "ORTHANC",
+    "DicomAlwaysAllowEcho": True,
+    "DicomAlwaysAllowFind": False,
+    "DicomAlwaysAllowMove": False,
+    "DicomAlwaysAllowStore": True,
+    "DicomCheckCalledAet": False,
+    "DicomModalitiesInDatabase": False,
+    "DicomPort": 4242,
+    "DicomScpTimeout": 30,
+    "DicomServerEnabled": True,
+    "DicomThreadsCount": 4,
+    "DicomWeb.Enable": None,
+    "DicomWeb.EnableMetadata": None,
+    "DicomWeb.EnableWado": None,
+    "DicomWeb.PublicRoot": None,
+    "DicomWeb.Root": None,
+    "DicomWeb.StowMaxInstances": None,
+    "DicomWeb.StowMaxSize": None,
+    "HttpCompressionEnabled": False,
+    "HttpPort": 8042,
+    "HttpTimeout": 60,
+    "IngestTranscoding": None,
+    "IngestTranscodingOfUncompressed": True,
+    "JobsHistorySize": 10,
+    "LimitFindInstances": 0,
+    "LimitFindResults": 0,
+    "LogLevel": None,
+    "MaximumPatientCount": 0,
+    "MaximumStorageMode": "Recycle",
+    "MaximumStorageSize": 0,
+    "Name": "MyOrthanc",
+    "OrthancPeersInDatabase": False,
+    "OverwriteInstances": False,
+    "RemoteAccessAllowed": False,
+    "SaveJobs": True,
+    "StableAge": 60,
+    "StorageCompression": False,
+    "StoreMD5ForAttachments": True,
+    "SynchronousCMove": True,
+}
+
+
 # ============================================================================
 # Routes: /api/admin/orthanc/config
 # ============================================================================
@@ -1649,7 +1716,8 @@ async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
     # rien : la page affichait alors DicomScpTimeout et DicomThreadsCount, qui
     # sont des entiers, sous forme de menu true/false.
     types = {k: t.__name__ for k, t in ORTHANC_EDITABLE_PATHS.items()}
-    return {"editable": result, "aide": ORTHANC_AIDE, "types": types}
+    return {"editable": result, "aide": ORTHANC_AIDE, "types": types,
+            "defauts": ORTHANC_DEFAUTS}
 
 
 @router.patch("/api/admin/orthanc/config")
