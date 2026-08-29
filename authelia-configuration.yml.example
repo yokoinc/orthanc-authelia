@@ -49,6 +49,18 @@ authentication_backend:
     # stays invisible until the container is restarted -- a new user simply gets
     # "user not found" at login.
     watch: true
+    # Reinitialisation par courriel DESACTIVEE.
+    #
+    # Sans SMTP, le notifier `filesystem` ecrit le lien de reinitialisation dans
+    # un fichier A L'INTERIEUR du conteneur, et le portail affiche malgre tout
+    # « un e-mail a ete envoye ». L'utilisateur attend un message qui n'arrivera
+    # jamais. Si vous configurez un vrai serveur SMTP, vous pouvez repasser
+    # `disable` a false.
+    #
+    # Sinon : un mot de passe se change depuis le panneau d'administration, et
+    # celui de l'administrateur via scripts/reset-admin-password.sh.
+    password_reset:
+      disable: true
     password:
       algorithm: argon2id           # Secure password hashing algorithm
       iterations: 1                 # Hash iterations (1 for faster auth in PACS)
