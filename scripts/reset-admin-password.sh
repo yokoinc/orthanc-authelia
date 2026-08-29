@@ -9,15 +9,11 @@
 #   Le mot de passe d'un utilisateur se change depuis le panneau
 #   d'administration. Mais si c'est le mot de passe ADMINISTRATEUR qui est
 #   perdu, plus personne ne peut ouvrir le panneau -- et il n'existe pas de
-#   porte de service dans l'interface, volontairement. Ce script est cette
-#   porte, et elle exige un acces SSH au NAS.
+#   porte de service dans l'interface, volontairement : ce serait une porte
+#   pour n'importe qui. Ce script est cette porte, et elle exige un acces SSH.
 #
-# USAGE (sur le NAS, dans le dossier de la pile)
+# USAGE (sur le NAS, depuis la racine de la pile)
 #   ./scripts/reset-admin-password.sh <adresse@du.compte>
-#
-# Le hachage est fait par le binaire d'Authelia lui-meme (argon2id), avec les
-# parametres de sa propre configuration : pas de risque de produire un hash
-# qu'il refuserait.
 set -eu
 
 USERS_YML="services/authelia/config/users_database.yml"
@@ -40,33 +36,29 @@ if ! grep -q "^  ${COMPTE}:" "$USERS_YML"; then
     exit 1
 fi
 
-printf 'Nouveau mot de passe pour %s : ' "$COMPTE"
-stty -echo 2>/dev/null || true
-read -r MDP
-stty echo 2>/dev/null || true
-echo
-
-if [ ${#MDP} -lt 12 ]; then
-    echo "refuse : 12 caracteres minimum (meme regle que le panneau)." >&2
-    exit 1
-fi
-
-# Le binaire d'Authelia produit le hash. --config lui fait reprendre les
-# parametres argon2 de cette installation.
-HASH=$(docker exec -i "$CONTENEUR" authelia crypto hash generate argon2 \
-        --config /config/configuration.yml --password "$MDP" \
-        | sed -n 's/^Digest: //p')
+# Le binaire d'Authelia produit le hash, et il demande LUI-MEME le mot de passe.
+#
+# Deliberement pas de --password : l'argument serait visible dans la liste des
+# processus du NAS pendant l'appel, et repris dans les journaux du demon Docker.
+# Authelia le lit sur le terminal (d'ou -it) et le fait saisir deux fois.
+# --config lui fait reprendre les parametres argon2 de CETTE installation :
+# aucun risque de produire un hash qu'il refuserait ensuite.
+echo "Authelia va demander le nouveau mot de passe de ${COMPTE}."
+echo "Douze caracteres minimum, comme dans le panneau."
+HASH=$(docker exec -it "$CONTENEUR" authelia crypto hash generate argon2 \
+        --config /config/configuration.yml \
+        | tr -d '\r' | sed -n 's/^Digest: //p')
 
 if [ -z "$HASH" ]; then
-    echo "le hachage a echoue -- le conteneur $CONTENEUR tourne-t-il ?" >&2
+    echo "le hachage a echoue -- le conteneur ${CONTENEUR} tourne-t-il ?" >&2
     exit 1
 fi
 
-# Sauvegarde avant d'ecrire. Le fichier est monte dans le conteneur : on ecrit
-# DANS l'inode existant, un mv detacherait le montage et Authelia continuerait
-# de lire l'ancien fichier.
+# Sauvegarde avant d'ecrire.
 cp "$USERS_YML" "${USERS_YML}.bak.$(date +%Y%m%d-%H%M%S)"
 
+# Remplace la ligne `password:` de CE compte, et d'aucun autre : on n'agit
+# qu'entre l'entree du compte et la suivante.
 awk -v compte="  ${COMPTE}:" -v hash="$HASH" '
     $0 == compte { dans = 1; print; next }
     dans && /^  [^ ]/ { dans = 0 }
@@ -74,12 +66,15 @@ awk -v compte="  ${COMPTE}:" -v hash="$HASH" '
     { print }
     END { if (!remplace) exit 3 }
 ' "$USERS_YML" > "${USERS_YML}.tmp" || {
-    echo "aucune ligne 'password:' trouvee sous ${COMPTE} -- rien ecrit." >&2
+    echo "aucune ligne 'password:' sous ${COMPTE} -- rien ecrit." >&2
     rm -f "${USERS_YML}.tmp"
     exit 1
 }
 
-cat "${USERS_YML}.tmp" > "$USERS_YML"   # ecrit dans l'inode monte
+# `cat >` et non `mv` : le fichier est bind-monte dans le conteneur, et un mv
+# remplacerait l'inode. Le montage suivrait l'ancien : Authelia continuerait de
+# lire le fichier d'avant, sans rien signaler.
+cat "${USERS_YML}.tmp" > "$USERS_YML"
 rm -f "${USERS_YML}.tmp"
 
 echo "Mot de passe de ${COMPTE} remplace."

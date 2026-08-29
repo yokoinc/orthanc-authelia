@@ -414,11 +414,20 @@ if ($drive) {
     # traiter qu'un laissait les autres s'accumuler indefiniment, a relancer un
     # a un. Orthanc dedoublonne sur le SOP Instance UID, donc reenvoyer une
     # etude deja presente ne cree rien -- c'est sans risque, juste plus long.
+    # Uniquement les dossiers que CE script a crees : <date>_<heure>. Le menage
+    # de fin de course supprime tout dossier ayant fourni un fichier envoye --
+    # sans ce filtre, un dossier depose a la main dans C:\DICOM-Import (un
+    # export grave par un confrere, une copie gardee de cote) serait absorbe
+    # puis EFFACE au premier lancement sans CD. Les images finiraient dans
+    # Orthanc, donc rien ne serait perdu, mais personne n'a demande ca.
+    $motifDate = '^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$'
     $enAttente = @($tousDossiers | Where-Object {
-        $f = Join-Path $_.FullName '_failed-files.txt'
-        ((Test-Path $f) -and ((Get-Item $f).Length -gt 0)) -or
-        @(Get-ChildItem -LiteralPath $_.FullName -Recurse -File -Force -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -notlike '_*' -and $_.Name -ne 'DICOMDIR' }).Count -gt 0
+        $_.Name -match $motifDate -and (
+            $(  $f = Join-Path $_.FullName '_failed-files.txt'
+                ((Test-Path $f) -and ((Get-Item $f).Length -gt 0)) -or
+                @(Get-ChildItem -LiteralPath $_.FullName -Recurse -File -Force -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Name -notlike '_*' -and $_.Name -ne 'DICOMDIR' }).Count -gt 0 )
+        )
     })
 
     if (-not $enAttente) {

@@ -59,6 +59,27 @@ function confirmDialog(message, okLabel) {
     });
 }
 
+// Les valeurs affichees viennent d'Authelia et d'orthanc.json, pas de nous, et
+// elles traversent innerHTML puis des attributs onclick. Sans echappement,
+// « o'brien@exemple.fr » -- une adresse parfaitement valide -- fermait la
+// chaine JavaScript et le bouton Modifier de cette ligne cessait de repondre.
+// Un nom affiche contenant < ou " corrompait la ligne entiere.
+function echapHtml(v) {
+    return String(v ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+// Pour une valeur placee dans une chaine JavaScript, elle-meme dans un attribut
+// HTML : JSON.stringify echappe pour JavaScript (et fournit les guillemets),
+// echapHtml pour l'attribut. Le parseur HTML redecode avant que JS ne lise.
+function echapArg(v) {
+    return echapHtml(JSON.stringify(String(v ?? '')));
+}
+
 function showMsg(text, ok) {
     const el = document.getElementById('global-msg');
     el.textContent = text;
@@ -127,28 +148,28 @@ async function loadUsers() {
         const verrouille = estAdmin && !u.disabled && adminsActifs <= 1;
         return `
             <tr>
-                <td><strong>${u.username}</strong></td>
-                <td>${u.displayname || ''}</td>
+                <td><strong>${echapHtml(u.username)}</strong></td>
+                <td>${echapHtml(u.displayname)}</td>
                 <td>${(u.groups || []).map(g =>
-                    `<span class="badge-${g === GROUPE_ADMIN ? 'admin' : 'doctor'}">${g}</span>`
+                    `<span class="badge-${g === GROUPE_ADMIN ? 'admin' : 'doctor'}">${echapHtml(g)}</span>`
                 ).join(' ')}</td>
                 <td>${u.disabled
                     ? '<span style="color:var(--oe2-danger)">désactivé</span>'
                     : '<span style="color:var(--oe2-success)">actif</span>'}</td>
                 <td style="text-align:right;white-space:nowrap">
-                    <button class="oe2-btn oe2-btn--sm" onclick="openEdit('${u.username}')">
+                    <button class="oe2-btn oe2-btn--sm" onclick="openEdit(${echapArg(u.username)})">
                         <i class="fa-solid fa-pen"></i> Modifier
                     </button>
                     <button class="oe2-btn oe2-btn--sm${verrouille ? ' btn-verrouille' : ''}"
                             ${verrouille
                               ? `onclick="expliquerVerrou()" aria-disabled="true"`
-                              : `onclick="toggleDisabled('${u.username}', ${!!u.disabled})"`}>
+                              : `onclick="toggleDisabled(${echapArg(u.username)}, ${!!u.disabled})"`}>
                         <i class="fa-solid fa-power-off"></i> ${u.disabled ? 'Activer' : 'Désactiver'}
                     </button>
                     <button class="oe2-btn oe2-btn--danger oe2-btn--sm${verrouille ? ' btn-verrouille' : ''}"
                             ${verrouille
                               ? `onclick="expliquerVerrou()" aria-disabled="true"`
-                              : `onclick="deleteUser('${u.username}')"`}>
+                              : `onclick="deleteUser(${echapArg(u.username)})"`}>
                         <i class="fa-solid fa-trash"></i> Supprimer
                     </button>
                 </td>
@@ -276,17 +297,17 @@ async function loadModalities() {
         const data = await api('/api/admin/modalities');
         tbody.innerHTML = data.modalities.map(m => `
             <tr>
-                <td><strong>${m.name}</strong></td>
-                <td>${m.aet}</td>
-                <td>${m.host}</td>
+                <td><strong>${echapHtml(m.name)}</strong></td>
+                <td>${echapHtml(m.aet)}</td>
+                <td>${echapHtml(m.host)}</td>
                 <td>${m.port}</td>
                 <td style="text-align:right;white-space:nowrap">
-                    <span id="echo-${m.name}" style="color:var(--oe2-muted);margin-right:8px"></span>
-                    <button class="oe2-btn oe2-btn--sm" onclick="echoModality('${m.name}')">
+                    <span id="echo-${echapHtml(m.name)}" style="color:var(--oe2-muted);margin-right:8px"></span>
+                    <button class="oe2-btn oe2-btn--sm" onclick="echoModality(${echapArg(m.name)})">
                         <i class="fa-solid fa-tower-broadcast"></i> Tester
                     </button>
                     <button class="oe2-btn oe2-btn--danger oe2-btn--sm"
-                            onclick="deleteModality('${m.name}')">
+                            onclick="deleteModality(${echapArg(m.name)})">
                         <i class="fa-solid fa-trash"></i> Supprimer
                     </button>
                 </td>
