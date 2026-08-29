@@ -264,7 +264,7 @@ services:
   # =============================================================================
   
   ohif:
-    image: registry.yokoinc.ovh/orthanc-ohif:3.11.0
+    image: registry.yokoinc.ovh/orthanc-ohif:3.13.4-1
     container_name: orthanc-ohif
     restart: unless-stopped
     volumes:

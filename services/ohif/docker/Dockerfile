@@ -33,6 +33,18 @@ RUN git clone --depth 1 --branch ${OHIF_VERSION} https://github.com/OHIF/Viewers
     && cd app \
     && rm -rf platform/docs .circleci .github .netlify testdata .git
 
+# Correctif maison, applique sur les sources avant le build.
+#
+# Une etude portant un compte rendu structure (Dose Record de scanner) ouvrait
+# le viewer sur un bandeau d'erreur, alors que les images s'affichaient. Le
+# panneau d'etudes reclamait une vignette a une instance sans pixels. Le detail
+# et la marche a suivre en cas de montee de version sont dans le script.
+#
+# Il echoue si le motif a disparu des sources amont : le build s'arrete alors,
+# plutot que de produire une image ou le correctif serait passe a la trappe.
+COPY patch-sr-thumbnail.py /usr/src/patch-sr-thumbnail.py
+RUN cd /usr/src/app && python3 /usr/src/patch-sr-thumbnail.py
+
 
 # Install dependencies
 # Avant NODE_ENV=production, sans quoi les devDependencies -- donc la chaine de
