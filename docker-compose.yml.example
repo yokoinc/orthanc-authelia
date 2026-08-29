@@ -34,6 +34,21 @@ services:
     image: redis:8.0-alpine
     container_name: orthanc-redis
     restart: unless-stopped
+    # Volume NOMME, et journalisation activee.
+    #
+    # Le service n'en declarait aucun : l'image redis cree alors un volume
+    # ANONYME pour /data. Il n'a pas de nom, il devient orphelin des que le
+    # conteneur est supprime, et `docker compose down` comme `docker volume
+    # prune` l'effacent -- avec TOUS les liens de partage en cours. Constate le
+    # 2026-08-29 : 28 cles dans un volume anonyme, a cote de 25 volumes deja
+    # orphelins sur ce NAS.
+    #
+    # appendonly : sans lui, redis ne sauvegarde que par instantanes (3600 1,
+    # 300 100, 60 10000). Un partage cree seul ne declenche aucune sauvegarde
+    # avant une heure : un arret brutal dans cet intervalle le perd.
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -304,6 +319,8 @@ services:
 # =============================================================================
 
 volumes:
+  redis-data:
+    name: orthanc_redis_data
   nginx-ssl:
     name: orthanc_nginx_ssl
   # postgres_data:  # Uncomment if using local PostgreSQL
