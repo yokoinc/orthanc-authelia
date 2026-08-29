@@ -120,6 +120,33 @@ else
     done
 fi
 
+echo "   --- secrets ---"
+# Authelia ne fait AUCUNE interpolation dans son YAML : sa configuration porte
+# litteralement `secret: ${AUTHELIA_SESSION_SECRET}`, et ce sont les variables
+# d'environnement AUTHELIA_* qui l'ecrasent. Si l'une disparait de .env,
+# Authelia ne proteste pas -- il prend la chaine « ${AUTHELIA_SESSION_SECRET} »
+# telle quelle comme secret de session. Or cette chaine est publiee dans le
+# depot : toutes les sessions deviendraient forgeables, sans le moindre message.
+MANQUANTS=0
+for v in AUTHELIA_SESSION_SECRET AUTHELIA_STORAGE_ENCRYPTION_KEY AUTHELIA_JWT_SECRET AUTH_PASSWORD; do
+    val=$(grep -E "^${v}=" .env 2>/dev/null | cut -d= -f2- | tr -d '')
+    if [ -z "$val" ]; then
+        echo "   $v : ABSENT de .env"
+        MANQUANTS=$((MANQUANTS + 1))
+    elif [ "${val#*\$\{}" != "$val" ]; then
+        echo "   $v : contient un placeholder non substitue -- $val"
+        MANQUANTS=$((MANQUANTS + 1))
+    elif [ ${#val} -lt 16 ]; then
+        echo "   $v : suspicieusement court (${#val} caracteres)"
+        MANQUANTS=$((MANQUANTS + 1))
+    fi
+done
+if [ "$MANQUANTS" -eq 0 ]; then
+    echo "   4 secrets presents et substitues"
+else
+    ECHECS=$((ECHECS + MANQUANTS))
+fi
+
 echo "   --- erreurs nginx sur la derniere minute ---"
 # Le motif ne cherchait que « Connection refused ». Or la panne rencontree le
 # 2026-08-29 -- Authelia refusant de demarrer -- faisait ecrire a nginx
