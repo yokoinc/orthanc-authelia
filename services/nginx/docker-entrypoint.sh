@@ -16,16 +16,42 @@ echo "SSL_MODE: $SSL_MODE"
 # Create SSL directory if it doesn't exist
 mkdir -p /etc/nginx/ssl
 
-# Generate self-signed certificates if they don't exist
+# Certificat auto-signe : genere s'il manque, REGENERE s'il approche de sa fin.
+#
+# La condition ne testait que l'absence du fichier. Or le certificat vit dans un
+# volume nomme : genere une fois pour 365 jours, il n'etait jamais refait et
+# expirait en silence. Constate le 2026-08-29 : celui en service arrivait a
+# echeance le 10 octobre, sans que rien ne soit prevu pour le remplacer.
+#
+# Le tunnel Cloudflare ne le verifie pas (il ne pourrait pas, il est auto-signe),
+# donc l'expiration ne coupe probablement pas l'acces public -- mais « probablement »
+# n'est pas une base, et un acces direct depuis le reseau local, lui, affiche
+# bien un certificat perime.
+#
+# 3650 jours : ce certificat ne sert qu'entre le tunnel et nginx, sur le reseau
+# Docker. Sa duree de vie n'est pas une garantie de securite ici, et une echeance
+# courte n'achete qu'une panne future.
+mkdir -p /etc/nginx/ssl
+apk add --no-cache openssl 2>/dev/null || true
+
+BESOIN_CERT=0
 if [ ! -f /etc/nginx/ssl/cert.pem ] || [ ! -f /etc/nginx/ssl/key.pem ]; then
-    echo "SSL certificates not found. Generating self-signed certificates..."
-    apk add --no-cache openssl 2>/dev/null || true
+    echo "Certificat absent."
+    BESOIN_CERT=1
+elif ! openssl x509 -in /etc/nginx/ssl/cert.pem -noout -checkend 2592000 >/dev/null 2>&1; then
+    # -checkend 2592000 : expire dans moins de 30 jours (ou deja expire).
+    echo "Certificat expire ou arrivant a echeance sous 30 jours."
+    BESOIN_CERT=1
+fi
+
+if [ "$BESOIN_CERT" = "1" ]; then
+    echo "Generation d'un certificat auto-signe pour ${DOMAIN}..."
     openssl req -x509 -newkey rsa:2048 -nodes \
         -keyout /etc/nginx/ssl/key.pem \
         -out /etc/nginx/ssl/cert.pem \
-        -days 365 \
+        -days 3650 \
         -subj "/CN=${DOMAIN}/O=Auto-Generated/C=FR" 2>/dev/null
-    echo "Self-signed certificates generated."
+    echo "Certificat genere, valable jusqu'au $(openssl x509 -in /etc/nginx/ssl/cert.pem -noout -enddate | cut -d= -f2)."
 fi
 
 # Generate htpasswd for the programmatic upload endpoint (/api-upload/)
