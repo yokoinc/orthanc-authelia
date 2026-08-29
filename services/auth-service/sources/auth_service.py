@@ -29,6 +29,13 @@ REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 
 # Token configuration
 DEFAULT_TOKEN_MAX_USES = int(os.getenv("DEFAULT_TOKEN_MAX_USES", "50"))
+
+# Sursis accorde a un jeton dont le quota d'ouvertures vient d'etre epuise.
+# Sans lui, la derniere ouverture supprimerait le jeton et le visualiseur qui
+# vient de s'afficher perdrait ses images en cours de route. Deux heures :
+# assez pour relire un examen sans se presser, assez court pour qu'un lien
+# epuise ne serve pas la journee.
+SURSIS_DERNIERE_OUVERTURE = int(os.getenv("SURSIS_DERNIERE_OUVERTURE", "7200"))
 DEFAULT_TOKEN_VALIDITY_SECONDS = int(os.getenv("DEFAULT_TOKEN_VALIDITY_SECONDS", str(7 * 24 * 3600)))  # 7 days
 CACHE_VALIDITY_USER_SESSION = int(os.getenv("CACHE_VALIDITY_USER_SESSION", "300"))  # 5 minutes  
 CACHE_VALIDITY_SHARE_TOKEN = int(os.getenv("CACHE_VALIDITY_SHARE_TOKEN", "60"))    # 1 minute
@@ -320,23 +327,46 @@ def delete_token(token: str):
     redis_client.delete(f"token:{token}")
 
 def increment_token_usage(token: str) -> bool:
-    """Increment token usage counter, return False if max reached"""
+    """Compte une ouverture du lien. Renvoie False si le quota est atteint.
+
+    Appele UNIQUEMENT depuis share_redirect : une incrementation = une
+    ouverture du lien de partage. Surtout pas depuis la validation de
+    protocole, qui se declenche des centaines de fois par consultation.
+    """
     data = get_token(token)
     if not data:
         return False
-    
-    data["current_uses"] = data.get("current_uses", 0) + 1
-    
-    # Check if max uses exceeded
-    if data["current_uses"] >= data.get("max_uses", 999999):
+
+    # Le quota se verifie AVANT de compter, et l'utilisation qui atteint le
+    # plafond est accordee. Le code testait `current_uses >= max_uses` APRES
+    # avoir incremente : un partage cree pour une seule ouverture n'en
+    # accordait aucune, et chaque quota etait court d'une unite (mesure :
+    # max_uses=1 -> 0 ouverture, max_uses=3 -> 2).
+    utilisees = data.get("current_uses", 0)
+    plafond = data.get("max_uses", 999999)
+    if utilisees >= plafond:
+        # Refuser, sans supprimer. Supprimer ici aneantirait le sursis accorde
+        # plus bas : il suffisait qu'on reclique sur un lien epuise pour couper
+        # les images de la personne en train de consulter. C'est la duree de vie
+        # raccourcie qui fait disparaitre le jeton, elle seule.
+        return False
+
+    data["current_uses"] = utilisees + 1
+
+    restant = int(data["expires_at"] - time.time())
+    if restant <= 0:
         delete_token(token)
         return False
-    
-    # Update in Redis
-    expiration_time = int(data["expires_at"] - time.time())
-    if expiration_time > 0:
-        redis_client.setex(f"token:{token}", expiration_time, json.dumps(data))
-    
+
+    # Le plafond vient d'etre atteint : c'etait la derniere ouverture. On ne
+    # supprime PAS le jeton tout de suite -- le visualiseur qui vient de
+    # s'ouvrir a besoin de lui pendant toute la consultation, et les images se
+    # figeraient sous les yeux du confrere. On raccourcit sa duree de vie a un
+    # sursis, le temps de regarder l'examen, puis il disparait.
+    if data["current_uses"] >= plafond:
+        restant = min(restant, SURSIS_DERNIERE_OUVERTURE)
+
+    redis_client.setex(f"token:{token}", restant, json.dumps(data))
     return True
 
 def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security)):
@@ -513,12 +543,23 @@ async def validate_token(request: Request, username: str = Depends(verify_basic_
                 "validity": 0
             })
         
-        # Increment usage counter and check limits
-        if not increment_token_usage(token_value):
-            return JSONResponse(content={
-                "granted": False,
-                "validity": 0
-            })
+        # Quota VERIFIE, pas consomme.
+        #
+        # Ce point d'entree est appele par le greffon d'Orthanc a chaque
+        # ressource, et il revalide toutes les 60 s (CACHE_VALIDITY_SHARE_TOKEN).
+        # Une etude, ce sont des centaines de series et d'instances : un jeton
+        # de 50 usages mourait en pleine consultation, parfois en quelques
+        # secondes. Le confrere voyait les images se figer sans explication.
+        #
+        # Le decompte n'a de sens que rapporte a une OUVERTURE de lien, et il se
+        # fait deja la, dans share_redirect.
+        #
+        # Aucun test de plafond ici non plus : la derniere ouverture autorisee
+        # porte current_uses A max_uses, et refuser dans ce cas couperait les
+        # images de la consultation qu'on vient tout juste d'autoriser. C'est
+        # la duree de vie du jeton qui applique la limite -- share_redirect la
+        # ramene a SURSIS_DERNIERE_OUVERTURE des le plafond atteint, apres quoi
+        # le jeton disparait de lui-meme et get_token ne le trouve plus.
         
         # For share tokens, check if the requested resource matches the token's resources
         granted = check_resource_access(token_data, level, method, orthanc_id, dicom_uid, uri)
@@ -1300,12 +1341,13 @@ def verify_share(request: Request, token: str = ""):
         logger.warning("Partage refuse : jeton expire (%s...)", token[:8])
         return Response(status_code=403)
 
-    # Le quota reste verifie, sans etre consomme : un jeton deja epuise ne doit
-    # plus rien ouvrir, meme si /share/ ne l'a pas encore supprime.
-    if donnees.get("current_uses", 0) >= donnees.get("max_uses", 999999):
-        logger.warning("Partage refuse : quota epuise (%s...)", token[:8])
-        return Response(status_code=403)
-
+    # Pas de test de plafond ici. Il y en avait un, et il coupait la derniere
+    # consultation autorisee : l'ouverture qui atteint le quota porte
+    # current_uses A max_uses, et ce test refusait alors toutes les requetes du
+    # visualiseur qui venait de s'ouvrir. La limite est appliquee par la duree
+    # de vie du jeton -- share_redirect la ramene a SURSIS_DERNIERE_OUVERTURE
+    # des le plafond atteint. Un jeton epuise depuis assez longtemps n'existe
+    # plus, et le test d'existence ci-dessus suffit a le refuser.
     return Response(status_code=204)
 
 
