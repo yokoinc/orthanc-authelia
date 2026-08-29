@@ -2445,9 +2445,9 @@ async def create_backup(admin: AdminUser = Depends(require_admin)):
     by hand -- was impossible, although that is precisely when one wants it.
     """
     files = [
-        (AUTHELIA_YML, "accounts"),
-        (ORTHANC_JSON, "Orthanc configuration"),
-        (AUTHELIA_CONFIG, "Authelia configuration"),
+        (AUTHELIA_YML, "comptes"),
+        (ORTHANC_JSON, "configuration Orthanc"),
+        (AUTHELIA_CONFIG, "configuration Authelia"),
     ]
 
     created, skipped = [], []
@@ -2459,11 +2459,11 @@ async def create_backup(admin: AdminUser = Depends(require_admin)):
             except OSError as e:  # disk full, insufficient rights
                 skipped.append(f"{label}: {e}")
         else:
-            skipped.append(f"{label}: file missing")
+            skipped.append(f"{label} : fichier absent")
 
     if not created:
         raise HTTPException(
-            500, "no file could be backed up: " + "; ".join(skipped))
+            500, "aucun fichier n'a pu etre sauvegarde : " + "; ".join(skipped))
 
     await _audit("backup.created", admin.username, files=",".join(created))
     return {"ok": True, "created": created, "skipped": skipped}
@@ -2511,8 +2511,19 @@ async def restore_backup(
     admin: AdminUser = Depends(require_admin),
 ):
     """Restore a backup from /host/backups/ onto its original file."""
-    src = BACKUPS_DIR / backup_name
-    if not src.exists() or ".bak." not in backup_name:
+    # Le nom vient du client. Le test de _backup_target ci-dessous impose deja
+    # un prefixe connu, ce qui ecarte « ../../etc/passwd.bak.1 » -- mais pas
+    # « orthanc.json.bak.x/../../../tmp/quelquechose », qui commence bien par le
+    # bon prefixe et ressort pourtant du dossier des sauvegardes.
+    #
+    # La portee reelle est faible : il faut deja etre administrateur, et un
+    # administrateur peut de toute facon ecrire orthanc.json depuis le panneau.
+    # Mais une route qui restaure un fichier doit rester enfermee dans son
+    # dossier, sans dependre de la forme d'un nom.
+    src = (BACKUPS_DIR / backup_name).resolve()
+    if (src.parent != BACKUPS_DIR.resolve()
+            or not src.is_file()
+            or ".bak." not in backup_name):
         raise HTTPException(404, "sauvegarde introuvable ou nom invalide")
 
     dest = _backup_target(backup_name)

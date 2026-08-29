@@ -1801,7 +1801,7 @@ class TestManualBackup:
         r = client.post("/api/admin/backups", headers=csrf_headers)
         assert r.status_code == 200, r.text
         assert r.json()["created"]
-        assert any("missing" in s for s in r.json()["skipped"])
+        assert any("absent" in s for s in r.json()["skipped"])
 
 
 class TestPublicUrl:
