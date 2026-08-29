@@ -283,6 +283,32 @@ copy_if_missing "authelia-users.yml.example"         "services/authelia/config/u
 copy_if_missing "orthanc.json.example"               "services/orthanc/config/orthanc.json"
 
 # ---------------------------------------------------------------------------
+# Droits sur les fichiers qui portent des secrets
+# ---------------------------------------------------------------------------
+# users_database.yml contient les empreintes argon2id de tous les comptes, et
+# Authelia le relit a chaud (watch: true) : lisible par tous, il se
+# brute-force hors ligne ; MODIFIABLE par tous, il suffit d'y remplacer
+# l'empreinte de l'administrateur pour prendre le PACS en une seconde.
+# notification.txt porte les liens de reinitialisation, db.sqlite3 les
+# sessions. Le dossier des sauvegardes contient des copies de tout cela.
+#
+# Constate sur une installation reelle le 2026-08-29 : tout etait en 777.
+# Les conteneurs tournent en root, resserrer ne les gene pas.
+#
+# `|| true` : sur un partage a ACL (Synology), chmod peut echouer pour un
+# utilisateur non privilegie. Le message ci-dessous dit alors quoi faire.
+for f in services/authelia/config/* data/admin-backups/*; do
+    [ -f "$f" ] && chmod 600 "$f" 2>/dev/null || true
+done
+chmod 700 services/authelia/config data/admin-backups 2>/dev/null || true
+
+if [ "$(stat -c '%a' services/authelia/config/users_database.yml 2>/dev/null)" != "600" ]; then
+    warn "users_database.yml n'est pas en 600 (droits actuels : $(stat -c '%a' services/authelia/config/users_database.yml 2>/dev/null))."
+    warn "Il contient les empreintes des mots de passe. Corrigez depuis le conteneur :"
+    warn "  docker exec orthanc-authelia sh -c 'find /config -type f -exec chmod 600 {} \\;'"
+fi
+
+# ---------------------------------------------------------------------------
 # Substitution des ${VAR} dans la config Authelia
 # ---------------------------------------------------------------------------
 # Authelia ne fait PAS d'expansion shell dans son YAML : les ${AUTHELIA_DOMAIN}
