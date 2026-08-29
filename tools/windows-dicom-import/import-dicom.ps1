@@ -554,11 +554,27 @@ foreach ($f in $dicomFiles) {
     $success = $false
     while (-not $success) {
         try {
-            Invoke-RestMethod -Uri "$orthancUrl/instances" `
+            # /api-upload/instances, PAS /instances.
+            #
+            # /instances est une route d'interface, protegee par Authelia : un
+            # depot programmatique y recoit 302 vers la page de connexion.
+            # /api-upload/ est la route prevue pour ce script -- Cloudflare
+            # Access la garde au bord, et le profil anonyme d'Orthanc y
+            # autorise le depot, rien d'autre.
+            #
+            # -MaximumRedirection 0 est le garde-fou, et il est INDISPENSABLE.
+            # Sans lui, Invoke-RestMethod SUIT la redirection, recoit la page de
+            # connexion en 200, ne leve aucune exception -- et le script conclut
+            # au succes puis SUPPRIME le fichier local. Mesure le 2026-08-30 :
+            # 226 depots consecutifs comptes comme reussis, Orthanc n'en ayant
+            # recu aucun. Des fichiers d'un CD auraient disparu sans jamais
+            # entrer dans le PACS.
+            Invoke-RestMethod -Uri "$orthancUrl/api-upload/instances" `
                               -Method Post `
                               -Headers $headers `
                               -InFile $f `
                               -ContentType 'application/dicom' `
+                              -MaximumRedirection 0 `
                               -TimeoutSec 120 | Out-Null
             $uploaded++
             $success = $true
