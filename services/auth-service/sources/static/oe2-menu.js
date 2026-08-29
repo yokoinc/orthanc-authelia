@@ -39,21 +39,9 @@
     function makeItem(id, glyph, label, onClick) {
         var menu = document.getElementById("menu-content");
         if (!menu || document.getElementById(id)) return null;
-        // NE PAS dependre de l'entree « Importer ».
-        //
-        // Elle servait a la fois de modele de style et de point d'insertion, et
-        // son absence faisait echouer TOUTE l'injection. Or OE2 ne la rend pas
-        // aux comptes sans droit de depot : un compte externe se retrouvait donc
-        // sans « Deconnexion » -- aucun moyen de fermer sa session depuis
-        // l'interface. Constate le 2026-08-29.
-        //
-        // On retombe sur la derniere entree du menu, qui porte le meme style et
-        // existe toujours.
         var upload = document.getElementById("upload-handler");
-        var reference = upload ? upload.previousElementSibling
-                               : menu.querySelector("li:last-of-type");
-        if (!reference) return null;
-        var ancre = upload || reference;
+        if (!upload) return null;
+        var reference = upload.previousElementSibling;
 
         var li = document.createElement("li");
         li.id = id;
@@ -68,7 +56,7 @@
             ' <span class="ms-auto"></span>';
         li.style.cursor = "pointer";
         li.addEventListener("click", onClick);
-        return { li: li, after: ancre };
+        return { li: li, after: upload };
     }
 
     function place(made, previousIds) {
@@ -111,10 +99,9 @@
         //
         // Cette entree ouvre /auth/tokens/manage, qui liste et REVOQUE les
         // partages de tout le monde : c'est de l'administration. Creer un lien
-        // de partage, en revanche, est un acte clinique -- un medecin le fait
-        // depuis le bouton d'une etude, et cela n'a rien a voir.
-        //
-        // Sans ce garde-fou, un medecin voyait l'entree et tombait sur un 403.
+        // de partage est un acte clinique, fait depuis le bouton d'une etude,
+        // et n'a rien a voir. Sans ce garde-fou un medecin voyait l'entree et
+        // tombait sur un 403.
         if (window.__OE2_IS_ADMIN__ !== true) return;
         place(makeItem("shares-injected", "fa-share-alt", "Partages", function () {
             window.location.href = "/auth/tokens/manage";
@@ -156,19 +143,19 @@
         });
         if (!made) return;
 
-        // Under the settings entry too, and after Administration when it is
-        // there, so the order stays Parametres > Administration > Deconnexion.
-        var anchor = document.getElementById("admin-injected") || findItemByLabel(SETTINGS_LABELS);
-        if (anchor) {
-            anchor.parentNode.insertBefore(made.li, anchor.nextSibling);
-            return;
-        }
-        // A defaut d'ancre, toujours en DERNIER, jamais apres une entree
-        // quelconque : OE2 continue d'ajouter les siennes apres nous, et la
-        // deconnexion se retrouvait coincee en deuxieme position, entre les
-        // examens et l'import. On l'ajoute donc a la fin de la liste.
-        var menu = document.getElementById("menu-content");
-        if (menu) menu.appendChild(made.li);
+        // JAMAIS d'ancrage sur l'entree « Parametres ».
+        //
+        // findItemByLabel la trouve dans UL#settings-list, une section
+        // REPLIEE : la deconnexion inseree a cote disparaissait de l'ecran.
+        // Et comme cette section n'existe pas encore au premier passage, le
+        // resultat dependait de l'instant ou l'injection tombait -- visible une
+        // fois, invisible la suivante. C'est cette course qui la faisait
+        // manquer par intermittence. Mesure le 2026-08-29 : avec le script
+        // d'origine, la deconnexion etait dans #settings-list, masquee.
+        //
+        // place() l'ancre apres #upload-handler, une entree de premier niveau
+        // toujours affichee. Le placement est moins elegant, il est stable.
+        place(made, ["shares-injected", "admin-injected"]);
     }
 
     function injectAll() {
