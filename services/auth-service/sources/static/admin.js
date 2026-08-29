@@ -268,6 +268,55 @@ async function deleteUser(username) {
     } catch (e) { showMsg(e.message, false); }
 }
 
+// Changement de mot de passe : action distincte de la modification de fiche.
+//
+// La regle minimale est de DOUZE caracteres, verifiee ici et cote serveur
+// (PasswordChangePayload, min_length=12). Le controle du navigateur ne protege
+// rien -- il evite un aller-retour et donne un message comprehensible ; c'est
+// le serveur qui decide.
+//
+// Cette installation n'a pas de second facteur : le mot de passe est la seule
+// chose entre Internet et des images de patients. D'ou la confirmation avant
+// d'agir, et la trace au journal d'audit cote serveur.
+document.getElementById('edit-password-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = document.getElementById('edit-user-form').dataset.username;
+    const champ = e.target.new_password;
+    const mdp = champ.value;
+
+    if (mdp.length < 12) {
+        showMsg(`Mot de passe trop court : ${mdp.length} caractere(s), il en faut 12 `
+                + `au minimum. Une phrase longue vaut mieux qu'un mot complique.`, false);
+        champ.focus();
+        return;
+    }
+    if (mdp.toLowerCase() === (username || '').toLowerCase()) {
+        showMsg("Le mot de passe ne peut pas etre l'adresse du compte.", false);
+        champ.focus();
+        return;
+    }
+
+    const ok = await confirmDialog(
+        `Remplacer le mot de passe de ${username} ?
+
+`
+        + `La personne ne pourra plus se connecter avec l'ancien, et devra `
+        + `utiliser le nouveau que vous venez de saisir.`,
+        'Changer le mot de passe',
+    );
+    if (!ok) return;
+
+    try {
+        await api(`/api/admin/users/${encodeURIComponent(username)}/password`, {
+            method: 'PATCH',
+            body: { new_password: mdp },
+        });
+        champ.value = '';
+        showMsg(`Mot de passe de ${username} remplace. Transmettez-le a la personne `
+                + `par un canal sur : il n'est affiche nulle part et ne peut pas etre relu.`, true);
+    } catch (err) { showMsg(err.message, false); }
+});
+
 document.getElementById('add-user-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);

@@ -192,6 +192,28 @@
                         <button type="button" class="oe2-btn oe2-btn--secondary"
                                 onclick="closeEdit()">Annuler</button>
                     </form>
+
+                    <!-- Formulaire SEPARE, et volontairement.
+                         Changer un mot de passe n'est pas modifier une fiche :
+                         c'est une action distincte, avec sa propre confirmation
+                         et sa propre trace au journal d'audit. Les melanger
+                         ferait qu'un simple changement de nom reecrirait
+                         l'empreinte du mot de passe. -->
+                    <form id="edit-password-form" style="margin-top:18px;
+                          border-top:1px solid var(--oe2-border-subtle);padding-top:14px">
+                        <div class="form-row">
+                            <label>Nouveau mot de passe<span class="aide" tabindex="0" role="note"
+                                data-aide="Douze caracteres au minimum. C'est la seule chose entre Internet et des images de patients : cette installation n'a pas de second facteur. Preferez une phrase longue a un mot court complique -- elle est plus solide et se retient.">?</span></label>
+                            <input type="password" name="new_password" autocomplete="new-password"
+                                   minlength="12" placeholder="12 caractères minimum">
+                        </div>
+                        <button type="submit" class="oe2-btn oe2-btn--danger">
+                            <i class="fa-solid fa-key"></i> Changer le mot de passe
+                        </button>
+                        <span style="color:var(--oe2-muted);font-size:var(--oe2-fs-tiny);margin-left:10px">
+                            La personne devra se reconnecter.
+                        </span>
+                    </form>
                     <p style="font-size:var(--oe2-fs-micro);color:var(--oe2-muted);margin:10px 0 0">
                         Le mot de passe ne se modifie pas ici. Retirer le dernier
                         administrateur du groupe admins est refusé : la pile se

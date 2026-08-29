@@ -400,7 +400,7 @@ def _retarget_authelia_config(previous_origin: str, previous_host: str,
     Returns the number of substitutions made.
     """
     if not AUTHELIA_CONFIG.exists():
-        raise HTTPException(503, "Authelia's configuration.yml not found")
+        raise HTTPException(503, "configuration.yml d'Authelia introuvable")
     text = AUTHELIA_CONFIG.read_text(encoding="utf-8")
     total = text.count(previous_origin) + text.count(previous_host)
     if not total:
@@ -1493,6 +1493,23 @@ async def change_password(
     data = _load_authelia()
     if username not in data.get("users", {}):
         raise HTTPException(404, "compte inconnu")
+
+    # Douze caracteres sont imposes par PasswordChangePayload. On y ajoute la
+    # seule regle qui attrape une vraie erreur plutot que d'ennuyer : le mot de
+    # passe egal a l'adresse du compte. C'est la faute classique quand on cree
+    # un acces dans l'urgence, et aucune longueur minimale ne l'empeche --
+    # « prenom.nom@exemple.org » fait bien plus de douze caracteres.
+    #
+    # Rien de plus. Cette installation impose deja une longueur serieuse ; y
+    # empiler des regles de composition (majuscule, chiffre, symbole) produit
+    # des mots de passe plus courts, plus previsibles et notes sur un papier.
+    if payload.new_password.strip().lower() == username.strip().lower():
+        raise HTTPException(
+            400,
+            "le mot de passe ne peut pas etre l'adresse du compte : c'est la "
+            "premiere chose qu'un attaquant essaie.",
+        )
+
     data["users"][username]["password"] = _hasher.hash(payload.new_password)
     _write_authelia(data)
     await _audit("authelia.password.changed", admin.username, target=username)
