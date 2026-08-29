@@ -116,6 +116,34 @@ access_control:
         - "^/api/admin/.*$"
         - "^/auth/tokens.*$"
 
+    # REFUS EXPLICITE des memes chemins pour tous les autres.
+    #
+    # Sans cette regle, la protection du panneau ne tient qu'a UNE barriere.
+    # Les regles sont evaluees dans l'ordre et la premiere qui correspond gagne
+    # -- mais celle du dessus porte `subject: group:admin`, donc elle ne
+    # correspond PAS a un medecin connecte. L'evaluation continue alors
+    # jusqu'au bypass `^/auth/.*$` ci-dessous, qui l'autorise.
+    #
+    # Mesure le 2026-08-29 avec un compte medecin reel : Authelia laissait
+    # passer /auth/admin et /api/admin/users. Seul le require_admin du panneau
+    # les refusait. C'etait exact, mais unique -- et verify_admin_auth avait
+    # justement regresse en comparant les groupes par sous-chaine. Une seule
+    # barriere sur l'administration d'un PACS, ce n'est pas assez.
+    #
+    # Cette regle n'a PAS de subject : elle attrape tout ce que la regle admin
+    # n'a pas deja pris. Elle doit rester exactement ici -- au-dessus du bypass,
+    # en dessous de la regle admin.
+    #
+    # Verifie apres coup, dans les deux sens : un medecin recoit 403 d'Authelia
+    # (et non plus du panneau) sur /auth/admin, /api/admin/* et /auth/tokens*,
+    # tandis qu'un administrateur y accede normalement.
+    - domain: ${AUTHELIA_DOMAIN}
+      policy: deny
+      resources:
+        - "^/auth/admin.*$"
+        - "^/api/admin/.*$"
+        - "^/auth/tokens.*$"
+
     # Authelia authentication pages - bypass authentication (must be accessible)
     - domain: ${AUTHELIA_DOMAIN}
       policy: bypass                # Allow without authentication
