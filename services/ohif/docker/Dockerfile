@@ -43,7 +43,10 @@ RUN git clone --depth 1 --branch ${OHIF_VERSION} https://github.com/OHIF/Viewers
 # Il echoue si le motif a disparu des sources amont : le build s'arrete alors,
 # plutot que de produire une image ou le correctif serait passe a la trappe.
 COPY patch-sr-thumbnail.py /usr/src/patch-sr-thumbnail.py
-RUN cd /usr/src/app && python3 /usr/src/patch-sr-thumbnail.py
+COPY patch-prefetch-nonimage.py /usr/src/patch-prefetch-nonimage.py
+RUN cd /usr/src/app \
+    && python3 /usr/src/patch-sr-thumbnail.py \
+    && python3 /usr/src/patch-prefetch-nonimage.py
 
 
 # Install dependencies

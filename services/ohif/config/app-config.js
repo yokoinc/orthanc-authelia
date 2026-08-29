@@ -74,19 +74,23 @@ window.config = {
 
   // =============================================================================
   // Study prefetching for faster navigation between studies
-  // DESACTIVE le 2026-08-29, le temps de confirmer un diagnostic.
+  // Rallume le 2026-08-29, une fois le prechargeur corrige.
   //
-  // StudyPrefetcherService ne filtre RIEN : ni les jeux marques unsupported, ni
-  // les modalites sans image (SR, SEG, RTSTRUCT...). Il precharge donc un
-  // compte rendu structure comme s'il s'agissait d'images, le serveur repond
-  // 400 (« Cannot extract a frame from a DICOM file that does not have pixel
-  // data »), et OHIF le remonte en bandeau d'erreur sur une etude parfaitement
-  // lisible. Une etude sur trois est concernee ici : 70 series SR sur 209.
+  // Tel que livre par l'amont, StudyPrefetcherService ne filtre RIEN : ni les
+  // jeux marques unsupported, ni les modalites sans image (SR, SEG,
+  // RTSTRUCT...). Il prechargeait donc un compte rendu structure comme s'il
+  // s'agissait d'images, le serveur repondait 400, et OHIF affichait un bandeau
+  // d'erreur a la fin du chargement -- sur une etude sur trois ici, 70 series SR
+  // pour 209 etudes.
   //
-  // A noter : l'amont n'active pas ce service par defaut. C'est notre
-  // configuration qui l'a allume.
+  // Corrige au build par services/ohif/docker/patch-prefetch-nonimage.py, qui
+  // filtre la liste avec celle qu'OHIF maintient deja. Le prechargement garde
+  // son interet sur les series d'images -- il compte, sur un PACS consulte a
+  // travers un tunnel -- et cesse de chercher des pixels la ou il n'y en a pas.
+  //
+  // Si vous reprenez ce fichier SANS ce correctif, remettez enabled: false.
   studyPrefetcher: {
-    enabled: false,                            // Enable study prefetching
+    enabled: true,                             // Enable study prefetching
     displaySetsCount: 2,                       // Number of display sets to prefetch
     maxNumPrefetchRequests: 10,                // Maximum concurrent prefetch requests
     order: 'closest',                          // Prefetch order strategy
