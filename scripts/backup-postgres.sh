@@ -37,7 +37,17 @@ CONTENEUR="${PG_CONTAINER:-postgres-database-15}"
 BASE="${PG_DATABASE:-orthanc}"
 UTILISATEUR="${PG_USER:-cuffel.gregory}"   # cf. le bloc PostgreSQL d orthanc.json, pas les POSTGRES_* du compose
 BACKUP_DIR="${BACKUP_DIR:-/volume2/docker/orthanc-authelia/data/postgres-backups}"
-A_GARDER="${BACKUP_KEEP:-7}"
+# Trois, pas sept.
+#
+# Mesure sur cette installation le 2026-08-29 : le dump fait ~28 Go pour une
+# base de 27 Go. Le DICOM est deja compresse, pg_dump ne le reduit pas. Sept
+# exemplaires demanderaient donc pres de 200 Go -- un tiers de l'espace libre --
+# pour une profondeur d'historique qui n'a d'interet que si elle vit AILLEURS.
+#
+# La copie locale sert a reprendre vite apres une fausse manoeuvre : trois jours
+# suffisent. L'historique long est le role d'HyperBackup vers une destination
+# externe, qui sait faire de l'incremental et n'occupe pas ce volume.
+A_GARDER="${BACKUP_KEEP:-3}"
 
 horodatage=$(date +%Y%m%d-%H%M%S)
 cible="${BACKUP_DIR}/orthanc-${horodatage}.dump"
