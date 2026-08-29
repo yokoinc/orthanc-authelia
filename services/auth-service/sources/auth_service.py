@@ -929,7 +929,28 @@ async def create_token(token_type: str, request: Request):
     remote_groups = request.headers.get("Remote-Groups")
     
     if not remote_user or not remote_groups:
-        raise HTTPException(status_code=401, detail="Missing authentication headers")
+        raise HTTPException(status_code=401, detail="authentification requise")
+
+    # Qui a le droit de partager : seuls admin et doctor partagent.
+    #
+    # La route n'exigeait qu'une session, quelle qu'elle soit. Explorer 2 cache
+    # bien le bouton aux comptes externes -- leur profil ne porte pas la
+    # permission « share » -- mais cacher un bouton n'est pas une autorisation :
+    # l'appel direct restait accepte, et un compte « consultation seule »
+    # pouvait donc emettre un lien de partage public vers une etude.
+    #
+    # Comparaison exacte sur la liste separee par virgules, jamais par
+    # sous-chaine : « nondoctor » ne doit pas passer pour un medecin.
+    groupes = {g.strip() for g in remote_groups.split(",") if g.strip()}
+    if not ({"admin", "doctor"} & groupes):
+        logger.warning(
+            "Partage refuse : %s (groupes : %s) n'a pas le droit de partager",
+            remote_user, remote_groups,
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="votre role ne permet pas de creer un lien de partage.",
+        )
     
     body = await request.json()
     

@@ -39,9 +39,21 @@
     function makeItem(id, glyph, label, onClick) {
         var menu = document.getElementById("menu-content");
         if (!menu || document.getElementById(id)) return null;
+        // NE PAS dependre de l'entree « Importer ».
+        //
+        // Elle servait a la fois de modele de style et de point d'insertion, et
+        // son absence faisait echouer TOUTE l'injection. Or OE2 ne la rend pas
+        // aux comptes sans droit de depot : un compte externe se retrouvait donc
+        // sans « Deconnexion » -- aucun moyen de fermer sa session depuis
+        // l'interface. Constate le 2026-08-29.
+        //
+        // On retombe sur la derniere entree du menu, qui porte le meme style et
+        // existe toujours.
         var upload = document.getElementById("upload-handler");
-        if (!upload) return null;
-        var reference = upload.previousElementSibling;
+        var reference = upload ? upload.previousElementSibling
+                               : menu.querySelector("li:last-of-type");
+        if (!reference) return null;
+        var ancre = upload || reference;
 
         var li = document.createElement("li");
         li.id = id;
@@ -56,7 +68,7 @@
             ' <span class="ms-auto"></span>';
         li.style.cursor = "pointer";
         li.addEventListener("click", onClick);
-        return { li: li, after: upload };
+        return { li: li, after: ancre };
     }
 
     function place(made, previousIds) {
@@ -95,6 +107,15 @@
     }
 
     function injectShares() {
+        // Reserve aux administrateurs.
+        //
+        // Cette entree ouvre /auth/tokens/manage, qui liste et REVOQUE les
+        // partages de tout le monde : c'est de l'administration. Creer un lien
+        // de partage, en revanche, est un acte clinique -- un medecin le fait
+        // depuis le bouton d'une etude, et cela n'a rien a voir.
+        //
+        // Sans ce garde-fou, un medecin voyait l'entree et tombait sur un 403.
+        if (window.__OE2_IS_ADMIN__ !== true) return;
         place(makeItem("shares-injected", "fa-share-alt", "Partages", function () {
             window.location.href = "/auth/tokens/manage";
         }), []);
@@ -142,7 +163,12 @@
             anchor.parentNode.insertBefore(made.li, anchor.nextSibling);
             return;
         }
-        place(made, ["shares-injected", "admin-injected"]);
+        // A defaut d'ancre, toujours en DERNIER, jamais apres une entree
+        // quelconque : OE2 continue d'ajouter les siennes apres nous, et la
+        // deconnexion se retrouvait coincee en deuxieme position, entre les
+        // examens et l'import. On l'ajoute donc a la fin de la liste.
+        var menu = document.getElementById("menu-content");
+        if (menu) menu.appendChild(made.li);
     }
 
     function injectAll() {
