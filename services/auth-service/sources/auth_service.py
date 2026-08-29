@@ -73,7 +73,8 @@ _resource_info_cache = {}  # {key: (info_dict, timestamp)}
 # un client qui injecte lui-meme auth-token / X-Auth-User / Remote-User est
 # redirige vers l'authentification (verifie sur les quatre en-tetes). Cette
 # valeur ne sert qu'entre conteneurs, sur le reseau Docker ferme.
-ORTHANC_INTERNAL_TOKEN = os.getenv("ADMIN_GROUP", "admin")
+ADMIN_GROUP = os.getenv("ADMIN_GROUP", "admin")
+ORTHANC_INTERNAL_TOKEN = ADMIN_GROUP
 
 
 def _orthanc_get(path):
@@ -349,13 +350,25 @@ def verify_admin_auth(request: Request):
     """Verify admin authentication from Authelia headers"""
     remote_user = request.headers.get("Remote-User", "")
     remote_groups = request.headers.get("Remote-Groups", "")
-    
-    # Debug logging
-    logger.info(f"Auth check - Remote-User: '{remote_user}', Remote-Groups: '{remote_groups}'")
-    logger.info(f"All headers: {dict(request.headers)}")
-    
-    if "admin" not in remote_groups:
-        raise HTTPException(status_code=403, detail="Admin access required")
+
+    # Ne JAMAIS journaliser les en-tetes en bloc. La ligne precedente etait
+    # `logger.info(f"All headers: {dict(request.headers)}")` : elle ecrivait le
+    # cookie authelia_session EN CLAIR dans les journaux du conteneur, a chaque
+    # appel d'une route d'administration. Quiconque lit `docker logs` -- ou les
+    # fichiers de journaux du NAS, ou une sauvegarde de ceux-ci -- y trouvait un
+    # cookie de session valide et pouvait se faire passer pour l'administrateur.
+    # Verifie le 2026-08-29 : le cookie apparaissait tel quel.
+    logger.debug("Controle admin : %s [%s]", remote_user, remote_groups)
+
+    # Comparaison EXACTE, sur la liste separee par des virgules que produit
+    # Authelia. Le test etait `"admin" not in remote_groups`, une recherche de
+    # sous-chaine : un groupe nomme « nonadmin », « badmin » ou « admins »
+    # aurait suffi a ouvrir l'administration. Aucun groupe existant ne tombe
+    # dans le piege aujourd'hui -- c'est le jour ou l'on en ajoute un qu'il se
+    # referme.
+    groupes = {g.strip() for g in remote_groups.split(",") if g.strip()}
+    if ADMIN_GROUP not in groupes:
+        raise HTTPException(status_code=403, detail="Acces administrateur requis")
     return remote_user or "unknown"
 
 def normalize_bearer_token(token_value: str) -> str:
@@ -527,7 +540,24 @@ def check_permission_for_role(role: str, level: str, method: str, uri: str) -> b
         return True  # Admin can do everything
     elif role == "doctor-role":
         # Doctors can read, upload, share but not delete/modify system
-        if method in ["get", "post"] and level in ["patient", "study", "series", "instance", "system"]:
+        #
+        # « system » etait dans la meme liste que patient/study/series/instance,
+        # POST compris : cette fonction repondait donc oui a POST /tools/reset,
+        # /tools/shutdown et /tools/execute-script -- redemarrer, eteindre, et
+        # executer du Lua. Ces chemins sont bien exposes publiquement (nginx les
+        # route, ligne ~650). Ce n'etait pas exploitable en pratique : le profil
+        # du medecin ne porte pas la permission que le greffon exige pour ces
+        # points d'entree, et Orthanc repond 403 -- mesure le 2026-08-29. Mais
+        # une autorisation ne doit pas dependre d'un refus place plus loin :
+        # le jour ou l'on ajoute une permission au profil, le trou s'ouvre sans
+        # que personne ne relise cette ligne.
+        #
+        # En lecture, le niveau systeme reste necessaire : les visualiseurs
+        # interrogent /system et /plugins au demarrage.
+        if method == "get" and level == "system":
+            return True
+        if method in ("get", "post") and level in (
+                "patient", "study", "series", "instance"):
             return True
         if method == "put" and "tokens" in (uri or ""):  # Allow token creation for sharing
             return True
