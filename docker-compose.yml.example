@@ -148,6 +148,14 @@ services:
     image: registry.yokoinc.ovh/orthanc-auth-service:1.0.16
     container_name: orthanc-auth-service
     restart: unless-stopped
+    # /health existe deja dans le service ; sans sonde, personne ne le
+    # consultait. Elle sert aussi de garde a Orthanc, ci-dessous.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     environment:
       # Changing the public URL from the panel. The domain lives in one line
       # of .env and in eleven places in Authelia's configuration: every
@@ -223,9 +231,23 @@ services:
     image: orthancteam/orthanc:26.4.2
     container_name: orthanc-server
     restart: unless-stopped
+    # Sonde sur /system : cette route repond sans authentification et exige
+    # qu'Orthanc ait reellement fini de demarrer. Un serveur fige n'a pas
+    # quitte -- sans sonde il apparait « running » alors que plus rien ne
+    # repond.
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8042/system', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     depends_on:
+      # service_healthy et non service_started : Orthanc interroge
+      # auth-service des ses premieres requetes (greffon d'autorisation).
+      # Demarrer avant qu'il ne reponde produit des refus au moment precis
+      # ou l'on croit la pile prete.
       auth-service:
-        condition: service_started
+        condition: service_healthy
       # postgres:  # Uncomment if using local PostgreSQL
       #   condition: service_started
     volumes:
@@ -283,9 +305,15 @@ services:
     # Image >= 1.1.0 no longer bakes the nginx config in: the templates are
     # bind-mounted from the host (see volumes below). Tags before 1.1.0 will
     # NOT start with these mounts because they expect the templates baked in.
-    image: registry.yokoinc.ovh/orthanc-nginx:1.1.0
+    image: registry.yokoinc.ovh/orthanc-nginx:1.1.2
     container_name: orthanc-nginx
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "443"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     ports:
       - "30080:80"
       - "30443:443"
