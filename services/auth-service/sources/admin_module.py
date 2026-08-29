@@ -146,6 +146,9 @@ AUDIT_STREAM = "admin:audit"
 CSRF_COOKIE = "orthanc_admin_csrf"
 
 TEMPLATES_DIR = Path(os.getenv("ADMIN_TEMPLATES_DIR", "/app/templates"))
+# Authelia, pour le controle de sante de l'onglet Sante.
+AUTHELIA_URL = os.getenv("AUTHELIA_URL", "http://authelia:9091").rstrip("/")
+
 ASSET_VERSION = os.getenv("ASSET_VERSION", str(int(time.time())))
 IMAGE_VERSION = os.getenv("IMAGE_VERSION", "dev")
 _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
@@ -2176,6 +2179,26 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
             checks["orthanc_json"] = {"ok": False, "detail": "file missing"}
     except (json.JSONDecodeError, OSError) as e:
         checks["orthanc_json"] = {"ok": False, "detail": f"erreur de lecture : {e}"}
+
+    # Authelia joignable.
+    #
+    # Il manquait, et c'est le composant qui est tombe DEUX FOIS le 2026-08-29 :
+    # une cle de configuration mal placee, et il refusait de demarrer. Pendant
+    # ce temps l'onglet Sante affichait tout au vert -- Redis repondait, les
+    # fichiers etaient lisibles, Orthanc tournait -- alors que plus personne ne
+    # pouvait se connecter. Un tableau de bord qui ignore la porte d'entree ne
+    # sert a rien le jour ou c'est elle qui cede.
+    #
+    # /api/health est le point d'entree non authentifie d'Authelia ; il rend
+    # {"status":"OK"}. Surtout pas /api/state, qui exige une session et
+    # repondrait 403 sur une pile pourtant saine.
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            r = await client.get(f"{AUTHELIA_URL}/api/health")
+        checks["authelia_api"] = {"ok": r.status_code == 200,
+                                  "detail": f"HTTP {r.status_code}"}
+    except httpx.HTTPError as e:
+        checks["authelia_api"] = {"ok": False, "detail": f"injoignable : {e}"}
 
     # Orthanc API reachable (/system endpoint, less invasive than /tools/reset)
     try:

@@ -820,17 +820,26 @@ class TestHealth:
         self, client, tmp_paths, fake_redis, valid_authelia_yml, valid_orthanc_json,
     ):
         """/api/admin/health returns the state of every component."""
-        with respx.mock(base_url="http://orthanc:8042") as mock:
-            mock.get("/system").respond(status_code=200, json={"Version": "26.4.2"})
+        with respx.mock as mock:
+            mock.get("http://orthanc:8042/system").respond(
+                status_code=200, json={"Version": "26.4.2"})
+            # Authelia doit etre simule EXPLICITEMENT : respx refuse tout appel
+            # non declare. C'est tant mieux -- un controle de sante qui
+            # interroge un composant oublie du test ne prouve rien.
+            mock.get("http://authelia:9091/api/health").respond(
+                status_code=200, json={"status": "OK"})
 
             r = client.get("/api/admin/health")
             assert r.status_code == 200
             checks = r.json()["checks"]
-            assert set(checks.keys()) == {"redis", "authelia_yml", "orthanc_json", "orthanc_api"}
+            assert set(checks.keys()) == {
+                "redis", "authelia_yml", "orthanc_json", "authelia_api", "orthanc_api",
+            }
             assert checks["redis"]["ok"] is True
             assert checks["authelia_yml"]["ok"] is True
             assert checks["orthanc_json"]["ok"] is True
             assert checks["orthanc_api"]["ok"] is True
+            assert checks["authelia_api"]["ok"] is True
 
     def test_setup_page_renders_when_setup_not_done(
         self, client, tmp_paths, fake_redis,
@@ -877,12 +886,20 @@ class TestHealth:
         """Corrupt orthanc.json = health reports KO on that component."""
         tmp_paths["orthanc"].write_text('{"unclosed')
 
-        with respx.mock(base_url="http://orthanc:8042") as mock:
-            mock.get("/system").respond(status_code=200, json={})
+        with respx.mock as mock:
+            mock.get("http://orthanc:8042/system").respond(status_code=200, json={})
+            mock.get("http://authelia:9091/api/health").respond(
+                status_code=200, json={"status": "OK"})
 
             r = client.get("/api/admin/health")
             assert r.status_code == 200
-            assert r.json()["checks"]["orthanc_json"]["ok"] is False
+            checks = r.json()["checks"]
+            assert checks["orthanc_json"]["ok"] is False
+            # Un composant en panne n'en masque aucun autre : c'est la raison
+            # pour laquelle cette route rend 200 avec un etat par composant
+            # plutot qu'un 503 global.
+            assert checks["orthanc_api"]["ok"] is True
+            assert checks["authelia_api"]["ok"] is True
 
 
 # ============================================================================
