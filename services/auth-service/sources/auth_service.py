@@ -199,7 +199,14 @@ def resolve_resource_info(resource):
                         pat.get("MainDicomTags", {}).get("PatientName"))
 
         if study_id:
-            study = _orthanc_get(f"/studies/{study_id}")
+            # ?requestedTags : Orthanc ne renvoie ModalitiesInStudy que si on le
+            # DEMANDE. Sans ce parametre le champ est simplement absent, et
+            # _collect_modalities rendait donc toujours None -- le gestionnaire
+            # de partages n'a jamais affiche la moindre modalite depuis qu'il
+            # existe. Mesure le 2026-08-29 : sans le parametre, RequestedTags
+            # vaut None ; avec, il vaut {"ModalitiesInStudy": "MR"}.
+            study = _orthanc_get(
+                f"/studies/{study_id}?requestedTags=ModalitiesInStudy")
             if study:
                 tags = study.get("MainDicomTags", {}) or {}
                 patient_tags = study.get("PatientMainDicomTags", {}) or {}
@@ -1411,9 +1418,23 @@ def _partage_couvre_uri(donnees: dict, uri: str) -> bool:
     prefixe = "/dicom-web/studies"
     if chemin.startswith(prefixe):
         reste = chemin[len(prefixe):].lstrip("/")
-        if not reste:
-            return False           # enumeration
-        return reste.split("/")[0] in autorisees
+        if reste:
+            return reste.split("/")[0] in autorisees
+
+        # Pas de segment d'etude : c'est une requete QIDO. Elle n'est PAS
+        # refusee d'office -- OHIF s'en sert pour resoudre l'etude a ouvrir,
+        # avec un filtre StudyInstanceUID. Refuser tout en bloc coupait le
+        # partage : le visualiseur retombait sur « notfoundstudy ».
+        #
+        # La regle est donc : une QIDO doit designer l'etude partagee par son
+        # filtre. Sans filtre, ou avec un filtre qui vise autre chose, c'est un
+        # inventaire, et c'est refuse. Le nom du filtre s'ecrit indifferemment
+        # en clair ou en numero de tag (0020000D), les deux sont acceptes.
+        for cle in ("StudyInstanceUID", "0020000D", "0020000d"):
+            valeurs = params.get(cle) or []
+            if valeurs:
+                return all(v in autorisees for v in valeurs)
+        return False
 
     # WADO-URI : /wado?requestType=WADO&studyUID=...&objectUID=...
     if chemin.rstrip("/") == "/wado":
