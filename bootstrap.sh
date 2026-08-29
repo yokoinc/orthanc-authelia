@@ -302,6 +302,29 @@ for f in services/authelia/config/* data/admin-backups/*; do
 done
 chmod 700 services/authelia/config data/admin-backups 2>/dev/null || true
 
+# .env porte TOUS les secrets, orthanc.json en porte deux (base PostgreSQL et
+# compte de service d'auth-service). Ils naissaient avec l'umask courant, donc
+# 644 sur une installation neuve -- lisibles par tout utilisateur de la machine.
+chmod 600 .env services/orthanc/config/orthanc.json 2>/dev/null || true
+
+# Les fichiers compose definissent CE QUI TOURNE. En ecriture pour tous, ils
+# permettent d'ajouter un montage de la racine de l'hote a un conteneur : ce
+# n'est plus une fuite, c'est une elevation de privileges. Meme raisonnement
+# pour les scripts, qui sont executes -- les reecrire, c'est faire executer son
+# propre code au prochain lancement.
+chmod 600 docker-compose.yml docker-compose.override.yml 2>/dev/null || true
+chmod 700 bootstrap.sh scripts/*.sh 2>/dev/null || true
+
+for f in .env docker-compose.yml services/orthanc/config/orthanc.json; do
+    [ -f "$f" ] || continue
+    droits=$(stat -c '%a' "$f" 2>/dev/null || echo '?')
+    case "$droits" in
+        600|400) ;;
+        *) warn "$f est en $droits, attendu 600 -- un partage a ACL (Synology)"
+           warn "peut reimposer 777. Corrigez a la main : chmod 600 $f" ;;
+    esac
+done
+
 if [ "$(stat -c '%a' services/authelia/config/users_database.yml 2>/dev/null)" != "600" ]; then
     warn "users_database.yml n'est pas en 600 (droits actuels : $(stat -c '%a' services/authelia/config/users_database.yml 2>/dev/null))."
     warn "Il contient les empreintes des mots de passe. Corrigez depuis le conteneur :"
