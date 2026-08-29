@@ -58,11 +58,31 @@ PATIENT_NAME_CACHE_TTL = int(os.getenv("PATIENT_NAME_CACHE_TTL", "300"))  # 5 mi
 _resource_info_cache = {}  # {key: (info_dict, timestamp)}
 
 
+# Orthanc n'est pas gouverne par ses identifiants HTTP mais par son greffon
+# d'autorisation : meme avec ORTHANC_ADMIN_USER/PASS, un GET /studies repond
+# 403 (mesure le 2026-08-29). Le greffon accepte en revanche un jeton dans
+# l'en-tete `auth-token` (TokenHttpHeaders d'orthanc.json), qu'il nous renvoie
+# ensuite valider : la valeur "admin" y ouvre le profil administrateur.
+#
+# Sans cet en-tete, TOUS les appels de ce module partaient en 403 en silence --
+# _orthanc_get renvoyait None et l'appelant se contentait d'une valeur vide.
+# C'est pour cela que le gestionnaire de partages n'affichait aucun nom de
+# patient : la recherche echouait, sans un mot dans les journaux.
+#
+# Sans danger depuis Internet : nginx execute auth_request AVANT de relayer, et
+# un client qui injecte lui-meme auth-token / X-Auth-User / Remote-User est
+# redirige vers l'authentification (verifie sur les quatre en-tetes). Cette
+# valeur ne sert qu'entre conteneurs, sur le reseau Docker ferme.
+ORTHANC_INTERNAL_TOKEN = os.getenv("ADMIN_GROUP", "admin")
+
+
 def _orthanc_get(path):
     """GET helper for Orthanc REST API."""
     url = f"{ORTHANC_API_URL}{path}"
     try:
-        with urllib.request.urlopen(url, timeout=ORTHANC_API_TIMEOUT) as resp:
+        req = urllib.request.Request(url)
+        req.add_header("auth-token", ORTHANC_INTERNAL_TOKEN)
+        with urllib.request.urlopen(req, timeout=ORTHANC_API_TIMEOUT) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError) as err:
         logger.debug(f"Orthanc GET {path} failed: {err}")
@@ -74,8 +94,11 @@ def _orthanc_post(path, body):
     url = f"{ORTHANC_API_URL}{path}"
     try:
         data = body.encode("utf-8") if isinstance(body, str) else json.dumps(body).encode("utf-8")
-        req = urllib.request.Request(url, data=data, method="POST",
-                                     headers={"Content-Type": "application/json"})
+        req = urllib.request.Request(
+            url, data=data, method="POST",
+            headers={"Content-Type": "application/json",
+                     "auth-token": ORTHANC_INTERNAL_TOKEN},  # cf. _orthanc_get
+        )
         with urllib.request.urlopen(req, timeout=ORTHANC_API_TIMEOUT) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, urllib.error.HTTPError, ValueError, OSError) as err:
@@ -534,19 +557,101 @@ def check_resource_access(token_data: dict, level: str, method: str, orthanc_id:
         token_orthanc_id = resource.get("OrthancId", resource.get("orthanc-id", ""))
         token_dicom_uid = resource.get("DicomUid", resource.get("dicom-uid", ""))
         token_level = resource.get("Level", resource.get("level", ""))
-        
-        # Exact match
-        if orthanc_id == token_orthanc_id or dicom_uid == token_dicom_uid:
+
+        # Correspondance exacte -- des DEUX cotes non vides.
+        #
+        # Le test etait `orthanc_id == token_orthanc_id or dicom_uid ==
+        # token_dicom_uid`. Quand les deux valeurs manquaient, "" == "" etait
+        # vrai et l'acces etait accorde : il suffisait d'une requete ou le
+        # greffon n'identifie pas la ressource pour passer.
+        if token_orthanc_id and orthanc_id == token_orthanc_id:
             return True
-            
-        # Hierarchical access: if token is for a study, allow access to its series/instances
-        if token_level == "study" and level in ["series", "instance"]:
-            # We'd need to query Orthanc to check hierarchy, for now allow it
+        if token_dicom_uid and dicom_uid == token_dicom_uid:
             return True
+
+        # Acces hierarchique : un jeton d'ETUDE couvre ses series et ses
+        # instances -- LES SIENNES.
+        #
+        # Le code precedent repondait `return True` a toute requete de niveau
+        # serie ou instance des lors que le jeton etait de niveau etude, avec
+        # ce commentaire : « We'd need to query Orthanc to check hierarchy, for
+        # now allow it ». Autrement dit, un lien de partage valide pour une
+        # etude donnait acces a TOUTE serie et TOUTE instance du serveur --
+        # 209 etudes, pas une. Meme famille que la faille fermee le
+        # 2026-08-27 : la chaine faisait confiance a une correspondance qu'elle
+        # ne verifiait pas.
+        #
+        # On demande donc a Orthanc a quelle etude appartient reellement la
+        # ressource. Le resultat est mis en cache : la filiation d'une instance
+        # ne change jamais.
+        if token_level == "study" and level in ("series", "instance"):
+            if _appartient_a_etude(level, orthanc_id, token_orthanc_id, token_dicom_uid):
+                return True
         elif token_level == "series" and level == "instance":
-            return True
-    
+            if _appartient_a_serie(orthanc_id, token_orthanc_id):
+                return True
+
     return False
+
+
+# Filiation : 24 h de cache. Une instance ne change jamais de serie, ni une
+# serie d'etude -- seule une suppression les fait disparaitre, et la requete
+# echoue alors d'elle-meme.
+_PARENT_CACHE_TTL = 86400
+_parent_cache: dict = {}
+
+
+def _parent_orthanc(level: str, orthanc_id: str) -> dict | None:
+    """Renvoie la fiche Orthanc d'une serie ou d'une instance, en cache."""
+    if not orthanc_id:
+        return None
+    cle = (level, orthanc_id)
+    entree = _parent_cache.get(cle)
+    now = time.time()
+    if entree and now - entree[1] < _PARENT_CACHE_TTL:
+        return entree[0]
+    chemin = {"series": "/series/", "instance": "/instances/"}.get(level)
+    if not chemin:
+        return None
+    fiche = _orthanc_get(f"{chemin}{orthanc_id}")
+    if fiche is not None:
+        _parent_cache[cle] = (fiche, now)
+    return fiche
+
+
+def _appartient_a_etude(level: str, orthanc_id: str,
+                        etude_orthanc_id: str, etude_dicom_uid: str) -> bool:
+    """La serie / l'instance demandee appartient-elle bien a cette etude ?
+
+    Refuse quand Orthanc ne repond pas : mieux vaut un partage qui echoue
+    qu'un partage qui ouvre le serveur entier.
+    """
+    fiche = _parent_orthanc(level, orthanc_id)
+    if not fiche:
+        return False
+
+    if level == "instance":
+        serie = fiche.get("ParentSeries")
+        fiche = _parent_orthanc("series", serie) if serie else None
+        if not fiche:
+            return False
+
+    if etude_orthanc_id and fiche.get("ParentStudy") == etude_orthanc_id:
+        return True
+    if etude_dicom_uid:
+        etude = _orthanc_get(f"/studies/{fiche.get('ParentStudy')}")
+        if etude and etude.get("MainDicomTags", {}).get(
+                "StudyInstanceUID") == etude_dicom_uid:
+            return True
+    return False
+
+
+def _appartient_a_serie(orthanc_id: str, serie_orthanc_id: str) -> bool:
+    """L'instance demandee appartient-elle bien a cette serie ?"""
+    if not serie_orthanc_id:
+        return False
+    fiche = _parent_orthanc("instance", orthanc_id)
+    return bool(fiche) and fiche.get("ParentSeries") == serie_orthanc_id
 
 @app.post("/user/get-profile")
 async def get_user_profile(request: Request, username: str = Depends(verify_basic_auth)):
