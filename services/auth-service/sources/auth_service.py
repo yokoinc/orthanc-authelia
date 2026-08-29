@@ -1348,7 +1348,79 @@ def verify_share(request: Request, token: str = ""):
     # de vie du jeton -- share_redirect la ramene a SURSIS_DERNIERE_OUVERTURE
     # des le plafond atteint. Un jeton epuise depuis assez longtemps n'existe
     # plus, et le test d'existence ci-dessus suffit a le refuser.
+
+    # --- PORTEE : le jeton doit couvrir CE QUI EST DEMANDE ----------------
+    #
+    # Ce point d'entree ne verifiait que la validite du jeton, jamais son
+    # perimetre. Mesure le 2026-08-29, depuis un navigateur SANS aucun cookie,
+    # muni du seul lien de partage d'une etude :
+    #
+    #   GET /dicom-web/studies?limit=101&...&token=<jeton>  ->  200
+    #   -> la liste des 209 etudes, avec les noms de patients.
+    #
+    # C'est la faille du 2026-08-27, revenue par la porte que nous avons
+    # ouverte en refaisant le partage : Orthanc restreint bien les ressources
+    # NOMMEES, mais une requete QIDO d'ENUMERATION ne nomme rien -- il n'y a
+    # aucune ressource a comparer, et elle passe.
+    #
+    # La portee se verifie donc ici, sur l'URI, avant qu'Orthanc ne voie la
+    # requete. Regle : un lien de partage donne acces a UNE etude, jamais a un
+    # inventaire. Tout ce qui ne designe pas explicitement l'etude couverte est
+    # refuse.
+    uri = request.headers.get("x-original-uri", "")
+    if not _partage_couvre_uri(donnees, uri):
+        logger.warning(
+            "Partage refuse : hors perimetre (%s...) %s",
+            token[:8], urllib.parse.urlparse(uri).path,
+        )
+        return Response(status_code=403)
+
     return Response(status_code=204)
+
+
+def _etudes_du_jeton(donnees: dict) -> set:
+    """UID d'etude DICOM que ce jeton couvre."""
+    uids = set()
+    for r in donnees.get("resources", []):
+        uid = r.get("DicomUid") or r.get("dicom-uid") or ""
+        if uid:
+            uids.add(uid)
+    return uids
+
+
+def _partage_couvre_uri(donnees: dict, uri: str) -> bool:
+    """Le jeton autorise-t-il cette URI precise ?
+
+    Fail-closed : tout ce qui n'est pas explicitement reconnu est refuse. Une
+    URI inattendue doit couter un partage qui ne s'ouvre pas, jamais un
+    inventaire qui s'echappe.
+    """
+    autorisees = _etudes_du_jeton(donnees)
+    if not autorisees:
+        return False
+
+    parsed = urllib.parse.urlparse(uri or "")
+    chemin = parsed.path
+    params = urllib.parse.parse_qs(parsed.query)
+
+    # DICOMweb : /dicom-web/studies/<StudyInstanceUID>/...
+    # Le segment qui suit « studies » doit etre l'etude partagee. Une
+    # enumeration -- /dicom-web/studies tout court, avec ou sans filtres --
+    # n'a pas ce segment : elle est refusee, et c'est tout l'objet du
+    # correctif.
+    prefixe = "/dicom-web/studies"
+    if chemin.startswith(prefixe):
+        reste = chemin[len(prefixe):].lstrip("/")
+        if not reste:
+            return False           # enumeration
+        return reste.split("/")[0] in autorisees
+
+    # WADO-URI : /wado?requestType=WADO&studyUID=...&objectUID=...
+    if chemin.rstrip("/") == "/wado":
+        demandee = (params.get("studyUID") or params.get("studyInstanceUID") or [""])[0]
+        return bool(demandee) and demandee in autorisees
+
+    return False
 
 
 @app.get("/health")

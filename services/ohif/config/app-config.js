@@ -61,10 +61,32 @@ window.config = {
 
   // =============================================================================
   // PERFORMANCE OPTIMIZATION
+  // Nom du patient affiche d'emblee dans l'en-tete du visualiseur.
+  //
+  // Sans ce reglage, OHIF prend « visibleCollapsed » : l'en-tete ne montre
+  // qu'une icone, et il faut cliquer dessus pour lire de qui il s'agit. En
+  // consultation on veut voir le nom sans rien demander.
+  //
+  // Valeurs possibles : 'visible' (deplie, repliable au clic),
+  // 'visibleCollapsed' (le defaut), 'visibleReadOnly' (deplie et non
+  // repliable), 'disabled' (rien du tout).
+  showPatientInfo: 'visible',
+
   // =============================================================================
   // Study prefetching for faster navigation between studies
+  // DESACTIVE le 2026-08-29, le temps de confirmer un diagnostic.
+  //
+  // StudyPrefetcherService ne filtre RIEN : ni les jeux marques unsupported, ni
+  // les modalites sans image (SR, SEG, RTSTRUCT...). Il precharge donc un
+  // compte rendu structure comme s'il s'agissait d'images, le serveur repond
+  // 400 (« Cannot extract a frame from a DICOM file that does not have pixel
+  // data »), et OHIF le remonte en bandeau d'erreur sur une etude parfaitement
+  // lisible. Une etude sur trois est concernee ici : 70 series SR sur 209.
+  //
+  // A noter : l'amont n'active pas ce service par defaut. C'est notre
+  // configuration qui l'a allume.
   studyPrefetcher: {
-    enabled: true,                             // Enable study prefetching
+    enabled: false,                            // Enable study prefetching
     displaySetsCount: 2,                       // Number of display sets to prefetch
     maxNumPrefetchRequests: 10,                // Maximum concurrent prefetch requests
     order: 'closest',                          // Prefetch order strategy
