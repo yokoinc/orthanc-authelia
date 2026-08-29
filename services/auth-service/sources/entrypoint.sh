@@ -16,7 +16,7 @@ set -e
 show_help() {
     cat << EOF
 ===============================================================================
-                    ORTHANC-AUTHELIA AUTH-SERVICE v1.0.2                  
+                    ORTHANC-AUTHELIA AUTH-SERVICE ${IMAGE_VERSION:-inconnue}                  
                         Environment Variables Guide                        
 ===============================================================================
 
@@ -188,7 +188,11 @@ main() {
     
     # Show banner
     echo "==============================================================================="
-    echo "                    ORTHANC-AUTHELIA AUTH-SERVICE v1.0.2                  "
+# La version vient de l'environnement (IMAGE_VERSION, pose par le fichier
+    # compose) et non d'une chaine figee dans le script. Elle annoncait « v1.0.2 »
+    # sur une image 1.1.0-rc22 : un numero de version faux dans les journaux
+    # envoie chercher un correctif la ou il n'est pas.
+    echo "                    ORTHANC-AUTHELIA AUTH-SERVICE ${IMAGE_VERSION:-inconnue}                  "
     echo "                              Starting Up...                              "
     echo "==============================================================================="
     echo
