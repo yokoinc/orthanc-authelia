@@ -25,6 +25,14 @@
 #   faut une copie AILLEURS -- et c'est le role d'HyperBackup, deja installe,
 #   auquel il suffit de designer BACKUP_DIR comme source.
 #
+# NE JAMAIS MODIFIER CE SCRIPT PENDANT QU'IL TOURNE.
+#   Le shell lit un script par decalage d'octets. Le reecrire en cours
+#   d'execution decale tout ce qui suit, et l'interpreteur reprend au milieu
+#   d'une ligne. Arrive le 2026-08-29 : une modification de la retention a
+#   casse l'etape de verification d'une sauvegarde de deux heures. Le dump
+#   etait bon -- l'archive s'est relue sans erreur -- mais il est reste en
+#   .partiel, faute d'avoir pu etre valide. Editer une copie, puis remplacer.
+#
 # USAGE
 #   ./scripts/backup-postgres.sh
 #
@@ -63,9 +71,27 @@ fi
 # Espace : on refuse de commencer s'il reste moins que la taille de la base.
 # Un dump interrompu par un disque plein laisse un fichier tronque qui a l'air
 # d'une sauvegarde.
+# Le seuil est calcule sur la taille reelle de la base, pas fige.
+#
+# Il valait 30 Gio en dur, choisi sans mesurer. Or la base fait 60 Go de
+# donnees logiques (pg_database_size), dont 59 Go de large objects -- c'est la
+# qu'Orthanc range les images -- et le dump produit fait 30 Go. Un seuil fixe
+# devient faux des que la base grossit, et c'est precisement le jour ou il
+# devrait proteger : un dump interrompu par un disque plein laisse un fichier
+# tronque qui ressemble a une sauvegarde.
+#
+# On exige donc de quoi ecrire un dump complet, avec de la marge.
+taille_base_o=$(docker exec "$CONTENEUR" psql -U "$UTILISATEUR" -d "$BASE" -tAc                 "SELECT pg_database_size('${BASE}')" 2>/dev/null | tr -d ' ')
+if [ -n "$taille_base_o" ] && [ "$taille_base_o" -gt 0 ] 2>/dev/null; then
+    requis_ko=$(( taille_base_o / 1024 ))          # marge : la base entiere
+else
+    requis_ko=31457280                             # 30 Gio, faute de mieux
+    echo "AVERTISSEMENT : taille de la base indeterminee, seuil par defaut." >&2
+fi
 libre_ko=$(df -k "$BACKUP_DIR" | awk 'NR==2 {print $4}')
-if [ "$libre_ko" -lt 31457280 ]; then     # 30 Gio
-    echo "ERREUR : moins de 30 Gio libres sur ${BACKUP_DIR}, sauvegarde annulee." >&2
+if [ "$libre_ko" -lt "$requis_ko" ]; then
+    echo "ERREUR : $(( libre_ko / 1048576 )) Gio libres sur ${BACKUP_DIR}," >&2
+    echo "        il en faut au moins $(( requis_ko / 1048576 )). Sauvegarde annulee." >&2
     exit 1
 fi
 
