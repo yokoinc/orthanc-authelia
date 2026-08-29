@@ -396,16 +396,16 @@ async function loadOrthanc() {
             const type = data.types?.[key] || (value === null ? 'str' : typeof value);
             if (type === 'bool' || typeof value === 'boolean') {
                 control = `<select id="${inputId}" data-key="${key}">
-                    <option value="" ${value === null ? 'selected' : ''}>(non defini)</option>
+                    <option value="" ${value === null ? 'selected' : ''}>(non défini — Orthanc applique son défaut)</option>
                     <option value="true" ${value === true ? 'selected' : ''}>true</option>
                     <option value="false" ${value === false ? 'selected' : ''}>false</option>
                 </select>`;
             } else if (type === 'int' || typeof value === 'number') {
                 control = `<input type="number" id="${inputId}" data-key="${key}" value="${value ?? ''}"
-                                  placeholder="non defini">`;
+                                  placeholder="non défini — Orthanc applique son défaut">`;
             } else {
                 control = `<input type="text" id="${inputId}" data-key="${key}" value="${value ?? ''}"
-                                  placeholder="non defini">`;
+                                  placeholder="non défini — Orthanc applique son défaut">`;
             }
             return `<div class="form-row"><label for="${inputId}">${key}${aide(data.aide?.[key])}</label>${control}</div>`;
         }).join('');
