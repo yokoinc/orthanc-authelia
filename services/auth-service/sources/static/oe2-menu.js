@@ -125,44 +125,78 @@
         place(made, ["shares-injected"]);
     }
 
-    function injectLogout() {
-        // No group gating: every signed-in user needs a way out. Authelia clears
-        // the session on POST /api/logout; we then land on the portal, which
-        // shows the login form.
-        var made = makeItem("logout-injected", "fa-sign-out-alt", "Déconnexion", function () {
-            // Authelia parses the body even when it carries nothing: without
-            // it the call logs "unable to parse body during logout".
-            fetch("/api/logout", {
-                method: "POST",
-                credentials: "same-origin",
-                headers: { "content-type": "application/json" },
-                body: "{}",
-            })
-                .catch(function () { /* log out locally even if the call fails */ })
-                .then(function () { window.location.href = "/auth/"; });
-        });
-        if (!made) return;
+    /**
+     * Deconnexion : posee dans <body>, PAS dans le menu.
+     *
+     * Les trois tentatives precedentes l'inseraient parmi les <li> d'OE2, et
+     * chacune a casse quelque chose : ordre aleatoire, puis element hors de la
+     * <ul> qui decalait toute la barre laterale. La cause est toujours la meme
+     * -- OE2 est une application Vue qui reconstruit son menu quand bon lui
+     * semble, et rien de ce qu'on y glisse n'y survit proprement.
+     *
+     * On cesse donc de lutter contre le re-rendu : le bouton vit en dehors de
+     * l'arbre de Vue, en position fixe, et recopie la geometrie de la barre
+     * laterale. Vue ne touche jamais a ce qu'il n'a pas cree.
+     *
+     * Effet de bord bienvenu : plus aucune dependance a l'entree « Importer »,
+     * que les comptes sans droit de depot n'ont pas -- c'est ce qui privait un
+     * compte externe de toute deconnexion.
+     */
+    function seDeconnecter() {
+        // Authelia analyse le corps meme vide : sans lui, l'appel journalise
+        // « unable to parse body during logout ».
+        fetch("/api/logout", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+        })
+            .catch(function () { /* deconnecter localement meme si l'appel echoue */ })
+            .then(function () { window.location.href = "/auth/"; });
+    }
 
-        // JAMAIS d'ancrage sur l'entree « Parametres ».
-        //
-        // findItemByLabel la trouve dans UL#settings-list, une section
-        // REPLIEE : la deconnexion inseree a cote disparaissait de l'ecran.
-        // Et comme cette section n'existe pas encore au premier passage, le
-        // resultat dependait de l'instant ou l'injection tombait -- visible une
-        // fois, invisible la suivante. C'est cette course qui la faisait
-        // manquer par intermittence. Mesure le 2026-08-29 : avec le script
-        // d'origine, la deconnexion etait dans #settings-list, masquee.
-        //
-        // place() l'ancre apres #upload-handler, une entree de premier niveau
-        // toujours affichee. Le placement est moins elegant, il est stable.
-        place(made, ["shares-injected", "admin-injected"]);
+    function placerLogout() {
+        var bouton = document.getElementById("logout-fixe");
+        var menu = document.getElementById("menu-content");
+        if (!menu) return;
+
+        // La barre laterale donne la position et la largeur. On la lit a chaque
+        // fois plutot que de figer des pixels : elle change avec la fenetre.
+        var barre = menu.closest("nav, aside, .sidebar") || menu;
+        var r = barre.getBoundingClientRect();
+        if (r.width < 40) return;   // barre repliee ou pas encore rendue
+
+        if (!bouton) {
+            bouton = document.createElement("div");
+            bouton.id = "logout-fixe";
+            bouton.innerHTML =
+                '<i class="fa fa-sign-out-alt fa-lg" style="width:20px;min-width:20px;' +
+                'margin-right:10px;text-align:center"></i><span>Déconnexion</span>';
+            bouton.style.cssText =
+                "position:fixed;z-index:1030;cursor:pointer;display:flex;" +
+                "align-items:center;padding:10px 16px;font-size:0.95rem;" +
+                "color:#c9d1d9;background:transparent;border-top:1px solid rgba(255,255,255,0.08);";
+            bouton.addEventListener("mouseenter", function () {
+                bouton.style.background = "rgba(255,255,255,0.06)";
+            });
+            bouton.addEventListener("mouseleave", function () {
+                bouton.style.background = "transparent";
+            });
+            bouton.addEventListener("click", seDeconnecter);
+            document.body.appendChild(bouton);
+        }
+        bouton.style.left = r.left + "px";
+        bouton.style.width = r.width + "px";
+        bouton.style.bottom = "0px";
     }
 
     function injectAll() {
         injectShares();
         injectAdmin();
-        injectLogout();
+        placerLogout();
     }
+
+    window.addEventListener("resize", placerLogout);
 
     new MutationObserver(injectAll).observe(document.documentElement, {
         childList: true,
