@@ -611,8 +611,21 @@ def check_permission_for_role(role: str, level: str, method: str, uri: str) -> b
             return True
         return False
     elif role == "external-role":
-        # External users can only read
-        return method == "get" and level in ["patient", "study", "series", "instance"]
+        # Lecture seule, mais lecture REELLE.
+        #
+        # Le niveau « system » manquait a cette liste. Or une requete de LISTE
+        # ne designe aucune ressource precise : le greffon la rapporte au
+        # niveau systeme, pas au niveau etude. Un compte externe se connectait
+        # donc, ouvrait Explorer -- et recevait 403 sur /studies : un
+        # explorateur ouvert sur une liste vide, ce qui ne veut rien dire.
+        # Mesure le 2026-08-29 avec un compte externe reel.
+        #
+        # Le medecin avait deja ce niveau, en GET comme en POST. L'externe ne
+        # l'obtient qu'en GET : il consulte et telecharge (permissions
+        # ["view", "download"] dans son profil), il n'ecrit rien.
+        return method == "get" and level in [
+            "patient", "study", "series", "instance", "system",
+        ]
 
     return False
 
@@ -790,6 +803,27 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
     elif "doctor" in group:
         user_name = TRANSLATIONS["ui"]["doctor"]
         permissions = ["view", "download", "upload", "share", "send", "edit-labels"]
+    elif "external" in group:
+        # Le groupe externe DOIT etre traite ici, explicitement.
+        #
+        # Il n'y etait pas, et c'etait un degat collateral du correctif du
+        # 2026-08-27 : ce jour-la le `else` ci-dessous a ete durci pour fermer
+        # la faille « token=nimportequoi », en faisant retomber toute valeur
+        # non reconnue sur le profil anonyme. Or « external » est un groupe
+        # Authelia parfaitement legitime, et il tombait dans ce meme `else` :
+        # get_token("external") ne trouve rien, et l'utilisateur heritait du
+        # profil anonyme -- permissions ["upload"], authorized-labels [], donc
+        # aucune lecture.
+        #
+        # Consequence mesuree le 2026-08-29 avec un compte externe reel : il se
+        # connectait, Explorer s'ouvrait, et /studies comme /patients
+        # repondaient 403. Un explorateur sur une liste vide.
+        #
+        # Personne ne l'avait vu parce que ce role n'etait pas utilise. C'est
+        # exactement ce qu'un correctif de securite peut casser en silence :
+        # la regression ne se voit que sur le chemin qu'on n'emprunte jamais.
+        user_name = TRANSLATIONS["ui"]["external_user"]
+        permissions = ["view", "download"]
     else:
         # Cette branche recevait TOUTE valeur non reconnue et lui accordait
         # view + download sur "authorized-labels": ["*"]. C'etait une faille
