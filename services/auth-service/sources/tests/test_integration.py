@@ -78,7 +78,7 @@ def redis_sync(fake_server):
 
 @pytest.fixture
 def admin_user():
-    return admin_module.AdminUser(username="cuffel.gregory", groups=["admins"])
+    return admin_module.AdminUser(username="j.dupont", groups=["admins"])
 
 
 @pytest.fixture
@@ -113,7 +113,7 @@ def csrf_headers(client):
 def valid_orthanc_json(tmp_paths):
     """Pre-create a valid orthanc.json (with the critical DB flags)."""
     initial = {
-        "Name": "Cuffel PACS",
+        "Name": "PACS Exemple",
         "DicomAet": "YOKOINC",
         "DicomModalitiesInDatabase": True,
         "OrthancPeersInDatabase": True,
@@ -159,10 +159,10 @@ def valid_authelia_yml(tmp_paths):
     hasher = admin_module._hasher
     data = {
         "users": {
-            "cuffel.gregory": {
+            "j.dupont": {
                 "disabled": False,
-                "displayname": "Gregory Cuffel",
-                "email": "cuffel.gregory@gmail.com",
+                "displayname": "Jean Dupont",
+                "email": "j.dupont@exemple.fr",
                 "password": hasher.hash("initial-admin-password"),
                 "groups": ["admins", "doctor"],
             },
@@ -187,9 +187,9 @@ class TestSetupWizard:
 
         # Step 1: create the first admin
         r = client.post("/auth/setup/create-admin", json={
-            "username": "cuffel.gregory",
-            "displayname": "Gregory Cuffel",
-            "email": "cuffel.gregory@gmail.com",
+            "username": "j.dupont",
+            "displayname": "Jean Dupont",
+            "email": "j.dupont@exemple.fr",
             "password": "premier-admin-12345",
             "groups": ["admins"],
         })
@@ -199,14 +199,14 @@ class TestSetupWizard:
         # The YAML must exist and hold the user with an argon2id hash
         assert tmp_paths["authelia"].exists()
         yml = yaml.safe_load(tmp_paths["authelia"].read_text())
-        assert "cuffel.gregory" in yml["users"]
-        assert yml["users"]["cuffel.gregory"]["password"].startswith("$argon2id$")
-        assert "admins" in yml["users"]["cuffel.gregory"]["groups"]
+        assert "j.dupont" in yml["users"]
+        assert yml["users"]["j.dupont"]["password"].startswith("$argon2id$")
+        assert "admins" in yml["users"]["j.dupont"]["groups"]
 
         # Step 2: finalize
         r = client.post("/auth/setup/finalize")
         assert r.status_code == 200
-        assert r.json()["admins"] == ["cuffel.gregory"]
+        assert r.json()["admins"] == ["j.dupont"]
 
         # Redis now carries the flag
         val = redis_sync.get("orthanc_authelia:setup_completed")
@@ -231,29 +231,29 @@ class TestSetupWizard:
         could not create an account in the very format the file already used.
         """
         r = client.post("/auth/setup/create-admin", json={
-            "displayname": "Gregory Cuffel",
-            "email": "cuffel.gregory@gmail.com",
+            "displayname": "Jean Dupont",
+            "email": "j.dupont@exemple.fr",
             "password": "premier-admin-12345",
             "groups": ["admins"],
         })
         assert r.status_code == 200, r.text
-        assert r.json()["username"] == "cuffel.gregory@gmail.com"
+        assert r.json()["username"] == "j.dupont@exemple.fr"
 
         yml = yaml.safe_load(tmp_paths["authelia"].read_text())
-        assert "cuffel.gregory@gmail.com" in yml["users"]
-        assert yml["users"]["cuffel.gregory@gmail.com"]["password"].startswith("$argon2id$")
+        assert "j.dupont@exemple.fr" in yml["users"]
+        assert yml["users"]["j.dupont@exemple.fr"]["password"].startswith("$argon2id$")
 
     def test_explicit_login_still_accepted(self, client, tmp_paths, fake_redis):
         """A separate login remains possible for installs that use one."""
         r = client.post("/auth/setup/create-admin", json={
-            "username": "cuffel.gregory",
-            "displayname": "Gregory Cuffel",
-            "email": "cuffel.gregory@gmail.com",
+            "username": "j.dupont",
+            "displayname": "Jean Dupont",
+            "email": "j.dupont@exemple.fr",
             "password": "premier-admin-12345",
         })
         assert r.status_code == 200, r.text
         yml = yaml.safe_load(tmp_paths["authelia"].read_text())
-        assert "cuffel.gregory" in yml["users"]
+        assert "j.dupont" in yml["users"]
 
     def test_finalize_refused_without_admin(self, client, tmp_paths, fake_redis):
         """Finalizing without an active admin = 400 (lockout invariant)."""
@@ -265,15 +265,15 @@ class TestSetupWizard:
     def test_create_admin_forces_admins_group(self, client, tmp_paths, fake_redis):
         """Even if the user forgets 'admins' in groups, we add it."""
         r = client.post("/auth/setup/create-admin", json={
-            "username": "cuffel.gregory",
-            "displayname": "Gregory",
-            "email": "cuffel@example.com",
+            "username": "j.dupont",
+            "displayname": "Jean",
+            "email": "j.dupont@exemple.fr",
             "password": "long-password-1234",
             "groups": ["doctor"],  # PAS le groupe admin
         })
         assert r.status_code == 200
         yml = yaml.safe_load(tmp_paths["authelia"].read_text())
-        assert "admins" in yml["users"]["cuffel.gregory"]["groups"]
+        assert "admins" in yml["users"]["j.dupont"]["groups"]
 
 
 # ============================================================================
@@ -323,7 +323,7 @@ class TestOrthancConfig:
         assert len(entries) >= 1
         _, fields = entries[-1]
         assert fields["event"] == "orthanc.config.updated"
-        assert fields["actor"] == "cuffel.gregory"
+        assert fields["actor"] == "j.dupont"
 
     def test_reset_that_reloads_another_file_is_reported(
         self, client, tmp_paths, fake_redis, csrf_headers, valid_orthanc_json,
@@ -460,7 +460,7 @@ class TestBackupRestore:
         assert len(backups) == 1
         assert backups[0]["target"] == tmp_paths["authelia"].name
         assert "1 compte(s)" in backups[0]["detail"]
-        assert "cuffel.gregory" in backups[0]["detail"]
+        assert "j.dupont" in backups[0]["detail"]
 
     def test_list_backups_ignores_unrestorable_files(
         self, client, tmp_paths, fake_redis, valid_authelia_yml,
@@ -791,7 +791,7 @@ class TestCorruptConfig:
         self, client, tmp_paths, fake_redis, csrf_headers,
     ):
         """Syntactically broken YAML -> 500 with a message hinting at restore."""
-        tmp_paths["authelia"].write_text("users:\n  cuffel: {this is: not: valid: yaml")
+        tmp_paths["authelia"].write_text("users:\n  j.dupont: {this is: not: valid: yaml")
 
         r = client.get("/api/admin/users")
         assert r.status_code == 500
@@ -1516,7 +1516,7 @@ class TestRestartOrthanc:
             respx.post("http://socket-proxy:2375/containers/orthanc-server/restart") \
                 .respond(status_code=204)
             respx.get("http://orthanc:8042/system").respond(
-                json={"Version": "26.4.2", "Name": "Cuffel PACS"})
+                json={"Version": "26.4.2", "Name": "PACS Exemple"})
             r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
 
         assert r.status_code == 200, r.text
@@ -1609,7 +1609,7 @@ class TestEffectiveConfig:
         """What the file declares is what Orthanc reports: nothing to report."""
         with respx.mock(base_url="http://orthanc:8042") as mock:
             mock.get("/system").respond(json={
-                "Name": "Cuffel PACS", "DicomAet": "YOKOINC",
+                "Name": "PACS Exemple", "DicomAet": "YOKOINC",
                 "DicomPort": 4242, "HttpPort": 8042,
             })
             r = client.get("/api/admin/config-effective")
@@ -1630,7 +1630,7 @@ class TestEffectiveConfig:
         mismatches = r.json()["mismatches"]
         assert len(mismatches) == 1
         assert mismatches[0]["field"] == "Name"
-        assert mismatches[0]["in_file"] == "Cuffel PACS"
+        assert mismatches[0]["in_file"] == "PACS Exemple"
         assert mismatches[0]["applied_by_orthanc"] == "Nom Impose Par Le Compose"
 
     def test_field_absent_from_the_file_is_not_a_divergence(
@@ -1653,7 +1653,7 @@ class TestEffectiveConfig:
         """An older Orthanc may not report a field. Absence of proof is not
         proof of divergence."""
         with respx.mock(base_url="http://orthanc:8042") as mock:
-            mock.get("/system").respond(json={"Name": "Cuffel PACS"})
+            mock.get("/system").respond(json={"Name": "PACS Exemple"})
             r = client.get("/api/admin/config-effective")
 
         assert r.json()["mismatches"] == []
@@ -1683,15 +1683,15 @@ class TestUserUpdate:
     def test_partial_update(self, client, tmp_paths, fake_redis,
                             valid_authelia_yml, csrf_headers):
         """Only the fields sent are touched: the rest survives untouched."""
-        r = client.patch("/api/admin/users/cuffel.gregory", json={
-            "displayname": "Dr Cuffel",
+        r = client.patch("/api/admin/users/j.dupont", json={
+            "displayname": "Dr Dupont",
         }, headers=csrf_headers)
 
         assert r.status_code == 200, r.text
         assert r.json()["modified"] == ["displayname"]
-        record = yaml.safe_load(tmp_paths["authelia"].read_text())["users"]["cuffel.gregory"]
-        assert record["displayname"] == "Dr Cuffel"
-        assert record["email"] == "cuffel.gregory@gmail.com"     # unchanged
+        record = yaml.safe_load(tmp_paths["authelia"].read_text())["users"]["j.dupont"]
+        assert record["displayname"] == "Dr Dupont"
+        assert record["email"] == "j.dupont@exemple.fr"     # unchanged
         assert "admins" in record["groups"]                       # unchanged
 
     def test_disabling_keeps_the_account(self, client, tmp_paths, fake_redis,
@@ -1719,7 +1719,7 @@ class TestUserUpdate:
 
     def test_no_field_provided(self, client, tmp_paths, fake_redis,
                                valid_authelia_yml, csrf_headers):
-        r = client.patch("/api/admin/users/cuffel.gregory", json={},
+        r = client.patch("/api/admin/users/j.dupont", json={},
                          headers=csrf_headers)
         assert r.status_code == 400
 
@@ -1736,19 +1736,19 @@ class TestUserUpdate:
         would leave the stack with nobody to administer it. A 400 is expected
         -- not a 500, which does not tell a deliberate refusal from a
         failure."""
-        r = client.patch("/api/admin/users/cuffel.gregory",
+        r = client.patch("/api/admin/users/j.dupont",
                          json={"groups": ["doctor"]}, headers=csrf_headers)
 
         assert r.status_code == 400, r.text
         assert "administrateur actif" in r.json()["detail"]
         # And nothing was written.
-        record = yaml.safe_load(tmp_paths["authelia"].read_text())["users"]["cuffel.gregory"]
+        record = yaml.safe_load(tmp_paths["authelia"].read_text())["users"]["j.dupont"]
         assert "admins" in record["groups"]
 
     def test_refuses_to_disable_the_last_admin(self, client, tmp_paths,
                                                fake_redis, valid_authelia_yml,
                                                csrf_headers):
-        r = client.patch("/api/admin/users/cuffel.gregory",
+        r = client.patch("/api/admin/users/j.dupont",
                          json={"disabled": True}, headers=csrf_headers)
         assert r.status_code == 400, r.text
 
@@ -1758,23 +1758,23 @@ class TestAuditLog:
 
     def test_reports_what_happened(self, client, tmp_paths, fake_redis,
                                    valid_authelia_yml, csrf_headers):
-        client.patch("/api/admin/users/cuffel.gregory",
-                     json={"displayname": "Dr Cuffel"}, headers=csrf_headers)
+        client.patch("/api/admin/users/j.dupont",
+                     json={"displayname": "Dr Dupont"}, headers=csrf_headers)
 
         r = client.get("/api/admin/audit")
         assert r.status_code == 200, r.text
         entries = r.json()["entries"]
         assert entries, "the change just made must appear"
         assert entries[0]["event"] == "authelia.user.updated"
-        assert entries[0]["actor"] == "cuffel.gregory"
-        assert entries[0]["details"]["target"] == "cuffel.gregory"
+        assert entries[0]["actor"] == "j.dupont"
+        assert entries[0]["details"]["target"] == "j.dupont"
         assert entries[0]["ts"] > 0
 
     def test_most_recent_first(self, client, tmp_paths, fake_redis,
                                valid_authelia_yml, csrf_headers):
-        client.patch("/api/admin/users/cuffel.gregory",
+        client.patch("/api/admin/users/j.dupont",
                      json={"displayname": "Un"}, headers=csrf_headers)
-        client.patch("/api/admin/users/cuffel.gregory",
+        client.patch("/api/admin/users/j.dupont",
                      json={"email": "autre@example.com"}, headers=csrf_headers)
 
         entries = client.get("/api/admin/audit").json()["entries"]

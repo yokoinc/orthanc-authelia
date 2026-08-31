@@ -23,10 +23,10 @@ import pytest
 def valid_authelia_data():
     return {
         "users": {
-            "cuffel.gregory": {
+            "j.dupont": {
                 "disabled": False,
-                "displayname": "Gregory Cuffel",
-                "email": "cuffel.gregory@gmail.com",
+                "displayname": "Jean Dupont",
+                "email": "j.dupont@exemple.fr",
                 "password": "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQxMjM$dGVzdA",
                 "groups": ["admins", "doctors"],
             },
@@ -37,7 +37,7 @@ def valid_authelia_data():
 @pytest.fixture
 def valid_orthanc_config():
     return {
-        "Name": "Cuffel PACS",
+        "Name": "PACS Exemple",
         "DicomAet": "YOKOINC",
         "DicomModalitiesInDatabase": True,
         "OrthancPeersInDatabase": True,
@@ -67,25 +67,25 @@ class TestValidateAuthelia:
 
     def test_no_admin_refused(self, valid_authelia_data):
         from admin_module import _validate_authelia
-        valid_authelia_data["users"]["cuffel.gregory"]["groups"] = ["doctors"]
+        valid_authelia_data["users"]["j.dupont"]["groups"] = ["doctors"]
         with pytest.raises(ValueError, match="active admin required"):
             _validate_authelia(valid_authelia_data)
 
     def test_disabled_admin_doesnt_count(self, valid_authelia_data):
         from admin_module import _validate_authelia
-        valid_authelia_data["users"]["cuffel.gregory"]["disabled"] = True
+        valid_authelia_data["users"]["j.dupont"]["disabled"] = True
         with pytest.raises(ValueError, match="active admin required"):
             _validate_authelia(valid_authelia_data)
 
     def test_missing_password_field(self, valid_authelia_data):
         from admin_module import _validate_authelia
-        del valid_authelia_data["users"]["cuffel.gregory"]["password"]
+        del valid_authelia_data["users"]["j.dupont"]["password"]
         with pytest.raises(ValueError, match="password.*missing"):
             _validate_authelia(valid_authelia_data)
 
     def test_password_must_be_argon2id(self, valid_authelia_data):
         from admin_module import _validate_authelia
-        valid_authelia_data["users"]["cuffel.gregory"]["password"] = "$bcrypt$..."
+        valid_authelia_data["users"]["j.dupont"]["password"] = "$bcrypt$..."
         with pytest.raises(ValueError, match="argon2id"):
             _validate_authelia(valid_authelia_data)
 
@@ -99,8 +99,8 @@ class TestApplyScalarChange:
     def test_top_level_scalar(self):
         from admin_module import _apply_scalar_change
         cfg = {"Name": "ORTHANC"}
-        _apply_scalar_change(cfg, "Name", "Cuffel")
-        assert cfg["Name"] == "Cuffel"
+        _apply_scalar_change(cfg, "Name", "Dupont")
+        assert cfg["Name"] == "Dupont"
 
     def test_dotted_path_scalar(self):
         from admin_module import _apply_scalar_change
