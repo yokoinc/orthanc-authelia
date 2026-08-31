@@ -248,11 +248,10 @@ site/
 # CI/CD and Deployment
 # ===============================================
 
-# CI/CD artifacts
-.github/
-.gitlab-ci.yml
-.travis.yml
-circle.yml
+# Les definitions de CI ne sont PAS des artefacts : .github/, .gitlab-ci.yml et
+# consorts decrivent ce qui doit tourner a chaque poussee. Les ignorer revient a
+# supprimer la CI en silence -- c est ce qui est arrive ici : le fichier existait
+# sur la lignee GitHub et n a jamais pu etre repris sur celle du NAS.
 
 # Deployment scripts (may contain sensitive info)
 deploy.sh
