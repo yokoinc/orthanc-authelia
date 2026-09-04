@@ -1,39 +1,66 @@
 # ORTHANC-AUTHELIA
 
-Medical PACS solution based on Orthanc with Authelia authentication (SSO, group-based access control), OHIF viewer, and custom token management system.
+A complete PACS for small and medium healthcare structures: Orthanc for the
+DICOM store, Authelia for single sign-on, OHIF for viewing, and a purpose-built
+auth-service that adds an **administration panel** and **time-limited sharing
+links** for people outside the organisation.
 
-**Platform Support**: x86-64 Linux only
+**Platform**: x86-64 Linux only.
 
-## Overview
+## The idea
 
-ORTHANC-AUTHELIA is a complete Picture Archiving and Communication System (PACS) for small to medium healthcare structures. It combines:
-- **Orthanc PACS** - Industry-standard DICOM server with PostgreSQL storage
-- **Authelia** - Single sign-on and group-based access control. **No second factor on this deployment**: every access_control rule is `one_factor`, and no TOTP or WebAuthn credential is registered. The password is the only barrier -- hence the zxcvbn policy and the tightened brute-force regulation. See docs/EXPLOITATION.md
-- **OHIF Viewer v3.12.0** - Professional medical imaging viewer
-- **Custom Auth-Service** - Token-based external sharing with OE2-themed management UI
-- **Multiple Viewers** - OHIF, Stone Web Viewer, and VolView for different use cases
+Everything is administered **from the browser**. You are never expected to open
+Authelia's YAML, hand-edit a user database, or restart a container to make an
+account exist.
 
-## Stack & Versions
+Concretely, once the stack is up:
 
-Component versions as defined in `docker-compose.yml` (keep this table in sync when bumping images):
+| You want to | You do |
+|---|---|
+| Create, rename, disable or delete a user | Admin panel, *Users* tab |
+| Change someone's password | Admin panel, *Users* tab |
+| Change an Orthanc setting | Admin panel, *Orthanc* tab |
+| Declare a DICOM modality | Admin panel, *Modalities* tab |
+| Change the public address | Admin panel, *Session* tab |
+| Take or restore a backup | Admin panel, *Backups* tab |
+| See who did what | Admin panel, *Audit* tab |
+| Check that everything is alive | Admin panel, *Health* tab |
+
+Authelia reloads its user database from disk within a second (`watch: true`),
+so a user created in the panel can log in immediately. **No restart.**
+
+Shell scripts still exist, but only as rescue paths for when the panel itself
+is unreachable — see [Rescue paths](#rescue-paths).
+
+## Stack
 
 | Component | Image | Version |
 |-----------|-------|---------|
 | Orthanc PACS | `orthancteam/orthanc` | `26.6.1` |
 | Authelia | `authelia/authelia` | `4.39.20` |
 | Redis | `redis` | `8.0-alpine` |
-| OHIF Viewer | `registry.yokoinc.ovh/orthanc-ohif` | `3.12.0` |
-| Nginx | `registry.yokoinc.ovh/orthanc-nginx` | `1.1.1` |
-| Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.0.15` |
+| Docker socket proxy | `tecnativa/docker-socket-proxy` | `0.1.2` |
+| OHIF Viewer | `registry.yokoinc.ovh/orthanc-ohif` | `3.13.4-2` |
+| Nginx | `registry.yokoinc.ovh/orthanc-nginx` | `1.1.2` |
+| Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.0.16` |
 
-> **PostgreSQL** is not part of this stack — Orthanc connects to an **external** PostgreSQL instance over the `database` network (see [Database Setup Guide](docs/DATABASE_SETUP.md)).
+These are the versions pinned in `docker-compose.yml.example`. Keep this table
+and that file in sync when bumping an image.
 
-## Why Authelia over KeyCloak?
+> **Two of those tags are not published yet.** `orthanc-ohif:3.13.4-2` and
+> `orthanc-nginx:1.1.2` exist only as local builds, so `docker compose up -d`
+> cannot pull them. Until they are pushed, build them yourself — see
+> [Building the images](#building-the-images) — or fall back to
+> `orthanc-ohif:3.13.4` and `orthanc-nginx:1.1.1`, which are in the registry.
 
-- **Lightweight**: Minimal resource usage vs KeyCloak's heavy footprint
-- **Simple Configuration**: File-based config vs complex realm management
-- **Docker Native**: Built for containerized environments
-- **Healthcare Focus**: Perfect for medical environments with simpler needs
+> **PostgreSQL is not part of this stack.** Orthanc connects to an **external**
+> PostgreSQL instance over the `database` network — see the
+> [Database Setup Guide](docs/DATABASE_SETUP.md).
+
+> **No second factor.** Every `access_control` rule is `one_factor`, and no TOTP
+> or WebAuthn credential is registered. The password is the only barrier, which
+> is why the zxcvbn policy and the tightened brute-force regulation matter. See
+> [docs/EXPLOITATION.md](docs/EXPLOITATION.md).
 
 ## Architecture
 
@@ -65,303 +92,198 @@ Component versions as defined in `docker-compose.yml` (keep this table in sync w
                                                └────────────────────┘
 ```
 
-**Authentication Flow**:
-1. **User Login**: Browser → Authelia → Session cookie → Full access
-2. **Token Sharing**: Share link → Auth-Service → Limited study access
+Two ways in, and only two:
 
-## Key Features
+1. **A session.** Browser → Authelia → session cookie → access decided by the
+   user's group.
+2. **A share link.** `?token=…` → auth-service validates it → access limited to
+   one study, with an expiry date and a usage quota. No account needed.
 
-- **Dual Authentication**: Authelia for users + token system for external sharing
-- **Role-Based Access**: Admin, Doctor, External user roles with granular permissions
-- **Three Medical Viewers**: OHIF (primary), Stone Web Viewer (advanced), VolView (3D)
-- **Secure Sharing**: Time-limited, usage-limited tokens with copy-to-clipboard links
-- **Token Manager**: OE2-themed admin dashboard with patient name resolution from DICOM metadata
-- **OE2 Sidebar Integration**: "Partages" button injected directly into Orthanc Explorer 2
-- **Programmatic Upload Endpoint**: Optional `/api-upload/instances` route for automated DICOM ingestion (scripts, batch imports) — bypasses Authelia SSO, uses HTTP Basic auth + dedicated `uploader` role restricted to POST-only
-- **PostgreSQL Storage**: High-performance database backend
-- **SSL Auto-Generation**: Self-signed certificates or custom SSL
-- **Easy User Management**: Interactive scripts for user administration
-
-## Quick Start
+## Quick start
 
 ### Prerequisites
 
-- Docker Engine 20.10+
-- Docker Compose 2.0+
-- External PostgreSQL database (or use optional local container)
-- 4GB RAM minimum (8GB recommended)
+- Docker Engine 20.10+ and Docker Compose 2.0+
+- An external PostgreSQL database reachable on a `database` Docker network
+- 4 GB RAM minimum, 8 GB recommended
 
-### Installation
+### Three steps
 
-1. **Clone and setup configuration**:
 ```bash
 git clone <repository-url>
 cd orthanc-authelia
-
-# Copy example files
-cp .env.example .env
-cp docker-compose.yml.example docker-compose.yml
-cp authelia-configuration.yml.example services/authelia/config/configuration.yml
-cp authelia-users.yml.example services/authelia/config/users_database.yml
-cp orthanc.json.example services/orthanc/config/orthanc.json
+./bootstrap.sh
 ```
 
-2. **Configure environment** (`.env`):
+`bootstrap.sh` generates every secret, writes `.env`, `docker-compose.yml` and
+the Authelia and Orthanc configurations, creates the directories the panel
+writes to, and sets the file permissions on everything holding a secret. It
+refuses to overwrite an existing installation unless given `--force`.
+
 ```bash
-# Set your domain
-DOMAIN=pacs.yourdomain.com
-
-# Generate secrets
-openssl rand -base64 64  # Use for AUTHELIA_SESSION_SECRET
-openssl rand -base64 64  # Use for AUTHELIA_STORAGE_ENCRYPTION_KEY
-openssl rand -base64 64  # Use for AUTHELIA_JWT_SECRET
-
-# Set auth-service credentials
-AUTH_USERNAME=share-user
-AUTH_PASSWORD=your-secure-password
+docker compose up -d
 ```
 
-3. **Setup database**:
-```bash
-# Create network for external PostgreSQL
-docker network create database
+Then open the setup wizard, which creates the first administrator:
 
-# Connect your PostgreSQL container
-docker network connect database your-postgres-container
-
-# Update credentials in docker-compose.yml and services/orthanc/config/orthanc.json
+```
+https://localhost:30443/auth/setup
 ```
 
-See [Database Setup Guide](docs/DATABASE_SETUP.md) for detailed instructions.
+The certificate is self-signed at this point, so accept the browser warning.
+The wizard closes itself permanently once an administrator exists — it cannot
+be used to create a second one.
 
-4. **Create users**:
+That is the whole installation. Review `.env` afterwards if you need to change
+the domain, language or timezone.
+
+### Starting over
+
 ```bash
-./manage-authelia-users.sh
+docker compose down -v
+rm -rf .env docker-compose.yml data/admin-backups data/app-settings \
+       services/authelia/config/{configuration.yml,users_database.yml} \
+       services/orthanc/config/orthanc.json
+./bootstrap.sh
 ```
 
-5. **Start the stack**:
-```bash
-docker-compose up -d
-```
+## Roles
 
-### First Login
+Assigned per user in the panel. One group per account.
 
-Access the system at `https://your-domain:30443` (or via your reverse proxy).
+| Group | Can view | Can upload | Can share | Admin panel |
+|---|---|---|---|---|
+| `admin` | yes | yes | yes | yes |
+| `doctor` | yes | yes | yes | no |
+| `external` | yes | no | no | no |
 
-Login with the admin account you created:
-1. Access `https://your-domain/auth/` to login
-2. Open OHIF viewer at `https://your-domain/ohif/`
-3. Access Orthanc Explorer 2 at `https://your-domain/ui/`
-4. Upload test DICOM images
-5. Manage tokens at `https://your-domain/auth/tokens/manage` (admin only)
+`admin` additionally reaches the token manager and the setup surfaces; those
+routes are denied to everyone else by Authelia itself, not merely hidden.
 
-## Access Points
+## Access points
 
-Default ports: `30080` (HTTP) and `30443` (HTTPS)
+Default ports `30080` (HTTP) and `30443` (HTTPS).
 
-- **Main Interface**: `https://your-domain/` (requires authentication)
-- **OHIF Viewer**: `https://your-domain/ohif/` (primary medical viewer)
-- **Orthanc Explorer 2**: `https://your-domain/ui/` (PACS administration)
-- **Stone Web Viewer**: `https://your-domain/stone-webviewer/` (advanced viewer)
-- **VolView**: `https://your-domain/volview/` (3D volumetric viewer)
-- **Token Management**: `https://your-domain/auth/tokens/manage` (admin only)
-- **External Shares**: `https://your-domain/share/?token=xxx` (no auth required)
-- **Programmatic Upload**: `POST https://your-domain/api-upload/instances` (HTTP Basic auth, see [Programmatic Upload Endpoint](#programmatic-upload-endpoint))
+| Address | What |
+|---|---|
+| `/` | Orthanc Explorer 2 — the main interface |
+| `/ohif/` | OHIF viewer, the primary one |
+| `/stone-webviewer/` | Stone Web Viewer |
+| `/volview/` | VolView, 3D volumetric |
+| `/auth/admin` | Administration panel (admin only) |
+| `/auth/tokens/manage` | Share manager (admin only) |
+| `/share/?token=…` | A share link — no account needed |
+| `/api-upload/instances` | Programmatic upload (see below) |
 
-## Configuration
+## Programmatic upload
 
-### Essential Files
+An optional route for scripts and batch imports, disabled by default. It
+bypasses Authelia — a script cannot complete an interactive login — and is
+protected instead by HTTP Basic auth with a dedicated `uploader` account
+restricted to `POST`.
 
-| File | Purpose | Example |
-|------|---------|---------|
-| `.env` | Environment variables | `.env.example` |
-| `docker-compose.yml` | Service orchestration | `docker-compose.yml.example` |
-| `services/authelia/config/configuration.yml` | Authelia config | `authelia-configuration.yml.example` |
-| `services/authelia/config/users_database.yml` | User accounts | `authelia-users.yml.example` |
-| `services/orthanc/config/orthanc.json` | Orthanc PACS config | `orthanc.json.example` |
+**Post to `/api-upload/instances`, never to `/instances`.** The latter is the
+interface route: it sits behind Authelia, answers a programmatic POST with a
+302 to the login page, and any client that follows redirects will read the
+resulting 200 as a successful upload. A client that then deletes its local file
+on success destroys data that never arrived. This is not hypothetical — it
+happened here, and cost 186 files. Send `-MaximumRedirection 0` or the
+equivalent, and treat any 3xx as a failure.
 
-### Critical: Credential Synchronization
+See [docs/EXPLOITATION.md](docs/EXPLOITATION.md) for the threat model, and
+`tools/windows-dicom-import/` for a working client.
 
-These credentials **must match** across files:
-- `.env`: `AUTH_USERNAME` / `AUTH_PASSWORD`
-- `orthanc.json`: `WebServiceUsername` / `WebServicePassword`
+## Building the images
 
-### SSL Configuration
-
-Three modes available via `SSL_MODE` in `.env`:
-
-- **`selfsigned`** (default): Auto-generated certificates, perfect for development
-- **`disabled`**: HTTP only, use when behind reverse proxy
-- **`custom`**: Your own certificates (Let's Encrypt, commercial CA)
-
-See [SSL Setup Guide](docs/SSL_SETUP.md) for detailed configuration.
-
-## User Management
-
-Create or modify users:
-```bash
-./manage-authelia-users.sh
-```
-
-Available user groups:
-- **`admin`**: Full access including token management
-- **`doctor`**: Medical data access (OHIF, Orthanc Explorer)
-- **`external`**: Limited read-only access
-- **`user`**: Basic authenticated access
-
-After modifying users:
-```bash
-docker-compose restart authelia
-```
-
-## Programmatic Upload Endpoint
-
-For automated DICOM ingestion (CD/DVD import scripts, batch jobs, modality integration), the stack exposes an optional `POST /api-upload/instances` route that **bypasses Authelia SSO** and uses HTTP Basic authentication instead. This is necessary because Authelia is designed for interactive browser logins and cannot be authenticated programmatically.
-
-### Threat model and defense in depth
-
-This endpoint is intentionally restricted to **upload only**:
-
-- **Path scope**: only `/api-upload/instances` is exposed — no other Orthanc API
-- **Auth chain**: HTTP Basic (nginx `htpasswd`) + dedicated `uploader` role (Orthanc Authorization plugin)
-- **Role restriction**: the `uploader` role can ONLY `POST /instances`. Any other operation (read, list, delete, modify, share, system access) is denied by the auth-service
-- **Rate limiting**: 2 requests/second sustained, burst of 5
-- **Body size**: capped at 4 GB (large enough for ZIP archives of full DICOM CDs)
-
-**If the htpasswd credentials are ever compromised**, the worst an attacker can do is fill the storage with bogus DICOM files (DoS by disk fill). No existing patient data can be read, listed, exfiltrated, or deleted through this endpoint.
-
-For additional protection, the endpoint can be placed behind a Cloudflare Access Service Token, IP allowlist, or mTLS at the reverse-proxy layer.
-
-### Enabling the endpoint
-
-Set both variables in `.env` (leave empty to disable — nginx will return 500 on `/api-upload/*` requests, fail-closed):
+The three custom images are built from this repository:
 
 ```bash
-UPLOAD_USER=upload-service
-UPLOAD_PASSWORD=$(openssl rand -base64 24)
-```
-
-The nginx entrypoint generates `/etc/nginx/htpasswd` from these values at container start (SHA-256 hashed via `openssl passwd -5`). No manual file management required.
-
-### Client usage
-
-Single DICOM file:
-```bash
-curl -u "$UPLOAD_USER:$UPLOAD_PASSWORD" \
-     --data-binary @image.dcm \
-     -H "Content-Type: application/dicom" \
-     https://your-domain/api-upload/instances
-```
-
-ZIP archive containing multiple DICOM files (Orthanc auto-detects the archive):
-```bash
-curl -u "$UPLOAD_USER:$UPLOAD_PASSWORD" \
-     --data-binary @study.zip \
-     -H "Content-Type: application/zip" \
-     https://your-domain/api-upload/instances
-```
-
-Note: if your reverse proxy or CDN enforces a body size limit smaller than your typical DICOM payload (e.g. Cloudflare Free/Pro caps at 100 MB), upload files individually rather than as a single archive.
-
-### Internals
-
-Request flow for `POST /api-upload/instances`:
-
-1. **nginx** receives the request, matches `location ~ ^/api-upload/(instances)(?:/|$)`
-2. **nginx Basic auth** validates `Authorization: Basic ...` against `/etc/nginx/htpasswd` (no Authelia call)
-3. **nginx rewrites** the URL: `/api-upload/instances` → `/instances`
-4. **nginx injects** `Remote-User: uploader` (and `X-Auth-User: uploader`, `Remote-Groups: uploader`)
-5. **Orthanc Authorization plugin** reads `Remote-User` and POSTs to `auth-service:/tokens/validate`
-6. **auth-service** maps `uploader` → `uploader-role` and grants the request **only if** `method == "post"` and `level == "instance"`
-7. **Orthanc** ingests the DICOM into its standard storage pipeline (PostgreSQL + filesystem)
-
-## Docker Registry
-
-Custom images hosted at `registry.yokoinc.ovh`:
-
-- `orthanc-nginx:1.1.1` - Nginx with SSL auto-generation
-- `orthanc-ohif:3.12.0` - OHIF viewer with French translation
-- `orthanc-auth-service:1.0.16` - Custom authentication service
-
-### Using Your Own Registry
-
-Build images locally:
-```bash
-# Auth-Service
-cd services/auth-service/sources
-docker build -t your-registry/orthanc-auth-service:1.0.16 .
+# Auth-service
+docker build -t your-registry/orthanc-auth-service:VERSION services/auth-service/sources
 
 # Nginx
-cd services/nginx
-docker build -t your-registry/orthanc-nginx:1.1.1 .
+docker build -t your-registry/orthanc-nginx:VERSION services/nginx
 
-# OHIF (long build ~15min)
-cd services/ohif/docker
-docker build -t your-registry/orthanc-ohif:3.12.0 .
+# OHIF — long build, around 15 minutes
+docker build -t your-registry/orthanc-ohif:VERSION services/ohif/docker
 ```
 
-Update `docker-compose.yml` with your registry URLs.
+Then point `docker-compose.yml` at your own registry.
+
+## Tests
+
+```bash
+docker build -t auth-service-test services/auth-service/sources
+docker run --rm --entrypoint sh \
+  -e AUTH_USERNAME=ci -e AUTH_PASSWORD=mot-de-passe-ci-1234 \
+  -e ORTHANC_ADMIN_USER=ci -e ORTHANC_ADMIN_PASS=ci \
+  -v "$PWD:/repo" -w /repo/services/auth-service/sources \
+  auth-service-test \
+  -c 'pip install -q -r requirements-dev.txt && python -m pytest tests/ -q'
+```
+
+The same suite, the image builds, and six repository consistency checks run on
+every push — see `.github/workflows/tests.yml`.
 
 ## Documentation
 
-Detailed guides available in `docs/`:
-
-- **[Configuration Guide](docs/CONFIGURATION.md)** - Complete variable reference
-- **[SSL Setup Guide](docs/SSL_SETUP.md)** - All SSL modes and reverse proxy setup
-- **[Database Setup Guide](docs/DATABASE_SETUP.md)** - PostgreSQL configuration
-- **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)** - Common issues and solutions
-- **[Authelia User Management](docs/AUTHELIA_USER_MANAGEMENT.md)** - User permissions
-- **[Token Sharing Guide](docs/TOKEN_SHARING.md)** - External sharing workflow
-- **[Auth-Service Overview](docs/AUTH_SERVICE.md)** - Authentication service details
-- **[Nginx Configuration](docs/NGINX_CONFIGURATION.md)** - Reverse proxy details
-- **[Cloudflare Tunnel](docs/CLOUDFLARE_TUNNEL.md)** - Exposure without opening a port
+- **[Operations](docs/EXPLOITATION.md)** — running it: backups, monitoring,
+  route audit, cache traps, incidents and what they taught
+- **[Configuration](docs/CONFIGURATION.md)** — complete variable reference
+- **[SSL Setup](docs/SSL_SETUP.md)** — all SSL modes and reverse proxy setup
+- **[Database Setup](docs/DATABASE_SETUP.md)** — PostgreSQL configuration
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** — common issues and solutions
+- **[User Management](docs/AUTHELIA_USER_MANAGEMENT.md)** — groups and permissions
+- **[Token Sharing](docs/TOKEN_SHARING.md)** — external sharing workflow
+- **[Auth-Service](docs/AUTH_SERVICE.md)** — the service's internals
+- **[Nginx](docs/NGINX_CONFIGURATION.md)** — reverse proxy details
+- **[Cloudflare Tunnel](docs/CLOUDFLARE_TUNNEL.md)** — exposure without opening a port
 
 ## Troubleshooting
 
-### Quick Checks
-
 ```bash
-# Check all services are running
-docker-compose ps
-
-# View logs
-docker-compose logs -f
-
-# Restart services
-docker-compose restart
-
-# Check SSL certificates
-docker exec orthanc-nginx ls -la /etc/nginx/ssl/
+docker compose ps                                  # is everything up
+docker compose logs -f                             # follow the logs
+docker exec orthanc-nginx ls -la /etc/nginx/ssl/   # certificates
 ```
 
-### Common Issues
+| Symptom | Cause, usually |
+|---|---|
+| A user cannot log in | Check the account in the panel's *Users* tab — disabled, or wrong group. Authelia reloads on its own; restarting it changes nothing. |
+| Everyone gets 401 at once | Authelia only reads `configuration.yml` at **startup**. If it was edited, check the container's start time before looking anywhere else. |
+| Database connection failed | PostgreSQL is not on the `database` network |
+| Port conflict | Change the ports in `docker-compose.yml` |
+| SSL warning | Expected with a self-signed certificate |
 
-- **Can't login**: Run `./manage-authelia-users.sh` and restart Authelia
-- **Database connection failed**: Verify PostgreSQL is on `database` network
-- **Port conflicts**: Change ports in `docker-compose.yml`
-- **SSL warnings**: Normal for self-signed certificates
+See the [Troubleshooting Guide](docs/TROUBLESHOOTING.md), and
+[Operations](docs/EXPLOITATION.md) for the incidents worth knowing about before
+they happen to you.
 
-See [Troubleshooting Guide](docs/TROUBLESHOOTING.md) for complete solutions.
+## Rescue paths
 
-## Enabled Orthanc Plugins
+For when the panel itself cannot be reached. Normal administration does not go
+through these.
 
-- **PostgreSQL**: High-performance storage/index
-- **DICOMweb**: Modern web DICOM protocol
-- **Authorization**: Custom permission validation
-- **Explorer 2**: Modern web interface
-- **Stone Web Viewer**: High-performance viewer
-- **VolView**: 3D volumetric visualization
-- **Housekeeper**: Automatic maintenance
-- **GDCM**: Enhanced DICOM codec support
+```bash
+./manage-authelia-users.sh          # edit the user database directly
+./scripts/reset-admin-password.sh   # reset an administrator's password
+./scripts/apply.sh                  # redeploy and verify every route
+./scripts/backup-postgres.sh        # dump PostgreSQL, then verify the dump
+```
 
-## Sources and Acknowledgments
+## Enabled Orthanc plugins
+
+PostgreSQL (storage and index), DICOMweb, Authorization, Explorer 2, Stone Web
+Viewer, VolView, Housekeeper, GDCM.
+
+## Sources and acknowledgments
 
 Built upon excellent open-source projects:
 
-- **Orthanc PACS** - Sébastien Jodogne, UCLouvain - [orthanc-server.com](https://orthanc-server.com)
-- **Authelia** - Modern authentication server
-- **OHIF Viewer** - Open Health Imaging Foundation
-- **PostgreSQL** - High-performance database
-- **Redis** - In-memory data store
+- **Orthanc PACS** — Sébastien Jodogne, UCLouvain — [orthanc-server.com](https://orthanc-server.com)
+- **Authelia** — modern authentication server
+- **OHIF Viewer** — Open Health Imaging Foundation
+- **PostgreSQL** — high-performance database
+- **Redis** — in-memory data store
 
 Forked and enhanced by **yokoinc** for the open-source medical imaging community.
