@@ -144,15 +144,15 @@ access_control:
   default_policy: deny
 
   rules:
-    # NOTE. Cet exemple prescrivait `two_factor`, que l'installation n'applique
-    # nulle part : les quatre regles reelles sont en `one_factor`, et aucun
-    # TOTP ni WebAuthn n'est enregistre. Une documentation qui promet un second
-    # facteur absent est pire qu'une documentation muette -- on croit protege
-    # ce qui ne l'est pas. Aligne sur la realite le 2026-08-27.
+    # NOTE. This example used to prescribe `two_factor`, which the installation
+    # applies nowhere: the four real rules are `one_factor`, and no TOTP or
+    # WebAuthn credential is registered. Documentation promising a second
+    # factor that does not exist is worse than none -- it makes you believe
+    # something is protected when it is not. Aligned with reality on 2026-08-27.
     #
-    # Passer reellement en `two_factor` reste souhaitable, mais impose
-    # d'enroler un authentificateur AVANT de basculer, sous peine de se
-    # verrouiller dehors. Ecarte pour cette installation.
+    # Actually switching to `two_factor` remains desirable, but an
+    # authenticator must be enrolled BEFORE the switch, or you lock yourself
+    # out. Not done on this installation.
 
     # Admin-only routes
     - domain: pacs.yourdomain.com

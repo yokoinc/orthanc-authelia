@@ -19,7 +19,7 @@ ORTHANC-AUTHELIA requires a PostgreSQL database (12+, 15 recommended) for storin
 1. **Embedded container** — the **default** since 2026-09-13. `bootstrap.sh` generates the password and writes it to `.env` and `orthanc.json`; nothing to do.
 2. **External database** — for an installation that already runs its own PostgreSQL.
 
-> Until 2026-09-13 the external database was the default, and the embedded one had to be enabled by hand in six edits that `bootstrap.sh` never mentioned. A fresh install stopped at `docker compose up -d` on « network database declared as external, but could not be found ».
+> Until 2026-09-13 the external database was the default, and the embedded one had to be enabled by hand in six edits that `bootstrap.sh` never mentioned. A fresh install stopped at `docker compose up -d` on `network database declared as external, but could not be found`.
 
 ## Option 1: External PostgreSQL Database
 
