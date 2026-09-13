@@ -42,7 +42,7 @@ is unreachable — see [Rescue paths](#rescue-paths).
 | Docker socket proxy | `tecnativa/docker-socket-proxy` | `0.1.2` |
 | OHIF Viewer | `registry.yokoinc.ovh/orthanc-ohif` | `3.13.4-2` |
 | Nginx | `registry.yokoinc.ovh/orthanc-nginx` | `1.1.2` |
-| Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.1.0` |
+| Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.1.1` |
 
 These are the versions pinned in `docker-compose.yml.example`. Keep this table
 and that file in sync when bumping an image.
