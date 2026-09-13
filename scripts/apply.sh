@@ -37,6 +37,30 @@ set -eu
 PATH=/usr/local/bin:$PATH
 cd "$(dirname "$0")/.."
 
+# ---------------------------------------------------------------------------
+# Garde-fou : ne jamais (re)demarrer Authelia sur une configuration invalide
+# ---------------------------------------------------------------------------
+# Authelia ne verifie configuration.yml qu'AU DEMARRAGE. Le 2026-09-13, la
+# configuration en service ne passait plus sa propre validation -- asset_path
+# pointait sur /config/assets, dossier disparu depuis -- alors qu'Authelia
+# tournait sans broncher depuis quinze jours. Le prochain redemarrage, par ce
+# script ou par un reboot du NAS, coupait toute connexion au PACS.
+#
+# On valide donc AVANT de toucher a quoi que ce soit, a chaque passage : une
+# seconde, et le fichier lu est celui du disque (dossier monte), pas celui
+# qu'Authelia a charge au demarrage.
+if docker ps --format '{{.Names}}' | grep -qx orthanc-authelia; then
+    echo "== Validation de la configuration Authelia =="
+    if ! validation=$(docker exec orthanc-authelia authelia validate-config --config /config/configuration.yml 2>&1); then
+        # Les seules lignes d'erreur : Authelia y melange son aide d'utilisation,
+        # dans un ordre qui varie (sorties standard et d'erreur entrelacees).
+        echo "$validation" | grep -E '^[[:space:]]+- ' | sed 's/^[[:space:]]*/   /'
+        echo "ECHEC : configuration Authelia invalide -- rien n'a ete applique."
+        exit 1
+    fi
+    echo "   configuration valide"
+fi
+
 echo "== Application des changements =="
 if [ $# -gt 0 ]; then
     echo "   services vises : $*"
