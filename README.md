@@ -223,7 +223,7 @@ Then point `docker-compose.yml` at your own registry.
 ```bash
 docker build -t auth-service-test services/auth-service/sources
 docker run --rm --entrypoint sh \
-  -e AUTH_USERNAME=ci -e AUTH_PASSWORD=mot-de-passe-ci-1234 \
+  -e AUTH_USERNAME=ci -e AUTH_PASSWORD=ci-password-1234 \
   -e ORTHANC_ADMIN_USER=ci -e ORTHANC_ADMIN_PASS=ci \
   -v "$PWD:/repo" -w /repo/services/auth-service/sources \
   auth-service-test \
