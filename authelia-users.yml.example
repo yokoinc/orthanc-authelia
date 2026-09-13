@@ -1,46 +1,46 @@
 # =============================================================================
 # AUTHELIA USER DATABASE
 # =============================================================================
-# Ce fichier n'est pas a editer a la main dans le cas normal : le wizard de
-# premiere installation cree le compte administrateur, puis l'onglet
-# Utilisateurs du panel d'administration gere les suivants (creation,
-# groupes, desactivation, suppression). Authelia relit le fichier a chaud.
+# This file is not meant to be edited by hand in the normal case: the
+# first-install wizard creates the administrator account, then the admin
+# panel's Users tab manages the next ones (creation, groups, disabling,
+# deletion). Authelia re-reads the file live.
 #
-# Edition manuelle malgre tout ? Generer un hash argon2id avec :
+# Manual edit anyway? Generate an argon2id hash with:
 #   docker run --rm authelia/authelia:4.39.5 \
-#     authelia crypto hash generate argon2 --password "mot-de-passe"
+#     authelia crypto hash generate argon2 --password "your-password"
 #
 # -----------------------------------------------------------------------------
-# GROUPES DISPONIBLES
+# AVAILABLE GROUPS
 # -----------------------------------------------------------------------------
-# Les groupes n'ont pas besoin d'exister ici pour etre utilisables : ils sont
-# definis par les regles d'acces (configuration.yml, section access_control)
-# et par la correspondance groupe -> droits Orthanc (auth_service.py). Le
-# panel propose les trois a la creation d'un utilisateur.
+# Groups do not need to exist here to be usable: they are defined by the
+# access rules (configuration.yml, access_control section) and by the
+# group-to-Orthanc-permissions mapping (auth_service.py). The panel offers
+# all three when creating a user.
 #
-#   admin     administration complete du PACS, gestion des jetons de partage,
-#             acces au panel. Droits Orthanc : lecture, ecriture, suppression,
-#             modification, anonymisation, partage, envoi, reglages, libelles.
-#   doctor    usage clinique : lecture, televersement, partage, envoi,
-#             libelles. Ni suppression, ni reglages.
-#   external  acces restreint en lecture seule : consultation et telechargement.
+#   admin     full PACS administration, share token management, panel
+#             access. Orthanc permissions: read, write, delete, modify,
+#             anonymize, share, send, settings, labels.
+#   doctor    clinical use: read, upload, share, send, labels. No
+#             deletion, no settings.
+#   external  restricted read-only access: viewing and download.
 #
 # -----------------------------------------------------------------------------
-# COMPTE D'AMORCAGE
+# BOOTSTRAP ACCOUNT
 # -----------------------------------------------------------------------------
-# Authelia refuse de demarrer sur une base vide :
+# Authelia refuses to start on an empty database:
 #   "could not validate the schema: users: non zero value required"
-# Il faut donc au moins une entree avant meme que le premier administrateur
-# existe. C'est le seul role du compte ci-dessous.
+# So at least one entry is needed before the first administrator even
+# exists. That is the only role of the account below.
 #
-# Il est inoffensif : `disabled: true` interdit toute connexion, il n'a aucun
-# groupe donc aucun droit, et bootstrap.sh remplace le hash factice ci-dessous
-# par celui d'un mot de passe aleatoire jamais affiche ni conserve.
+# It is harmless: `disabled: true` forbids any login, it has no group hence no
+# rights, and bootstrap.sh replaces the dummy hash below with that of a random
+# password never displayed or kept.
 #
-# Il subsiste apres le wizard : notre setup_finalize verifie qu'un administrateur
-# actif existe et pose son drapeau, mais ne fait pas de menage. Sans droit ni
-# connexion possible, il est inerte -- le supprimer depuis l'onglet Utilisateurs
-# est une coquetterie, pas une mesure de securite.
+# It remains after the wizard: our setup_finalize checks that an active
+# administrator exists and sets its flag, but does no cleanup. With no rights
+# and no possible login, it is inert -- deleting it from the Users tab is
+# cosmetic, not a security measure.
 
 users:
   bootstrap@localhost:

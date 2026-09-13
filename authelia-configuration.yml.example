@@ -42,22 +42,21 @@ totp:
 # =============================================================================
 # File-based authentication for simplicity in PACS environment
 authentication_backend:
-  # Reinitialisation par courriel DESACTIVEE.
+  # Email password reset DISABLED.
   #
-  # Sans SMTP, le notifier `filesystem` ecrit le lien de reinitialisation dans
-  # un fichier A L'INTERIEUR du conteneur, et le portail affiche malgre tout
-  # « un e-mail a ete envoye ». L'utilisateur attend un message qui n'arrivera
-  # jamais. Si vous configurez un vrai serveur SMTP, vous pouvez repasser
-  # `disable` a false.
+  # Without SMTP, the `filesystem` notifier writes the reset link to a file
+  # INSIDE the container, and the portal still shows "an email has been sent".
+  # The user waits for a message that will never arrive. If you configure a
+  # real SMTP server, you can set `disable` back to false.
   #
-  # Sinon : un mot de passe se change depuis le panneau d'administration, et
-  # celui de l'administrateur via scripts/reset-admin-password.sh.
+  # Otherwise: a password is changed from the admin panel, and the
+  # administrator's through scripts/reset-admin-password.sh.
   #
-  # ATTENTION au niveau : directement sous authentication_backend, PAS sous
-  # `file`. Place sous `file`, Authelia refuse de demarrer (« configuration key
-  # not expected: authentication_backend.file.password_reset.disable »). Ce
-  # modele l'avait sous `file` : toute installation neuve bouclait au
-  # demarrage. Constate au banc d'essai le 2026-09-13.
+  # MIND THE LEVEL: directly under authentication_backend, NOT under `file`.
+  # Placed under `file`, Authelia refuses to start ("configuration key not
+  # expected: authentication_backend.file.password_reset.disable"). This
+  # template had it under `file`: every fresh install looped at startup. Found
+  # on the test bench on 2026-09-13.
   password_reset:
     disable: true
   file:
@@ -80,20 +79,20 @@ authentication_backend:
 # =============================================================================
 # PASSWORD POLICY
 # =============================================================================
-# Cette installation n'utilise QUE le mot de passe : le second facteur est
-# ecarte. Le mot de passe est donc la seule chose entre Internet et des images
-# de patients -- raison de plus pour exiger qu'il tienne debout.
+# This installation uses the password ONLY: the second factor is set aside.
+# The password is therefore the only thing between the Internet and patient
+# images -- all the more reason to require that it holds up.
 #
-# zxcvbn plutot que `standard` : il mesure la resistance reelle a une attaque
-# par dictionnaire au lieu de compter des majuscules. "P@ssw0rd!" satisfait
-# toutes les regles de composition classiques et tombe en quelques secondes.
-# Score 3 sur 4 = "safely unguessable".
+# zxcvbn rather than `standard`: it measures real resistance to a dictionary
+# attack instead of counting capital letters. "P@ssw0rd!" satisfies every
+# classic composition rule and falls in a few seconds. Score 3 out of 4 =
+# "safely unguessable".
 #
-# Portee : les parcours d'Authelia (reinitialisation). La CREATION de comptes
-# passe par le panneau, qui impose 12 caracteres minimum de son cote.
+# Scope: Authelia's own flows (reset). Account CREATION goes through the panel,
+# which enforces a 12-character minimum on its side.
 password_policy:
   standard:
-    enabled: false                  # remplace par zxcvbn, plus pertinent
+    enabled: false                  # replaced by zxcvbn, more relevant
   zxcvbn:
     enabled: true
     min_score: 3
@@ -122,27 +121,27 @@ access_control:
         - "^/api/admin/.*$"
         - "^/auth/tokens.*$"
 
-    # REFUS EXPLICITE des memes chemins pour tous les autres.
+    # EXPLICIT REFUSAL of the same paths for everyone else.
     #
-    # Sans cette regle, la protection du panneau ne tient qu'a UNE barriere.
-    # Les regles sont evaluees dans l'ordre et la premiere qui correspond gagne
-    # -- mais celle du dessus porte `subject: group:admin`, donc elle ne
-    # correspond PAS a un medecin connecte. L'evaluation continue alors
-    # jusqu'au bypass `^/auth/.*$` ci-dessous, qui l'autorise.
+    # Without this rule, the panel's protection rests on ONE barrier. Rules are
+    # evaluated in order and the first match wins -- but the one above carries
+    # `subject: group:admin`, so it does NOT match a signed-in doctor.
+    # Evaluation then continues down to the `^/auth/.*$` bypass below, which
+    # allows it.
     #
-    # Mesure le 2026-08-29 avec un compte medecin reel : Authelia laissait
-    # passer /auth/admin et /api/admin/users. Seul le require_admin du panneau
-    # les refusait. C'etait exact, mais unique -- et verify_admin_auth avait
-    # justement regresse en comparant les groupes par sous-chaine. Une seule
-    # barriere sur l'administration d'un PACS, ce n'est pas assez.
+    # Measured on 2026-08-29 with a real doctor account: Authelia let
+    # /auth/admin and /api/admin/users through. Only the panel's require_admin
+    # refused them. It was correct, but alone -- and verify_admin_auth had just
+    # regressed by comparing groups by substring. A single barrier on the
+    # administration of a PACS is not enough.
     #
-    # Cette regle n'a PAS de subject : elle attrape tout ce que la regle admin
-    # n'a pas deja pris. Elle doit rester exactement ici -- au-dessus du bypass,
-    # en dessous de la regle admin.
+    # This rule has NO subject: it catches everything the admin rule has not
+    # already taken. It must stay exactly here -- above the bypass, below the
+    # admin rule.
     #
-    # Verifie apres coup, dans les deux sens : un medecin recoit 403 d'Authelia
-    # (et non plus du panneau) sur /auth/admin, /api/admin/* et /auth/tokens*,
-    # tandis qu'un administrateur y accede normalement.
+    # Checked afterwards, both ways: a doctor gets 403 from Authelia (and no
+    # longer from the panel) on /auth/admin, /api/admin/* and /auth/tokens*,
+    # while an administrator gets in normally.
     - domain: ${AUTHELIA_DOMAIN}
       policy: deny
       resources:
@@ -161,34 +160,33 @@ access_control:
         - "^/manifest.json$"        # Web app manifest
         - "^/favicon.ico$"          # Favicon
     
-    # Liens de partage : contournement de l'authentification.
+    # Share links: authentication bypass.
     #
-    # ATTENTION -- ces regles se declenchent sur la SEULE PRESENCE de la chaine
-    # "token=" dans l'URL. Elles ne valident rien. La validation etait censee
-    # etre faite ensuite par le greffon d'autorisation d'Orthanc.
+    # WARNING -- these rules trigger on the MERE PRESENCE of the string
+    # "token=" in the URL. They validate nothing. Validation was supposed to be
+    # done afterwards by Orthanc's authorization plugin.
     #
-    # Elle ne l'est pas. Mesure sur une installation reelle le 2026-08-27 :
+    # It is not. Measured on a real installation on 2026-08-27:
     #
-    #   GET https://<domaine>/dicom-web/studies?token=nimportequoi
-    #     -> 200, 264 Ko, 209 etudes : noms de patients, dates, descriptions.
-    #        Depuis Internet, sans compte, sans trace d'echec de connexion.
+    #   GET https://<domain>/dicom-web/studies?token=anything
+    #     -> 200, 264 KB, 209 studies: patient names, dates, descriptions.
+    #        From the Internet, without an account, without any failed-login trace.
     #
-    # Chaine complete : Authelia contourne ; Orthanc n'extrait PAS le parametre
-    # ?token= sur /dicom-web/studies (auth-service ne le voit jamais, verifie
-    # dans les journaux) ; la requete est servie sous le profil anonyme ; et
-    # l'enumeration QIDO n'est gouvernee ni par les permissions ni par la
-    # portee d'etiquettes -- les deux ont ete restreintes sans effet.
+    # Full chain: Authelia bypasses, Orthanc does NOT extract the ?token=
+    # parameter on /dicom-web/studies (auth-service never sees it, checked in
+    # the logs), the request is served under the anonymous profile, and QIDO
+    # enumeration is governed neither by permissions nor by label scope -- both
+    # were restricted to no effect.
     #
-    # Les deux regles qui donnaient acces aux DONNEES (/dicom-web et /wado) ont
-    # donc ete retirees. Les trois qui restent ne servent que les visualiseurs
-    # eux-memes (HTML, JS) : sans /dicom-web ni /wado, ils n'affichent aucune
-    # image.
+    # The two rules that gave access to DATA (/dicom-web and /wado) were
+    # therefore removed. The three that remain only serve the viewers
+    # themselves (HTML, JS): without /dicom-web or /wado, they show no image.
     #
-    # Le partage a ete refait depuis : nginx valide le jeton par auth_request
-    # vers /_verify-share (existence en base, peremption, quota) sur /dicom-web
-    # et /wado, puis Orthanc en restreint le perimetre a l'etude couverte.
-    # NE PAS remettre ces deux lignes de contournement : la validation se fait
-    # desormais dans nginx, pas en faisant confiance a une chaine de caracteres.
+    # Sharing has been rebuilt since: nginx validates the token through
+    # auth_request to /_verify-share (exists in the database, not expired,
+    # quota) on /dicom-web and /wado, then Orthanc restricts the scope to the
+    # covered study. DO NOT put these two bypass lines back: validation now
+    # happens in nginx, not by trusting a character string.
     - domain: ${AUTHELIA_DOMAIN}
       policy: bypass                # Allow without authentication
       resources:
@@ -232,11 +230,11 @@ session:
   
   cookies:
     - domain: ${AUTHELIA_DOMAIN}   # Domain for session cookies
-      # ${PUBLIC_URL} et non https://${AUTHELIA_DOMAIN} : une URL garde son port,
-      # un domaine de cookie n'en a jamais. Construites sur le domaine seul, ces
-      # deux adresses envoyaient une installation locale (port 30443) vers le
-      # 443, ou rien n'ecoute. Le panneau (onglet reseau) remplace l'origine
-      # complete, port compris, quand l'adresse publique change.
+      # ${PUBLIC_URL} and not https://${AUTHELIA_DOMAIN}: a URL keeps its port,
+      # a cookie domain never has one. Built on the domain alone, these two
+      # addresses sent a local installation (port 30443) to 443, where nothing
+      # listens. The panel (network tab) replaces the full origin, port
+      # included, when the public address changes.
       authelia_url: ${PUBLIC_URL}/auth  # Authelia login URL
       default_redirection_url: ${PUBLIC_URL}/ui/app/  # Default redirect after login
       same_site: lax               # Cookie same-site policy
@@ -250,14 +248,14 @@ session:
 # =============================================================================
 # RATE LIMITING & BRUTE FORCE PROTECTION
 # =============================================================================
-# Protect against authentication attacks
-# Sans second facteur, seule barriere contre une attaque par dictionnaire.
-# 5 essais / 2 min / 5 min de bannissement laissaient ~60 tentatives par heure
-# en continu, sans jamais bloquer durablement. 3 / 5 min / 15 min ramenent cela
-# a une douzaine : assez tolerant pour deux fautes de frappe, assez couteux
-# pour rendre l'attaque sans interet.
+# Protect against authentication attacks.
+# Without a second factor, this is the only barrier against a dictionary
+# attack. 5 attempts / 2 min / 5 min ban left ~60 attempts per hour,
+# continuously, without ever blocking for long. 3 / 5 min / 15 min bring
+# that down to a dozen: tolerant enough for two typos, costly enough to make
+# the attack pointless.
 #
-# Le bannissement vit dans db.sqlite3 : un redemarrage ne le leve pas.
+# The ban lives in db.sqlite3: a restart does not lift it.
 regulation:
   max_retries: 3                   # Maximum failed login attempts
   find_time: 5m                    # Time window for counting failures

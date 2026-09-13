@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies from requirements.txt
-# (source unique de verite pour les versions ; requirements-dev.txt reste hors image)
+# (single source of truth for versions; requirements-dev.txt stays out of the image)
 COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
@@ -15,9 +15,9 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY entrypoint.sh /app/
 COPY auth_service.py /app/
 COPY admin_module.py /app/
-# Les catalogues de langue, importes par les deux modules ci-dessus. Les .py
-# sont copies un par un : un module ajoute sans sa ligne ici empeche le service
-# de demarrer (ModuleNotFoundError).
+# The language catalogues, imported by both modules above. The .py files are
+# copied one by one: a module added without its line here prevents the
+# service from starting (ModuleNotFoundError).
 COPY i18n.py /app/
 COPY static/ /app/static/
 COPY templates/ /app/templates/

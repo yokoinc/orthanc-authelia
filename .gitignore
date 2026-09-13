@@ -6,20 +6,19 @@
 
 # Environment variables (contains sensitive data)
 #
-# ENUMERER LES SUFFIXES NE MARCHE PAS. Cette liste a ete une enumeration
-# (.env.local, .env.bak, .env.bak.*) et elle a laisse passer, le 2026-08-26,
-# `.env.avant-rotation-20260826-040016` : les cinq secrets fraichement
-# generes se sont retrouves indexes, prets a partir sur un depot PUBLIC,
-# une heure apres avoir ete changes precisement parce qu'ils avaient fuite.
-# Un `git add -A` suffisait.
+# LISTING THE SUFFIXES DOES NOT WORK. This list used to be an enumeration
+# (.env.local, .env.bak, .env.bak.*) and on 2026-08-26 it let through
+# `.env.avant-rotation-20260826-040016`: the five freshly generated secrets
+# ended up staged, ready to go to a PUBLIC repository, an hour after being
+# changed precisely because they had leaked. A `git add -A` was enough.
 #
-# Regle : on ignore TOUT ce qui commence par .env, et on rouvre nommement
-# les seuls fichiers destines a etre publies.
+# Rule: ignore EVERYTHING that starts with .env, and re-include by name only
+# the files meant to be published.
 .env
 .env.*
 !.env.example
 !.env.*.example
-# Verrous poses par filelock pendant une ecriture du panel.
+# Locks taken by filelock during a panel write.
 *.lock
 
 # ===============================================
@@ -81,13 +80,13 @@ orthanc.log
 *.p12
 *.pfx
 
-# Fichiers propres a l'installation, porteurs de secrets.
+# Installation-specific files that carry secrets.
 #
-# Le `*` final n'est pas decoratif : sans lui, `orthanc.json` est protege mais
-# `orthanc.json.bak-20260530-1002` ne l'est pas, et c'est justement la copie
-# qui a failli partir sur GitHub le 2026-08-25 avec le mot de passe de service
-# en clair. Meme piege pour db.sqlite3 et ses sauvegardes horodatees.
-# Toute variante -- .bak, .save, .rotation-, .avant-rotation- -- est couverte.
+# The trailing `*` is not decorative: without it, `orthanc.json` is protected
+# but `orthanc.json.bak-20260530-1002` is not, and that is exactly the copy
+# that nearly went to GitHub on 2026-08-25 with the service password in clear.
+# Same trap for db.sqlite3 and its timestamped backups. Every variant -- .bak,
+# .save, .rotation-, .avant-rotation- -- is covered.
 services/authelia/config/db.sqlite3*
 services/authelia/config/notification.txt*
 services/authelia/config/users_database.yml*
@@ -179,14 +178,14 @@ Dockerfile.local
 
 # Backup files
 #
-# `*.bak` seul ne suffit pas : les sauvegardes horodatees de ce depot sont
-# nommees `fichier.bak-20260530-1002`, `docker-compose.yml.save.1`,
-# `orthanc.json.rotation-20260825-1632`... et le motif `*.bak` ne couvre
-# aucune d'entre elles. Constate le 2026-08-25 : un `git add -A` aurait
-# publie six fichiers contenant des mots de passe en clair, dont
-# `services/orthanc/config/orthanc.json.bak-20260530-1002`, alors meme que
-# `orthanc.json` est correctement ignore. Le fichier est protege, sa copie
-# ne l'etait pas.
+# `*.bak` alone is not enough: this repository's timestamped backups are named
+# `file.bak-20260530-1002`, `docker-compose.yml.save.1`,
+# `orthanc.json.rotation-20260825-1632`... and the `*.bak` pattern covers none
+# of them. Found on 2026-08-25: a `git add -A` would have published six files
+# containing passwords in clear, including
+# `services/orthanc/config/orthanc.json.bak-20260530-1002`, even though
+# `orthanc.json` is correctly ignored. The file was protected, its copy was
+# not.
 *.bak
 *.bak-*
 *.bak.*
@@ -198,9 +197,9 @@ Dockerfile.local
 *.rotation-*
 *.orig
 
-# Paquets de secrets et scripts de rotation ponctuels. La rotation du
-# 2026-08-26 en a produit deux, tous deux supprimes depuis ; le motif reste
-# pour la prochaine, ces fichiers portant des secrets en clair.
+# Secret bundles and one-off rotation scripts. The 2026-08-26 rotation produced
+# two, both deleted since. The pattern stays for the next one, as these files
+# carry secrets in clear.
 .rot-bundle
 rotate-secrets.sh
 
@@ -222,9 +221,9 @@ rotate-secrets.sh
 
 # OHIF build artifacts
 services/ohif/docker/*/platform/app/dist/
-# Sorties de build du frontend, quel que soit le service. Le motif ci-dessus
-# ne visait qu OHIF : les artefacts Vue de auth-service passaient au travers
-# et se faisaient indexer par un git add -A.
+# Frontend build outputs, whatever the service. The pattern above only targeted
+# OHIF: auth-service's Vue artifacts slipped through and got staged by a git
+# add -A.
 dist/
 services/ohif/docker/*/platform/app/node_modules/
 services/ohif/docker/*/platform/app/.next/
@@ -248,10 +247,10 @@ site/
 # CI/CD and Deployment
 # ===============================================
 
-# Les definitions de CI ne sont PAS des artefacts : .github/, .gitlab-ci.yml et
-# consorts decrivent ce qui doit tourner a chaque poussee. Les ignorer revient a
-# supprimer la CI en silence -- c est ce qui est arrive ici : le fichier existait
-# sur la lignee GitHub et n a jamais pu etre repris sur celle du NAS.
+# CI definitions are NOT artifacts: .github/, .gitlab-ci.yml and the like
+# describe what must run on every push. Ignoring them silently deletes the CI
+# -- which is what happened here: the file existed on the GitHub line and could
+# never be carried over to the NAS one.
 
 # Deployment scripts (may contain sensitive info)
 deploy.sh
@@ -360,10 +359,11 @@ registry/
 # Generated deployment files
 docker-compose.yml
 
-# Poste d'import Windows : identifiants du depot DICOM.
-# config.json contient l'URL, le compte et -- en retro-compat -- le mot de passe
-# et le jeton de service Cloudflare en clair. config.secrets.dpapi.json est
-# chiffre par DPAPI, donc lie a la machine ET au compte Windows : il n'a aucun
-# sens ailleurs, et le publier revient quand meme a publier un secret.
+# Windows import workstation: DICOM repository credentials. config.json
+# contains the URL, the account and -- for backward compatibility -- the
+# password and the Cloudflare service token in clear. config.secrets.dpapi.json
+# is encrypted with DPAPI, so bound to the machine AND the Windows account: it
+# is meaningless elsewhere, and publishing it still amounts to publishing a
+# secret.
 tools/windows-dicom-import/config.json
 tools/windows-dicom-import/config.secrets.dpapi.json

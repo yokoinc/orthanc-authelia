@@ -124,11 +124,11 @@ jobs:
           echo "Every README link resolves."
 
       - name: Compose valid
-        # POSTGRES_PASSWORD est exige par le compose (${...:?}) : sans lui,
-        # PostgreSQL initialiserait son volume sans mot de passe utilisable et
-        # Orthanc bouclerait sur un refus d'authentification. Le refus avec
-        # « relancer ./bootstrap.sh » est voulu ; la CI fournit une valeur
-        # factice pour valider le reste du fichier.
+        # POSTGRES_PASSWORD is required by the compose file (${...:?}): without
+        # it, PostgreSQL would initialise its volume without a usable password
+        # and Orthanc would loop on an authentication failure. Refusing to go
+        # on until ./bootstrap.sh is re-run is intended. CI supplies a dummy
+        # value to validate the rest of the file.
         run: |
           cp docker-compose.yml.example docker-compose.yml
           printf 'POSTGRES_PASSWORD=ci\n' > .env

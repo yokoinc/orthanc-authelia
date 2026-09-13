@@ -1,25 +1,24 @@
 #!/bin/bash
-# Copie des fichiers suivis vers une installation, en refusant tout ce qui
-# lui appartient en propre.
+# Copies tracked files to an installation, refusing anything that belongs to
+# that installation alone.
 #
-# Raison d'etre : une livraison faite fichier par fichier a la main a ecrase
-# services/authelia/config/configuration.yml sur une installation en service.
-# Ce fichier est gitignore parce qu'il porte le domaine, les URL de
-# redirection et les regles d'acces de CETTE installation. Le remplacer par la
-# copie d'un poste de developpement a mis le domaine a pacs.localhost : plus
-# aucune regle ne correspondait a l'URL reelle, /api/verify repondait 401, et
-# la page de connexion est devenue inatteignable.
+# Rationale: a delivery done file by file, by hand, overwrote
+# services/authelia/config/configuration.yml on a live installation. That file
+# is gitignored because it carries the domain, the redirect URLs and the access
+# rules of THIS installation. Replacing it with a copy from a development
+# machine set the domain to pacs.localhost: no rule matched the real URL any
+# more, /api/verify answered 401, and the login page became unreachable.
 #
-# Le garde-fou est donc : tout chemin ignore par git est refuse, sans
-# exception et sans option pour passer outre. Un fichier ignore est par
-# definition propre a l'installation ; il n'y a aucun cas ou l'ecraser depuis
-# un autre poste soit la bonne chose a faire.
+# The safeguard is therefore: any path ignored by git is refused, without
+# exception and with no override option. An ignored file is by definition
+# specific to the installation. There is no case where overwriting it from
+# another machine is the right thing to do.
 #
-# Usage : scripts/deliver.sh <destination> <fichier>...
+# Usage: scripts/deliver.sh <destination> <file>...
 set -euo pipefail
 
 if [ $# -lt 2 ]; then
-    echo "usage: $0 <destination> <fichier>..." >&2
+    echo "usage: $0 <destination> <file>..." >&2
     exit 2
 fi
 
@@ -27,7 +26,7 @@ destination=$1
 shift
 
 if [ ! -d "$destination" ]; then
-    echo "destination introuvable : $destination" >&2
+    echo "destination not found: $destination" >&2
     exit 1
 fi
 
@@ -53,20 +52,20 @@ for f in "$@"; do
 done
 
 if [ ${#refuses[@]} -gt 0 ]; then
-    echo "REFUSE — ces fichiers appartiennent a l'installation, pas au depot :" >&2
+    echo "REFUSED — these files belong to the installation, not to the repository:" >&2
     printf '  %s\n' "${refuses[@]}" >&2
-    echo "Rien n'a ete copie." >&2
+    echo "Nothing was copied." >&2
     exit 1
 fi
 
 if [ ${#absents[@]} -gt 0 ]; then
-    echo "introuvables :" >&2
+    echo "not found:" >&2
     printf '  %s\n' "${absents[@]}" >&2
     exit 1
 fi
 
 if [ ${#non_suivis[@]} -gt 0 ]; then
-    echo "non suivis par git — a ajouter d'abord :" >&2
+    echo "not tracked by git — add them first:" >&2
     printf '  %s\n' "${non_suivis[@]}" >&2
     exit 1
 fi
@@ -74,7 +73,7 @@ fi
 for f in "${a_copier[@]}"; do
     mkdir -p "$destination/$(dirname "$f")"
     cp -- "$f" "$destination/$f"
-    printf '  livre  %s\n' "$f"
+    printf '  delivered  %s\n' "$f"
 done
 
-echo "${#a_copier[@]} fichier(s) livre(s) vers $destination"
+echo "${#a_copier[@]} file(s) delivered to $destination"

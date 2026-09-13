@@ -1,15 +1,15 @@
-# Fins de ligne : LF dans l'arbre de travail, quel que soit le poste qui fait le
-# checkout. Sans ce fichier, un git lance depuis Windows (core.autocrlf=true) sur
-# le dossier du NAS reecrit les fichiers en CRLF. C'est arrive le 2026-08-31 :
-# 45 fichiers convertis, dont les deux entrypoints -- une image auth-service
-# construite ensuite ne demarrait plus (#!/bin/bash\r).
+# Line endings: LF in the working tree, whatever machine does the checkout.
+# Without this file, git run from Windows (core.autocrlf=true) on the NAS
+# folder rewrites the files as CRLF. It happened on 2026-08-31: 45 files
+# converted, including both entrypoints -- an auth-service image built
+# afterwards no longer started (#!/bin/bash\r).
 * text=auto eol=lf
 
-# Fichiers destines a Windows : CRLF, attendu par cmd.exe et PowerShell 5.1.
+# Files meant for Windows: CRLF, expected by cmd.exe and PowerShell 5.1.
 *.bat text eol=crlf
 *.ps1 text eol=crlf
 
-# Binaires : jamais convertis.
+# Binaries: never converted.
 *.png binary
 *.jpg binary
 *.ico binary
