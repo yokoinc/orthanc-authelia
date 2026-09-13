@@ -54,7 +54,9 @@ def elements_read_exist(script: str, page: str) -> list[str]:
 def tabs_and_panels_agree(script: str, page: str) -> str:
     tabs = set(re.findall(r'data-tab="([a-z]+)"', page))
     panels = set(re.findall(r'id="panel-([a-z]+)"', page))
-    switch = re.search(r"\[([^\]]+)\]\.forEach\(t =>", script)
+    # Any loop variable name: it was « t », renamed when t() became the
+    # translation helper -- the check then read an empty list and failed.
+    switch = re.search(r"\[([^\]]+)\]\.forEach\(\s*\(?\s*[A-Za-z_$][\w$]*\s*\)?\s*=>", script)
     listed = set(re.findall(r"'([a-z]+)'", switch.group(1))) if switch else set()
     if tabs == panels == listed:
         return ""
