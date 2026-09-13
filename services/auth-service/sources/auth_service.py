@@ -354,9 +354,9 @@ try:
     app.include_router(admin_module.router)
     app.middleware("http")(admin_module.setup_gate)
     app.middleware("http")(admin_module.csrf_gate)
-    logging.info("admin_module chargé — routes /auth/setup et /auth/admin actives")
+    logging.info("admin_module loaded — /auth/setup and /auth/admin routes active")
 except ImportError as e:
-    logging.warning(f"admin_module non charge : {e} — les routes admin ne seront pas dispo")
+    logging.warning(f"admin_module not loaded: {e} — admin routes will not be available")
 
 def store_token(token: str, token_data: dict):
     """Store token in Redis with expiration"""
@@ -885,7 +885,7 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
         jeton = get_token(group)
         if not jeton or time.time() >= jeton.get("expires_at", 0):
             logger.warning(
-                "Profil refuse : jeton inconnu ou expire (%s...)", group[:8]
+                "Profile refused: unknown or expired token (%s...)", group[:8]
             )
             return JSONResponse(content={
                 "name": "Anonymous",
@@ -987,7 +987,7 @@ async def create_token(token_type: str, request: Request):
     groupes = {g.strip() for g in remote_groups.split(",") if g.strip()}
     if not ({"admin", "doctor"} & groupes):
         logger.warning(
-            "Partage refuse : %s (groupes : %s) n'a pas le droit de partager",
+            "Share refused: %s (groups: %s) is not allowed to share",
             remote_user, remote_groups,
         )
         raise HTTPException(
@@ -1439,12 +1439,12 @@ def verify_share(request: Request, token: str = ""):
 
     donnees = get_token(token)
     if not donnees:
-        logger.warning("Partage refuse : jeton inconnu (%s...)", token[:8])
+        logger.warning("Share refused: unknown token (%s...)", token[:8])
         return Response(status_code=403)
 
     if time.time() >= donnees.get("expires_at", 0):
         delete_token(token)
-        logger.warning("Partage refuse : jeton expire (%s...)", token[:8])
+        logger.warning("Share refused: expired token (%s...)", token[:8])
         return Response(status_code=403)
 
     # No ceiling test here. There was one, and it cut off the last authorised
@@ -1476,7 +1476,7 @@ def verify_share(request: Request, token: str = ""):
     uri = request.headers.get("x-original-uri", "")
     if not _partage_couvre_uri(donnees, uri):
         logger.warning(
-            "Partage refuse : hors perimetre (%s...) %s",
+            "Share refused: out of scope (%s...) %s",
             token[:8], urllib.parse.urlparse(uri).path,
         )
         return Response(status_code=403)

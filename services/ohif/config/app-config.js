@@ -11,25 +11,25 @@ const shareToken = urlParams.get('token');
 window.config = {
 
   // =============================================================================
-  // LIBELLES FRANCAIS DE LA LISTE D'ETUDES (necessaire depuis OHIF 3.13)
+  // FRENCH LABELS OF THE STUDY LIST (needed since OHIF 3.13)
   // =============================================================================
-  // La liste d'etudes a ete reecrite en 3.13 : elle vient desormais de
-  // @ohif/ui-next, dont les composants portent leurs libelles en dur, sans
-  // aucun appel a t(). Les fichiers de traduction fr/ n'y peuvent rien -- en
-  // 3.12 c'etait WorkList.tsx qui appelait t('StudyList:Modality'), ce code
-  // n'existe plus.
+  // The study list was rewritten in 3.13: it now comes from @ohif/ui-next,
+  // whose components carry hard-coded labels, without any call to t(). The
+  // fr/ translation files can do nothing about it -- in 3.12 it was
+  // WorkList.tsx that called t('StudyList:Modality'), and that code no longer
+  // exists.
   //
-  // On passe donc par customizationService. On ne REMPLACE pas les colonnes :
-  // une colonne fournie en donnee perd ses cellules (jetons de modalite, mise
-  // en forme des dates) et redevient du texte brut. L'operateur $set ne
-  // reecrit que meta.label et laisse le reste intact.
+  // So this goes through customizationService. The columns are NOT replaced:
+  // a column supplied as data loses its cells (modality tokens, date
+  // formatting) and turns back into plain text. The $set operator only
+  // rewrites meta.label and leaves the rest intact.
   //
-  // Les index suivent l'ordre de StudyList.defaultColumns :
+  // The indexes follow the order of StudyList.defaultColumns:
   //   0 patient  1 mrn  2 studyDateTime  3 modalities
   //   4 description  5 accession  6 instances  7 actions
   //
-  // Accents en \uXXXX volontairement : ce fichier est servi sans en-tete de
-  // charset, un accent brut ressortirait en mojibake selon le navigateur.
+  // Accents written as \uXXXX on purpose: this file is served without a
+  // charset header, a raw accent would come out as mojibake in some browsers.
   customizationService: {
     'workList.columns': {
       '0': { meta: { label: { $set: 'Nom du patient' } } },
@@ -61,34 +61,33 @@ window.config = {
 
   // =============================================================================
   // PERFORMANCE OPTIMIZATION
-  // Nom du patient affiche d'emblee dans l'en-tete du visualiseur.
+  // Patient name shown straight away in the viewer header.
   //
-  // Sans ce reglage, OHIF prend « visibleCollapsed » : l'en-tete ne montre
-  // qu'une icone, et il faut cliquer dessus pour lire de qui il s'agit. En
-  // consultation on veut voir le nom sans rien demander.
+  // Without this setting, OHIF uses "visibleCollapsed": the header only shows
+  // an icon, and you have to click it to read who the patient is. When
+  // reading a study you want to see the name without asking.
   //
-  // Valeurs possibles : 'visible' (deplie, repliable au clic),
-  // 'visibleCollapsed' (le defaut), 'visibleReadOnly' (deplie et non
-  // repliable), 'disabled' (rien du tout).
+  // Possible values: 'visible' (expanded, collapsible on click),
+  // 'visibleCollapsed' (the default), 'visibleReadOnly' (expanded, not
+  // collapsible), 'disabled' (nothing at all).
   showPatientInfo: 'visible',
 
   // =============================================================================
   // Study prefetching for faster navigation between studies
-  // Rallume le 2026-08-29, une fois le prechargeur corrige.
+  // Turned back on 2026-08-29, once the prefetcher was fixed.
   //
-  // Tel que livre par l'amont, StudyPrefetcherService ne filtre RIEN : ni les
-  // jeux marques unsupported, ni les modalites sans image (SR, SEG,
-  // RTSTRUCT...). Il prechargeait donc un compte rendu structure comme s'il
-  // s'agissait d'images, le serveur repondait 400, et OHIF affichait un bandeau
-  // d'erreur a la fin du chargement -- sur une etude sur trois ici, 70 series SR
-  // pour 209 etudes.
+  // As shipped upstream, StudyPrefetcherService filters NOTHING: neither sets
+  // marked unsupported, nor modalities without images (SR, SEG, RTSTRUCT...).
+  // It therefore prefetched a structured report as if it were images, the
+  // server answered 400, and OHIF showed an error banner at the end of
+  // loading -- on one study in three here, 70 SR series for 209 studies.
   //
-  // Corrige au build par services/ohif/docker/patch-prefetch-nonimage.py, qui
-  // filtre la liste avec celle qu'OHIF maintient deja. Le prechargement garde
-  // son interet sur les series d'images -- il compte, sur un PACS consulte a
-  // travers un tunnel -- et cesse de chercher des pixels la ou il n'y en a pas.
+  // Fixed at build time by services/ohif/docker/patch-prefetch-nonimage.py,
+  // which filters the list with the one OHIF already maintains. Prefetching
+  // keeps its value on image series -- it matters, on a PACS read through a
+  // tunnel -- and stops looking for pixels where there are none.
   //
-  // Si vous reprenez ce fichier SANS ce correctif, remettez enabled: false.
+  // If you reuse this file WITHOUT that fix, set enabled: false again.
   studyPrefetcher: {
     enabled: true,                             // Enable study prefetching
     displaySetsCount: 2,                       // Number of display sets to prefetch
