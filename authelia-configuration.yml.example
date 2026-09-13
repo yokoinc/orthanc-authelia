@@ -42,6 +42,24 @@ totp:
 # =============================================================================
 # File-based authentication for simplicity in PACS environment
 authentication_backend:
+  # Reinitialisation par courriel DESACTIVEE.
+  #
+  # Sans SMTP, le notifier `filesystem` ecrit le lien de reinitialisation dans
+  # un fichier A L'INTERIEUR du conteneur, et le portail affiche malgre tout
+  # « un e-mail a ete envoye ». L'utilisateur attend un message qui n'arrivera
+  # jamais. Si vous configurez un vrai serveur SMTP, vous pouvez repasser
+  # `disable` a false.
+  #
+  # Sinon : un mot de passe se change depuis le panneau d'administration, et
+  # celui de l'administrateur via scripts/reset-admin-password.sh.
+  #
+  # ATTENTION au niveau : directement sous authentication_backend, PAS sous
+  # `file`. Place sous `file`, Authelia refuse de demarrer (« configuration key
+  # not expected: authentication_backend.file.password_reset.disable »). Ce
+  # modele l'avait sous `file` : toute installation neuve bouclait au
+  # demarrage. Constate au banc d'essai le 2026-09-13.
+  password_reset:
+    disable: true
   file:
     path: /config/users_database.yml # User database file location
     # Re-read the users file when it changes on disk. Without this Authelia loads
@@ -49,18 +67,6 @@ authentication_backend:
     # stays invisible until the container is restarted -- a new user simply gets
     # "user not found" at login.
     watch: true
-    # Reinitialisation par courriel DESACTIVEE.
-    #
-    # Sans SMTP, le notifier `filesystem` ecrit le lien de reinitialisation dans
-    # un fichier A L'INTERIEUR du conteneur, et le portail affiche malgre tout
-    # « un e-mail a ete envoye ». L'utilisateur attend un message qui n'arrivera
-    # jamais. Si vous configurez un vrai serveur SMTP, vous pouvez repasser
-    # `disable` a false.
-    #
-    # Sinon : un mot de passe se change depuis le panneau d'administration, et
-    # celui de l'administrateur via scripts/reset-admin-password.sh.
-    password_reset:
-      disable: true
     password:
       algorithm: argon2id           # Secure password hashing algorithm
       iterations: 1                 # Hash iterations (1 for faster auth in PACS)
@@ -226,8 +232,13 @@ session:
   
   cookies:
     - domain: ${AUTHELIA_DOMAIN}   # Domain for session cookies
-      authelia_url: https://${AUTHELIA_DOMAIN}/auth  # Authelia login URL
-      default_redirection_url: https://${AUTHELIA_DOMAIN}/ui/app/  # Default redirect after login
+      # ${PUBLIC_URL} et non https://${AUTHELIA_DOMAIN} : une URL garde son port,
+      # un domaine de cookie n'en a jamais. Construites sur le domaine seul, ces
+      # deux adresses envoyaient une installation locale (port 30443) vers le
+      # 443, ou rien n'ecoute. Le panneau (onglet reseau) remplace l'origine
+      # complete, port compris, quand l'adresse publique change.
+      authelia_url: ${PUBLIC_URL}/auth  # Authelia login URL
+      default_redirection_url: ${PUBLIC_URL}/ui/app/  # Default redirect after login
       same_site: lax               # Cookie same-site policy
   
   # Redis backend for session storage (scales better than file storage)

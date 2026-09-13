@@ -29,11 +29,11 @@
   "PostgreSQL": {
     "EnableIndex": true,
     "EnableStorage": true,
-    "Host": "database",
+    "Host": "postgres",
     "Port": 5432,
     "Database": "orthanc",
-    "Username": "your-postgres-username",
-    "Password": "your-postgres-password"
+    "Username": "orthanc",
+    "Password": "set-via-env-POSTGRES_PASSWORD"
   },
 
   // No explicit "Plugins" array here: with orthancteam/orthanc, bundled plugins

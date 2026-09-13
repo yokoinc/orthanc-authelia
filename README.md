@@ -47,9 +47,10 @@ is unreachable — see [Rescue paths](#rescue-paths).
 These are the versions pinned in `docker-compose.yml.example`. Keep this table
 and that file in sync when bumping an image.
 
-> **PostgreSQL is not part of this stack.** Orthanc connects to an **external**
-> PostgreSQL instance over the `database` network — see the
-> [Database Setup Guide](docs/DATABASE_SETUP.md).
+> **PostgreSQL is embedded** (`postgres:16-alpine`), and the DICOM images
+> themselves are stored in it: the `orthanc_postgres_data` volume *is* the
+> PACS. An installation that already runs its own PostgreSQL can use it instead
+> — see the [Database Setup Guide](docs/DATABASE_SETUP.md).
 
 > **No second factor.** Every `access_control` rule is `one_factor`, and no TOTP
 > or WebAuthn credential is registered. The password is the only barrier, which
@@ -98,8 +99,12 @@ Two ways in, and only two:
 ### Prerequisites
 
 - Docker Engine 20.10+ and Docker Compose 2.0+
-- An external PostgreSQL database reachable on a `database` Docker network
+- `bash` and `openssl` — on **Windows**, Docker Desktop plus Git for Windows,
+  and run everything from **Git Bash**
 - 4 GB RAM minimum, 8 GB recommended
+
+Nothing else: the database, the secrets and the certificate are all created
+for you.
 
 ### Three steps
 
@@ -109,22 +114,28 @@ cd orthanc-authelia
 ./bootstrap.sh
 ```
 
-`bootstrap.sh` generates every secret, writes `.env`, `docker-compose.yml` and
-the Authelia and Orthanc configurations, creates the directories the panel
-writes to, and sets the file permissions on everything holding a secret. It
-refuses to overwrite an existing installation unless given `--force`.
+`bootstrap.sh` asks one question — the public address, press Enter to keep the
+local default `https://pacs.localhost:30443` — then generates every secret
+(PostgreSQL included), writes `.env`, `docker-compose.yml` and the Authelia and
+Orthanc configurations, creates the directories the panel writes to, and sets
+the file permissions on everything holding a secret. It refuses to overwrite an
+existing installation unless given `--force`.
 
 ```bash
 docker compose up -d
 ```
 
-Then open the setup wizard, which creates the first administrator:
+The first start takes a few minutes: images are pulled and PostgreSQL
+initialises its volume. Then open the setup wizard, which creates the first
+administrator:
 
 ```
-https://localhost:30443/auth/setup
+https://pacs.localhost:30443/auth/setup
 ```
 
-The certificate is self-signed at this point, so accept the browser warning.
+Use the address `bootstrap.sh` printed — by default `pacs.localhost`, not
+`localhost`: the login session is bound to that name. The certificate is
+self-signed at this point, so accept the browser warning.
 The wizard closes itself permanently once an administrator exists — it cannot
 be used to create a second one.
 
@@ -132,6 +143,9 @@ That is the whole installation. Review `.env` afterwards if you need to change
 the domain, language or timezone.
 
 ### Starting over
+
+`down -v` deletes the volumes, **the PostgreSQL one included — every stored
+image goes with it**. Only for a test installation.
 
 ```bash
 docker compose down -v
@@ -245,7 +259,7 @@ docker exec orthanc-nginx ls -la /etc/nginx/ssl/   # certificates
 |---|---|
 | A user cannot log in | Check the account in the panel's *Users* tab — disabled, or wrong group. Authelia reloads on its own; restarting it changes nothing. |
 | Everyone gets 401 at once | Authelia only reads `configuration.yml` at **startup**. If it was edited, check the container's start time before looking anywhere else. |
-| Database connection failed | PostgreSQL is not on the `database` network |
+| Orthanc cannot reach PostgreSQL | `POSTGRES_PASSWORD` in `.env` no longer matches the one the volume was created with — it is only read when the volume is first initialised |
 | Port conflict | Change the ports in `docker-compose.yml` |
 | SSL warning | Expected with a self-signed certificate |
 

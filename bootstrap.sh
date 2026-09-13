@@ -152,11 +152,19 @@ else
             warn "  (pour repartir de zero : supprimer services/authelia/config/db.sqlite3)"
         fi
     fi
-    # Pas de generation de mot de passe PostgreSQL ici : cette installation ne
-    # embarque pas sa base, elle rejoint un PostgreSQL externe par le reseau
-    # docker `database`. Rien dans docker-compose.yml ne consomme
-    # POSTGRES_PASSWORD, PUID ou PGID -- les substituer ne produirait que des
-    # lignes mortes dans .env.
+    # Mot de passe du PostgreSQL embarque. Comme la cle de stockage d'Authelia,
+    # il ne doit pas changer une fois la base creee : PostgreSQL ne lit
+    # POSTGRES_PASSWORD qu'a l'initialisation du volume. Un --force qui en
+    # tirerait un nouveau laisserait Orthanc sans acces a ses propres images,
+    # sur un refus d'authentification que rien ne relie a ce script. On garde
+    # donc celui du .env precedent s'il existe ; `docker compose down -v` (qui
+    # efface le volume) est la seule remise a zero qui justifie d'en changer.
+    PG_PASS=$(openssl rand -hex 24)
+    EXISTING_PG=$(grep '^POSTGRES_PASSWORD=' .env 2>/dev/null | cut -d= -f2- || true)
+    if [[ -n ${EXISTING_PG:-} ]]; then
+        PG_PASS=$EXISTING_PG
+        warn "Mot de passe PostgreSQL existant conserve (la base en depend)"
+    fi
     AUTH_PASS=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
     ORTHANC_PASS=$(openssl rand -hex 32)
     # Identifiants de l'endpoint d'import programmatique (/api-upload/).
@@ -234,9 +242,10 @@ else
         -e "s|^UPLOAD_USER=.*|UPLOAD_USER=${UPLOAD_USER_VALUE}|" \
         -e "s|^UPLOAD_PASSWORD=.*|UPLOAD_PASSWORD=${UPLOAD_PASS_VALUE}|" \
         -e "s|^ORTHANC_ADMIN_PASS=.*|ORTHANC_ADMIN_PASS=$ORTHANC_PASS|" \
+        -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG_PASS|" \
         .env.example > .env
 
-    ok ".env genere : 5 secrets aleatoires (Authelia x3, service Orthanc, import DICOM), aucun a saisir"
+    ok ".env genere : 6 secrets aleatoires (Authelia x3, service Orthanc, import DICOM, PostgreSQL), aucun a saisir"
     ok "Interface en ${LANGUAGE_VALUE} (d'apres la langue du systeme ; modifiable depuis le panel)"
 fi
 
@@ -278,6 +287,13 @@ copy_if_missing() {
     fi
 }
 
+# server.asset_path pointe sur /config/assets, et Authelia refuse de DEMARRER si
+# ce dossier n'existe pas (« error occurred reading the '/config/assets'
+# directory »). Il n'est verifie qu'au demarrage : sur l'installation d'origine
+# il avait disparu apres coup, et Authelia tournait sur une configuration qui ne
+# passait plus sa propre validation -- panne assuree au prochain redemarrage.
+# Constate le 2026-09-13. Vide, il suffit.
+mkdir -p services/authelia/config/assets
 copy_if_missing "authelia-configuration.yml.example" "services/authelia/config/configuration.yml"
 copy_if_missing "authelia-users.yml.example"         "services/authelia/config/users_database.yml"
 copy_if_missing "orthanc.json.example"               "services/orthanc/config/orthanc.json"
@@ -390,6 +406,26 @@ if grep -q 'set-via-env-AUTH_PASSWORD' "$ORTHANC_CFG" 2>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
+# Mot de passe PostgreSQL : .env -> orthanc.json
+# ---------------------------------------------------------------------------
+# Un .env anterieur au PostgreSQL embarque n'a pas la ligne, et un bootstrap
+# sans --force le conserve tel quel : docker compose refuserait alors de
+# demarrer (POSTGRES_PASSWORD absent). On la complete sans toucher au reste.
+if ! grep -qE '^POSTGRES_PASSWORD=.+' .env 2>/dev/null; then
+    sed -i '/^POSTGRES_PASSWORD=/d' .env
+    printf '\n# PostgreSQL embarque -- genere par bootstrap.sh, a ne pas changer\nPOSTGRES_PASSWORD=%s\n' \
+        "$(openssl rand -hex 24)" >> .env
+    ok ".env : mot de passe PostgreSQL ajoute"
+fi
+if grep -q 'set-via-env-POSTGRES_PASSWORD' "$ORTHANC_CFG" 2>/dev/null; then
+    PG_PASS_VALUE=$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2-)
+    remplacer_dans "$ORTHANC_CFG" \
+        '"Password": "set-via-env-POSTGRES_PASSWORD"' \
+        "\"Password\": \"${PG_PASS_VALUE}\""
+    ok "orthanc.json : mot de passe PostgreSQL synchronise"
+fi
+
+# ---------------------------------------------------------------------------
 # Hash argon2id valide dans users_database.yml
 # ---------------------------------------------------------------------------
 # Le template contient EXAMPLE_HASH_REPLACE_THIS qui n'est pas un hash argon2
@@ -398,13 +434,15 @@ fi
 #
 # Ce compte d'amorcage n'existe que parce qu'Authelia refuse aussi de demarrer
 # sur une base sans utilisateur ("users: non zero value required"). Il est
-# desactive et sans groupe ; la finalisation du wizard le supprime une fois le
-# vrai administrateur cree.
+# desactive, sans groupe, et son mot de passe n'est connu de personne : inerte.
+# Il RESTE apres l'assistant -- ce commentaire affirmait que la finalisation le
+# supprimait, ce qu'elle ne fait pas (verifie le 2026-09-13). Il apparait
+# desactive dans l'onglet Utilisateurs, d'ou on peut le supprimer.
 USERS_DB="services/authelia/config/users_database.yml"
 if grep -q 'EXAMPLE_HASH_REPLACE_THIS' "$USERS_DB" 2>/dev/null; then
     info "Generation d'un hash argon2id (via l'image Authelia)…"
     THROWAWAY=$(openssl rand -base64 32)
-    REAL_HASH=$(docker run --rm authelia/authelia:4.39.5 \
+    REAL_HASH=$(docker run --rm authelia/authelia:4.39.20 \
         authelia crypto hash generate argon2 --password "$THROWAWAY" 2>/dev/null \
         | sed 's/^Digest: //')
     if [[ -n $REAL_HASH ]]; then
@@ -415,7 +453,7 @@ if grep -q 'EXAMPLE_HASH_REPLACE_THIS' "$USERS_DB" 2>/dev/null; then
     else
         warn "Generation du hash echouee — Authelia refusera de demarrer."
         warn "Lance manuellement :"
-        warn "  docker run --rm authelia/authelia:4.39.5 authelia crypto hash generate argon2 --password 'x'"
+        warn "  docker run --rm authelia/authelia:4.39.20 authelia crypto hash generate argon2 --password 'x'"
     fi
 fi
 
@@ -423,6 +461,10 @@ fi
 # Recap
 # ---------------------------------------------------------------------------
 G=$'\033[32m'; C=$'\033[36m'; R=$'\033[0m'
+# L'adresse reellement configuree, et non « localhost » : la session Authelia
+# est liee au domaine de PUBLIC_URL, un autre nom d'hote n'y a pas acces.
+URL=$(grep '^PUBLIC_URL=' .env 2>/dev/null | cut -d= -f2- || true)
+URL=${URL:-https://pacs.localhost:30443}
 cat <<EOF
 
 ${G}════════════════════════════════════════════${R}
@@ -437,12 +479,12 @@ Etapes suivantes :
        docker compose up -d
 
   3. ${C}Setup wizard${R} — creation du premier admin :
-       https://localhost:30443/auth/setup
+       ${URL}/auth/setup
        (cert self-signed : accepter l'avertissement du navigateur)
 
   4. ${C}Apres le wizard${R} :
-       https://localhost:30443/          Orthanc Explorer
-       https://localhost:30443/auth/admin          Panel d'administration
+       ${URL}/                Orthanc Explorer
+       ${URL}/auth/admin      Panel d'administration
 
 Repartir de zero :
   docker compose down -v

@@ -16,12 +16,14 @@ Complete guide for PostgreSQL database setup with ORTHANC-AUTHELIA.
 
 ORTHANC-AUTHELIA requires a PostgreSQL database (12+, 15 recommended) for storing DICOM index and image data. You have two options:
 
-1. **External Database** (recommended for production) - Connect to an existing PostgreSQL instance
-2. **Local Container** (development/testing) - Run PostgreSQL in a Docker container alongside the stack
+1. **Embedded container** — the **default** since 2026-09-13. `bootstrap.sh` generates the password and writes it to `.env` and `orthanc.json`; nothing to do.
+2. **External database** — for an installation that already runs its own PostgreSQL.
+
+> Until 2026-09-13 the external database was the default, and the embedded one had to be enabled by hand in six edits that `bootstrap.sh` never mentioned. A fresh install stopped at `docker compose up -d` on « network database declared as external, but could not be found ».
 
 ## Option 1: External PostgreSQL Database
 
-This is the **default configuration** and is recommended for production deployments.
+For an installation that already has its PostgreSQL. **First undo the embedded default** in `docker-compose.yml`: delete the `postgres` service and the `postgres_data` volume, remove `postgres` from the `depends_on` of `orthanc`, then follow the steps below.
 
 ### Requirements
 
@@ -95,87 +97,17 @@ docker network inspect database
 
 ## Option 2: Local PostgreSQL Container
 
-For development or testing, you can run PostgreSQL locally in the same stack.
+**This is the default: there is nothing to enable.** `docker-compose.yml.example` ships the `postgres` service (`postgres:16-alpine`, container `orthanc-postgres`, volume `orthanc_postgres_data`), and `bootstrap.sh`:
 
-### Step 1: Uncomment PostgreSQL service
+- generates `POSTGRES_PASSWORD` in `.env`;
+- writes it into the `PostgreSQL` section of `services/orthanc/config/orthanc.json`, whose `Host` is `postgres`;
+- keeps the existing password when rerun with `--force`, because PostgreSQL only reads `POSTGRES_PASSWORD` when the volume is first initialised.
 
-In `docker-compose.yml`, uncomment the postgres service:
+Orthanc waits for PostgreSQL to report healthy (`pg_isready`) before starting.
 
-```yaml
-postgres:
-  image: postgres:16-alpine
-  container_name: orthanc-postgres
-  restart: unless-stopped
-  environment:
-    - POSTGRES_DB=orthanc
-    - POSTGRES_USER=orthanc
-    - POSTGRES_PASSWORD=change_this_password
-  volumes:
-    - postgres_data:/var/lib/postgresql/data
-  networks:
-    - orthanc-network
-```
+**The DICOM images live in this volume** (`EnableStorage: true`). `docker compose down -v` deletes it, and every study with it.
 
-### Step 2: Uncomment the volume
-
-```yaml
-volumes:
-  postgres_data:
-    name: orthanc_postgres_data
-```
-
-### Step 3: Update Orthanc service
-
-**Remove the external database network:**
-```yaml
-orthanc:
-  networks:
-    - orthanc-network
-    # Remove this line: - database
-```
-
-**Add postgres dependency:**
-```yaml
-orthanc:
-  depends_on:
-    auth-service:
-      condition: service_started
-    postgres:  # Add this
-      condition: service_started
-```
-
-**Change POSTGRES_HOST:**
-```yaml
-orthanc:
-  environment:
-    - POSTGRES_HOST=postgres  # Changed from "database"
-```
-
-### Step 4: Remove external database network
-
-At the bottom of `docker-compose.yml`, remove:
-```yaml
-database:
-  external: true
-  name: database
-```
-
-### Step 5: Update orthanc.json
-
-In `services/orthanc/config/orthanc.json`:
-```json
-"PostgreSQL": {
-  "Host": "postgres",  # Changed from "database"
-  "Username": "orthanc",
-  "Password": "change_this_password"
-}
-```
-
-### Step 6: Start the stack
-
-```bash
-docker-compose up -d
-```
+Verified on a fresh installation on 2026-09-13: a synthetic study created through `/tools/create-dicom` is stored in PostgreSQL and served back by `/dicom-web/studies`.
 
 ## Database Configuration
 

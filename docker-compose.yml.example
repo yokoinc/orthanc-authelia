@@ -59,30 +59,46 @@ services:
       orthanc-network:
         ipv4_address: 192.168.80.11
 
-  # ---------------------------------------------------------------------------
-  # OPTIONAL: Local PostgreSQL (uncomment to use instead of external database)
-  # ---------------------------------------------------------------------------
-  # If using local PostgreSQL:
-  # 1. Uncomment the postgres service below
-  # 2. Uncomment the postgres_data volume in the volumes section
-  # 3. Remove the "database" network from orthanc service
-  # 4. Remove the external "database" network definition at the bottom
-  # 5. Update orthanc depends_on to include postgres
-  # 6. Change POSTGRES_HOST to "postgres" in orthanc environment
-  # ---------------------------------------------------------------------------
-
-  # postgres:
-  #   image: postgres:16-alpine
-  #   container_name: orthanc-postgres
-  #   restart: unless-stopped
-  #   environment:
-  #     - POSTGRES_DB=orthanc
-  #     - POSTGRES_USER=orthanc
-  #     - POSTGRES_PASSWORD=change_this_password
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
-  #   networks:
-  #     - orthanc-network
+  # ===========================================================================
+  # POSTGRESQL - index and DICOM storage for Orthanc
+  # ===========================================================================
+  # Embarque par defaut. Il etait commente, a activer en six modifications
+  # manuelles que bootstrap.sh ne mentionnait pas : une installation neuve
+  # s'arretait des `docker compose up -d` sur « network database declared as
+  # external, but could not be found », puis Orthanc bouclait sur
+  # « your-postgres-username ». Constate au banc d'essai le 2026-09-13.
+  #
+  # Mot de passe genere par bootstrap.sh dans .env, recopie dans orthanc.json.
+  # Les images DICOM elles-memes vivent ici (EnableStorage) : le volume
+  # postgres_data EST le PACS. `docker compose down -v` l'efface.
+  #
+  # BASE EXTERNE (installation qui a deja son PostgreSQL) : supprimer ce
+  # service et le volume postgres_data, retirer postgres du depends_on
+  # d'orthanc, ajouter a orthanc un reseau externe partage avec la base, et
+  # renseigner Host/Username/Password dans services/orthanc/config/orthanc.json.
+  # Voir docs/DATABASE_SETUP.md.
+  postgres:
+    image: postgres:16-alpine
+    container_name: orthanc-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=orthanc
+      - POSTGRES_USER=orthanc
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD absent de .env -- relancer ./bootstrap.sh}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orthanc -d orthanc"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      orthanc-network:
+        # Adresse fixe comme les autres : sur un reseau a adresses fixes, une
+        # adresse attribuee dynamiquement peut prendre celle d'un service pas
+        # encore demarre, qui echoue alors sur « Address already in use ».
+        ipv4_address: 192.168.80.18
 
   # =============================================================================
   # DOCKER SOCKET PROXY - lets the panel restart Orthanc
@@ -156,7 +172,21 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    environment:
+    # Ce que le panneau d'administration et l'assistant d'installation lisent et
+    # ecrivent. Ces montages et les variables ADMIN_* ci-dessous ne vivaient que
+    # dans le docker-compose.override.yml de l'installation d'origine : une
+    # installation neuve, qui n'a pas d'override, montait un assistant cherchant
+    # la base d'utilisateurs dans /host/authelia.yml (defaut du code, fichier
+    # inexistant) et rangeant l'administrateur dans le groupe « admins » quand
+    # Authelia n'ouvre le panneau qu'a « admin ». Constate le 2026-09-13.
+    #
+    # Des DOSSIERS et non des fichiers : admin_module ecrit en place
+    # (_atomic_write), ce qu'un fichier monte seul interdit (EBUSY au rename) --
+    # voir docker-compose.override.yml.example.
+    volumes:
+      - ./services/orthanc/config:/host/orthanc:rw
+      - ./services/authelia/config:/host/authelia:rw
+      - ./data/admin-backups:/host/backups:rw
       # Changing the public URL from the panel. The domain lives in one line
       # of .env and in eleven places in Authelia's configuration: every
       # access_control rule, plus the session cookie block. Getting one wrong
@@ -167,7 +197,25 @@ services:
       # would give a web-facing service write access to docker-compose.yml
       # and to the scripts. Without this mount the panel disables the field
       # and says which line to add.
+      #
+      # Cette ligne se trouvait sous `environment:` : syntaxiquement valide, donc
+      # silencieuse, et le montage n'avait jamais lieu.
       - ./.env:/host/env/.env:rw
+    environment:
+      # Groupe Authelia qui ouvre le panneau. Doit correspondre aux regles
+      # `subject: "group:admin"` de configuration.yml et a la map $groups de
+      # nginx. Defaut du code : « admins », d'ou l'obligation de le poser.
+      - ADMIN_GROUP=admin
+      - ADMIN_ORTHANC_PATH=/host/orthanc/orthanc.json
+      - ADMIN_AUTHELIA_PATH=/host/authelia/users_database.yml
+      - ADMIN_AUTHELIA_CONFIG=/host/authelia/configuration.yml
+      - ADMIN_BACKUPS_DIR=/host/backups
+      - ADMIN_ENV_PATH=/host/env/.env
+      # Compte du panneau aupres d'Orthanc (/system, configuration, modalites).
+      # Absents, ces onglets repondent 503.
+      - ORTHANC_URL=http://orthanc:8042
+      - ORTHANC_ADMIN_USER=${ORTHANC_ADMIN_USER}
+      - ORTHANC_ADMIN_PASS=${ORTHANC_ADMIN_PASS}
 
       # Restarting Orthanc from the panel. Leave DOCKER_PROXY_URL empty to
       # disable the feature: the panel then says so instead of offering a
@@ -180,8 +228,8 @@ services:
       - AUTH_PASSWORD=${AUTH_PASSWORD}
       - REDIS_HOST=redis
       # Version semantique affichee en pied de page du token manager.
-      # A synchroniser avec le tag de l'image ci-dessus (1.0.16) a chaque bump.
-      - IMAGE_VERSION=1.0.16
+      # A synchroniser avec le tag de l'image ci-dessus (1.1.0) a chaque bump.
+      - IMAGE_VERSION=1.1.0
       # Optional overrides (uncomment in .env if needed)
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - DEFAULT_TOKEN_MAX_USES=${DEFAULT_TOKEN_MAX_USES:-50}
@@ -248,23 +296,24 @@ services:
       # ou l'on croit la pile prete.
       auth-service:
         condition: service_healthy
-      # postgres:  # Uncomment if using local PostgreSQL
-      #   condition: service_started
+      # service_healthy : Orthanc ouvre sa connexion PostgreSQL au demarrage et
+      # quitte si la base ne repond pas encore (initialisation du volume).
+      postgres:
+        condition: service_healthy
     volumes:
       - ./services/orthanc/config/orthanc.json:/etc/orthanc/orthanc.json:ro
     networks:
       orthanc-network:
         ipv4_address: 192.168.80.15
-      database:  # Remove this line if using local PostgreSQL
     environment:
       # PostgreSQL credentials kept for backward compatibility / scripts that may
       # reference them; the actual PostgreSQL config Orthanc uses comes from
       # the "PostgreSQL" section of orthanc.json (Host/Port/Database/...).
-      - POSTGRES_HOST=database  # Change to "postgres" if using local PostgreSQL
+      - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=orthanc
       - POSTGRES_USER=orthanc
-      - POSTGRES_PASSWORD=change_this_password
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       # --- Plugin enablement (orthancteam) -----------------------------------
       # orthancteam/orthanc auto-discovers bundled plugins; an env var (or a
       # config section) is required to enable each. Plugins whose orthanc.json
@@ -351,8 +400,8 @@ volumes:
     name: orthanc_redis_data
   nginx-ssl:
     name: orthanc_nginx_ssl
-  # postgres_data:  # Uncomment if using local PostgreSQL
-  #   name: orthanc_postgres_data
+  postgres_data:
+    name: orthanc_postgres_data
 
 # =============================================================================
 # NETWORK CONFIGURATION
@@ -386,6 +435,8 @@ networks:
       config:
         - subnet: 192.168.80.0/20
           gateway: 192.168.80.1
-  database:  # Remove this section if using local PostgreSQL
-    external: true
-    name: database
+  # Base externe : declarer ici son reseau partage, par exemple
+  #   database:
+  #     external: true
+  #     name: database
+  # et l'ajouter aux reseaux du service orthanc. Voir le bloc postgres.

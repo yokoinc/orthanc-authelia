@@ -1,3 +1,12 @@
+# PLUS NECESSAIRE POUR UNE INSTALLATION NEUVE (2026-09-13).
+#
+# Les montages et variables du panneau (ADMIN_*, ORTHANC_ADMIN_*, dossiers
+# /host/...) sont desormais dans docker-compose.yml.example. Ils ne vivaient
+# qu'ici : une installation neuve, sans override, montait un assistant incapable
+# d'ecrire la base d'utilisateurs. Ce fichier reste une reference pour une
+# installation anterieure qui en a deja un, et pour les explications ci-dessous.
+# Son tag d'image (1.1.0-rc1) est historique : ne pas le reprendre.
+#
 # Additions to the existing docker-compose.yml.
 # Copy to docker-compose.override.yml (gitignored) for automatic overriding.
 #
