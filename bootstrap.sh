@@ -56,6 +56,21 @@ if ! docker compose version >/dev/null 2>&1; then
     err "  ou Docker Desktop qui l'embarque"
     exit 1
 fi
+# `docker compose version` et `command -v docker` n'interrogent que le client :
+# ils reussissent meme quand le compte ne peut pas joindre le demon. Le script
+# passait alors ce controle, puis mourait en silence a la generation du hash
+# argon2id (premier `docker run`), laissant une base d'utilisateurs sur laquelle
+# Authelia refuse de demarrer -- et nginx avec lui. Constate le 2026-09-13 sur
+# une installation neuve sous WSL Ubuntu, compte hors du groupe docker.
+if ! docker info >/dev/null 2>&1; then
+    err "Le demon Docker est injoignable depuis ce compte."
+    err "Soit il n'est pas demarre (Docker Desktop, service docker),"
+    err "soit ce compte n'a pas le droit d'y acceder (« permission denied »"
+    err "sur /var/run/docker.sock). Dans ce cas :"
+    err "  sudo usermod -aG docker \$USER"
+    err "puis fermer et rouvrir le terminal, et relancer ./bootstrap.sh"
+    exit 1
+fi
 ok "docker + docker compose + openssl OK"
 
 # ---------------------------------------------------------------------------
@@ -442,18 +457,25 @@ USERS_DB="services/authelia/config/users_database.yml"
 if grep -q 'EXAMPLE_HASH_REPLACE_THIS' "$USERS_DB" 2>/dev/null; then
     info "Generation d'un hash argon2id (via l'image Authelia)…"
     THROWAWAY=$(openssl rand -base64 32)
+    # `|| true` : sous `set -euo pipefail`, un echec de docker faisait echouer
+    # l'affectation et tuait le script ICI, sans message (stderr est jete).
+    # Le cas d'erreur ci-dessous n'etait jamais atteint.
     REAL_HASH=$(docker run --rm authelia/authelia:4.39.20 \
         authelia crypto hash generate argon2 --password "$THROWAWAY" 2>/dev/null \
-        | sed 's/^Digest: //')
-    if [[ -n $REAL_HASH ]]; then
+        | sed 's/^Digest: //') || true
+    if [[ $REAL_HASH == '$argon2id$'* ]]; then
         remplacer_dans "$USERS_DB" \
             '$argon2id$v=19$m=65536,t=3,p=4$EXAMPLE_HASH_REPLACE_THIS' \
             "$REAL_HASH"
         ok "users_database.yml : hash argon2id valide (compte d'amorcage inactif)"
     else
-        warn "Generation du hash echouee — Authelia refusera de demarrer."
-        warn "Lance manuellement :"
-        warn "  docker run --rm authelia/authelia:4.39.20 authelia crypto hash generate argon2 --password 'x'"
+        # Erreur et non avertissement : sans ce hash, Authelia ne demarre pas,
+        # nginx non plus, et un « Bootstrap complet » affiche ensuite serait un
+        # mensonge. Relancer le script reprend a cette etape.
+        err "Generation du hash argon2id echouee : Authelia refuserait de demarrer."
+        err "Verifie que docker fonctionne sans sudo (docker run --rm hello-world),"
+        err "puis relance ./bootstrap.sh : il reprendra a cette etape."
+        exit 1
     fi
 fi
 
