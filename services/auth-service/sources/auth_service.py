@@ -23,11 +23,11 @@ app = FastAPI(title="PACS Auth Service", description="Authentication and token m
 security = HTTPBasic()
 
 
-# Libelles du menu injecte dans Orthanc Explorer 2 (oe2-menu.js), dans la langue
-# de l'installation. Declaree AVANT le montage de /static : une route ajoutee
-# apres serait masquee par lui. Publique comme le reste de /auth/static/ -- trois
-# libelles et un code de langue, rien de sensible -- et non mise en cache, pour
-# qu'un changement de langue dans le panneau se voie au rechargement.
+# Labels of the menu injected into Orthanc Explorer 2 (oe2-menu.js), in the
+# installation's language. Declared BEFORE the /static mount: a route added
+# afterwards would be shadowed by it. Public like the rest of /auth/static/ --
+# three labels and a language code, nothing sensitive -- and not cached, so
+# that a language change in the panel shows on reload.
 @app.get("/static/oe2-menu-i18n.json")
 def oe2_menu_i18n():
     langue = _langue()
@@ -48,11 +48,10 @@ REDIS_DB = int(os.getenv("REDIS_DB", "0"))
 # Token configuration
 DEFAULT_TOKEN_MAX_USES = int(os.getenv("DEFAULT_TOKEN_MAX_USES", "50"))
 
-# Sursis accorde a un jeton dont le quota d'ouvertures vient d'etre epuise.
-# Sans lui, la derniere ouverture supprimerait le jeton et le visualiseur qui
-# vient de s'afficher perdrait ses images en cours de route. Deux heures :
-# assez pour relire un examen sans se presser, assez court pour qu'un lien
-# epuise ne serve pas la journee.
+# Grace period granted to a token whose opening quota has just run out. Without
+# it, the last opening would delete the token and the viewer that has just
+# appeared would lose its images halfway. Two hours: enough to review an exam
+# without rushing, short enough that an exhausted link does not serve all day.
 SURSIS_DERNIERE_OUVERTURE = int(os.getenv("SURSIS_DERNIERE_OUVERTURE", "7200"))
 DEFAULT_TOKEN_VALIDITY_SECONDS = int(os.getenv("DEFAULT_TOKEN_VALIDITY_SECONDS", str(7 * 24 * 3600)))  # 7 days
 CACHE_VALIDITY_USER_SESSION = int(os.getenv("CACHE_VALIDITY_USER_SESSION", "300"))  # 5 minutes  
@@ -83,21 +82,21 @@ PATIENT_NAME_CACHE_TTL = int(os.getenv("PATIENT_NAME_CACHE_TTL", "300"))  # 5 mi
 _resource_info_cache = {}  # {key: (info_dict, timestamp)}
 
 
-# Orthanc n'est pas gouverne par ses identifiants HTTP mais par son greffon
-# d'autorisation : meme avec ORTHANC_ADMIN_USER/PASS, un GET /studies repond
-# 403 (mesure le 2026-08-29). Le greffon accepte en revanche un jeton dans
-# l'en-tete `auth-token` (TokenHttpHeaders d'orthanc.json), qu'il nous renvoie
-# ensuite valider : la valeur "admin" y ouvre le profil administrateur.
+# Orthanc is not governed by its HTTP credentials but by its authorization
+# plugin: even with ORTHANC_ADMIN_USER/PASS, a GET /studies answers 403
+# (measured on 2026-08-29). The plugin does however accept a token in the
+# `auth-token` header (TokenHttpHeaders in orthanc.json), which it then sends
+# back to us for validation: the value "admin" opens the administrator profile.
 #
-# Sans cet en-tete, TOUS les appels de ce module partaient en 403 en silence --
-# _orthanc_get renvoyait None et l'appelant se contentait d'une valeur vide.
-# C'est pour cela que le gestionnaire de partages n'affichait aucun nom de
-# patient : la recherche echouait, sans un mot dans les journaux.
+# Without this header, EVERY call from this module silently got a 403 --
+# _orthanc_get returned None and the caller made do with an empty value. That
+# is why the share manager showed no patient name: the lookup failed, without a
+# word in the logs.
 #
-# Sans danger depuis Internet : nginx execute auth_request AVANT de relayer, et
-# un client qui injecte lui-meme auth-token / X-Auth-User / Remote-User est
-# redirige vers l'authentification (verifie sur les quatre en-tetes). Cette
-# valeur ne sert qu'entre conteneurs, sur le reseau Docker ferme.
+# Harmless from the Internet: nginx runs auth_request BEFORE proxying, and a
+# client that injects auth-token / X-Auth-User / Remote-User itself is
+# redirected to authentication (checked on all four headers). This value is
+# only used between containers, on the closed Docker network.
 ADMIN_GROUP = os.getenv("ADMIN_GROUP", "admin")
 ORTHANC_INTERNAL_TOKEN = ADMIN_GROUP
 
@@ -217,12 +216,12 @@ def resolve_resource_info(resource):
                         pat.get("MainDicomTags", {}).get("PatientName"))
 
         if study_id:
-            # ?requestedTags : Orthanc ne renvoie ModalitiesInStudy que si on le
-            # DEMANDE. Sans ce parametre le champ est simplement absent, et
-            # _collect_modalities rendait donc toujours None -- le gestionnaire
-            # de partages n'a jamais affiche la moindre modalite depuis qu'il
-            # existe. Mesure le 2026-08-29 : sans le parametre, RequestedTags
-            # vaut None ; avec, il vaut {"ModalitiesInStudy": "MR"}.
+            # ?requestedTags: Orthanc only returns ModalitiesInStudy when
+            # ASKED. Without this parameter the field is simply absent, and
+            # _collect_modalities therefore always returned None -- the share
+            # manager has never shown a single modality since it existed.
+            # Measured on 2026-08-29: without the parameter, RequestedTags is
+            # None; with it, it is {"ModalitiesInStudy": "MR"}.
             study = _orthanc_get(
                 f"/studies/{study_id}?requestedTags=ModalitiesInStudy")
             if study:
@@ -252,12 +251,12 @@ ASSET_VERSION = os.getenv("ASSET_VERSION", str(int(time.time())))
 IMAGE_VERSION = os.getenv("IMAGE_VERSION", "dev")
 
 def _langue() -> str:
-    """Langue de l'installation, lue a chaque appel.
+    """The installation's language, read on every call.
 
-    Elle etait figee au demarrage depuis LANGUAGE : changer de langue imposait
-    de recreer le conteneur, et la page des partages ignorait le reglage que
-    l'assistant et le panneau enregistrent. admin_module fait foi ; s'il n'a pas
-    pu etre charge, LANGUAGE puis l'anglais.
+    It used to be frozen at startup from LANGUAGE: changing language meant
+    recreating the container, and the share page ignored the setting that the
+    wizard and the panel save. admin_module is authoritative; if it could not
+    be loaded, LANGUAGE, then English.
     """
     try:
         return admin_module.langue_courante()
@@ -267,16 +266,16 @@ def _langue() -> str:
 
 
 def _msg(cle: str, **variables) -> str:
-    """Message d'API (section « api »), dans la langue de l'installation."""
+    """API message (« api » section), in the installation's language."""
     return i18n.texte("api", cle, _langue(), **variables)
 
 
 class _CatalogueCourant(Mapping):
-    """TRANSLATIONS["ui"][...] resolu dans la langue en vigueur a CHAQUE acces.
+    """TRANSLATIONS["ui"][...] resolved in the language in force on EVERY access.
 
-    Le code existant indexe un dictionnaire charge une fois pour toutes ; cet
-    objet garde la meme forme d'acces, sans figer la langue. Les cles absentes
-    d'une traduction retombent sur l'anglais (i18n.section).
+    The existing code indexes a dictionary loaded once and for all; this object
+    keeps the same way of access, without freezing the language. Keys missing
+    from a translation fall back to English (i18n.section).
     """
     SECTIONS = ("ui", "js")
 
@@ -294,7 +293,7 @@ TRANSLATIONS = _CatalogueCourant()
 
 
 class _MessagesUI(Mapping):
-    """UI_MESSAGES[...] : memes cles qu'avant, resolues a la volee."""
+    """UI_MESSAGES[...]: same keys as before, resolved on the fly."""
     CLES = {
         "INVALID_TOKEN": "invalid_token",
         "EXPIRED_TOKEN": "expired_token",
@@ -343,7 +342,7 @@ redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode
 # ============================================================================
 # admin_module uses an async Redis client (aioredis) because its endpoints
 # are async. It is initialised separately, sharing the same Redis database.
-# Le module expose : router, setup_gate, csrf_gate, set_redis.
+# The module exposes: router, setup_gate, csrf_gate, set_redis.
 try:
     import redis.asyncio as aioredis
     import admin_module
@@ -377,28 +376,28 @@ def delete_token(token: str):
     redis_client.delete(f"token:{token}")
 
 def increment_token_usage(token: str) -> bool:
-    """Compte une ouverture du lien. Renvoie False si le quota est atteint.
+    """Count one opening of the link. Returns False when the quota is reached.
 
-    Appele UNIQUEMENT depuis share_redirect : une incrementation = une
-    ouverture du lien de partage. Surtout pas depuis la validation de
-    protocole, qui se declenche des centaines de fois par consultation.
+    Called ONLY from share_redirect: one increment = one opening of the share
+    link. Certainly not from protocol validation, which fires hundreds of times
+    per viewing.
     """
     data = get_token(token)
     if not data:
         return False
 
-    # Le quota se verifie AVANT de compter, et l'utilisation qui atteint le
-    # plafond est accordee. Le code testait `current_uses >= max_uses` APRES
-    # avoir incremente : un partage cree pour une seule ouverture n'en
-    # accordait aucune, et chaque quota etait court d'une unite (mesure :
-    # max_uses=1 -> 0 ouverture, max_uses=3 -> 2).
+    # The quota is checked BEFORE counting, and the use that reaches the
+    # ceiling is granted. The code tested `current_uses >= max_uses` AFTER
+    # incrementing: a share created for a single opening granted none, and
+    # every quota was one short (measured: max_uses=1 -> 0 openings, max_uses=3
+    # -> 2).
     utilisees = data.get("current_uses", 0)
     plafond = data.get("max_uses", 999999)
     if utilisees >= plafond:
-        # Refuser, sans supprimer. Supprimer ici aneantirait le sursis accorde
-        # plus bas : il suffisait qu'on reclique sur un lien epuise pour couper
-        # les images de la personne en train de consulter. C'est la duree de vie
-        # raccourcie qui fait disparaitre le jeton, elle seule.
+        # Refuse, without deleting. Deleting here would wipe out the grace
+        # period granted below: clicking an exhausted link again was enough to
+        # cut the images of the person currently viewing. It is the shortened
+        # lifetime that makes the token disappear, and that alone.
         return False
 
     data["current_uses"] = utilisees + 1
@@ -408,11 +407,11 @@ def increment_token_usage(token: str) -> bool:
         delete_token(token)
         return False
 
-    # Le plafond vient d'etre atteint : c'etait la derniere ouverture. On ne
-    # supprime PAS le jeton tout de suite -- le visualiseur qui vient de
-    # s'ouvrir a besoin de lui pendant toute la consultation, et les images se
-    # figeraient sous les yeux du confrere. On raccourcit sa duree de vie a un
-    # sursis, le temps de regarder l'examen, puis il disparait.
+    # The ceiling has just been reached: this was the last opening. The token
+    # is NOT deleted right away -- the viewer that has just opened needs it for
+    # the whole viewing, and the images would freeze in front of the colleague.
+    # Its lifetime is shortened to a grace period, time enough to look at the
+    # exam, then it disappears.
     if data["current_uses"] >= plafond:
         restant = min(restant, SURSIS_DERNIERE_OUVERTURE)
 
@@ -431,21 +430,19 @@ def verify_admin_auth(request: Request):
     remote_user = request.headers.get("Remote-User", "")
     remote_groups = request.headers.get("Remote-Groups", "")
 
-    # Ne JAMAIS journaliser les en-tetes en bloc. La ligne precedente etait
-    # `logger.info(f"All headers: {dict(request.headers)}")` : elle ecrivait le
-    # cookie authelia_session EN CLAIR dans les journaux du conteneur, a chaque
-    # appel d'une route d'administration. Quiconque lit `docker logs` -- ou les
-    # fichiers de journaux du NAS, ou une sauvegarde de ceux-ci -- y trouvait un
-    # cookie de session valide et pouvait se faire passer pour l'administrateur.
-    # Verifie le 2026-08-29 : le cookie apparaissait tel quel.
+    # NEVER log the headers wholesale. The previous line was `logger.info(f"All
+    # headers: {dict(request.headers)}")`: it wrote the authelia_session cookie
+    # IN CLEAR into the container logs, on every call to an administration
+    # route. Anyone reading `docker logs` -- or the NAS log files, or a backup
+    # of them -- found a valid session cookie there and could impersonate the
+    # administrator. Checked on 2026-08-29: the cookie appeared as is.
     logger.debug("Controle admin : %s [%s]", remote_user, remote_groups)
 
-    # Comparaison EXACTE, sur la liste separee par des virgules que produit
-    # Authelia. Le test etait `"admin" not in remote_groups`, une recherche de
-    # sous-chaine : un groupe nomme « nonadmin », « badmin » ou « admins »
-    # aurait suffi a ouvrir l'administration. Aucun groupe existant ne tombe
-    # dans le piege aujourd'hui -- c'est le jour ou l'on en ajoute un qu'il se
-    # referme.
+    # EXACT comparison, on the comma-separated list Authelia produces. The test
+    # was `"admin" not in remote_groups`, a substring search: a group named
+    # "nonadmin", "badmin" or "admins" would have been enough to open
+    # administration. No existing group falls into the trap today -- it closes
+    # the day one is added.
     groupes = {g.strip() for g in remote_groups.split(",") if g.strip()}
     if ADMIN_GROUP not in groupes:
         raise HTTPException(status_code=403, detail=_msg("admin_access_required"))
@@ -466,11 +463,11 @@ _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 def render_template(template_name: str, **kwargs) -> str:
     """Render HTML template with provided variables.
 
-    Un seul pass regex qui matche `{word}` et le remplace par la valeur du
-    kwarg correspondant. Si aucun kwarg ne matche, le placeholder est laisse
-    tel quel (utile pour les blocs `{js_config}` qui contiennent du JSON).
-    Zero cascade => pas de risque qu'une valeur remplacee contienne un
-    placeholder qui serait re-remplace au tour suivant.
+    A single regex pass that matches `{word}` and replaces it with the value of
+    the matching kwarg. When no kwarg matches, the placeholder is left as is
+    (useful for the `{js_config}` blocks that contain JSON). No cascade => no
+    risk that a substituted value contains a placeholder that would be
+    substituted again on the next round.
     """
     template_path = f"/app/templates/{template_name}"
     try:
@@ -478,8 +475,9 @@ def render_template(template_name: str, **kwargs) -> str:
             template_content = f.read()
 
         kwargs["font_awesome_cdn"] = FONT_AWESOME_CDN
-        # Attribut lang des pages : il etait « fr » en dur, quelle que soit la
-        # langue des textes -- lecteurs d'ecran et correcteurs s'y fient.
+        # The pages' lang attribute: it was hard-coded "fr", whatever the
+        # language of the texts -- screen readers and spell checkers rely on
+        # it.
         kwargs.setdefault("lang", _langue())
         kwargs.setdefault("asset_version", ASSET_VERSION)
         kwargs.setdefault("image_version", IMAGE_VERSION)
@@ -596,23 +594,24 @@ async def validate_token(request: Request, username: str = Depends(verify_basic_
                 "validity": 0
             })
         
-        # Quota VERIFIE, pas consomme.
+        # Quota CHECKED, not consumed.
         #
-        # Ce point d'entree est appele par le greffon d'Orthanc a chaque
-        # ressource, et il revalide toutes les 60 s (CACHE_VALIDITY_SHARE_TOKEN).
-        # Une etude, ce sont des centaines de series et d'instances : un jeton
-        # de 50 usages mourait en pleine consultation, parfois en quelques
-        # secondes. Le confrere voyait les images se figer sans explication.
+        # This endpoint is called by the Orthanc plugin for every resource, and
+        # it revalidates every 60 s (CACHE_VALIDITY_SHARE_TOKEN). A study means
+        # hundreds of series and instances: a 50-use token died in the middle
+        # of a viewing, sometimes within seconds. The colleague saw the images
+        # freeze with no explanation.
         #
-        # Le decompte n'a de sens que rapporte a une OUVERTURE de lien, et il se
-        # fait deja la, dans share_redirect.
+        # The count only makes sense relative to an OPENING of the link, and it
+        # already happens there, in share_redirect.
         #
-        # Aucun test de plafond ici non plus : la derniere ouverture autorisee
-        # porte current_uses A max_uses, et refuser dans ce cas couperait les
-        # images de la consultation qu'on vient tout juste d'autoriser. C'est
-        # la duree de vie du jeton qui applique la limite -- share_redirect la
-        # ramene a SURSIS_DERNIERE_OUVERTURE des le plafond atteint, apres quoi
-        # le jeton disparait de lui-meme et get_token ne le trouve plus.
+        # No ceiling test here either: the last authorised opening brings
+        # current_uses TO max_uses, and refusing in that case would cut the
+        # images of the viewing that has just been authorised. It is the
+        # token's lifetime that enforces the limit -- share_redirect brings it
+        # down to SURSIS_DERNIERE_OUVERTURE as soon as the ceiling is reached,
+        # after which the token disappears by itself and get_token no longer
+        # finds it.
         
         # For share tokens, check if the requested resource matches the token's resources
         granted = check_resource_access(token_data, level, method, orthanc_id, dicom_uid, uri)
@@ -635,19 +634,19 @@ def check_permission_for_role(role: str, level: str, method: str, uri: str) -> b
     elif role == "doctor-role":
         # Doctors can read, upload, share but not delete/modify system
         #
-        # « system » etait dans la meme liste que patient/study/series/instance,
-        # POST compris : cette fonction repondait donc oui a POST /tools/reset,
-        # /tools/shutdown et /tools/execute-script -- redemarrer, eteindre, et
-        # executer du Lua. Ces chemins sont bien exposes publiquement (nginx les
-        # route, ligne ~650). Ce n'etait pas exploitable en pratique : le profil
-        # du medecin ne porte pas la permission que le greffon exige pour ces
-        # points d'entree, et Orthanc repond 403 -- mesure le 2026-08-29. Mais
-        # une autorisation ne doit pas dependre d'un refus place plus loin :
-        # le jour ou l'on ajoute une permission au profil, le trou s'ouvre sans
-        # que personne ne relise cette ligne.
+        # "system" was in the same list as patient/study/series/instance, POST
+        # included: this function therefore said yes to POST /tools/reset,
+        # /tools/shutdown and /tools/execute-script -- restart, shut down, and
+        # run Lua. Those paths are indeed publicly exposed (nginx routes them,
+        # line ~650). It was not exploitable in practice: the doctor's profile
+        # does not carry the permission the plugin requires for those
+        # endpoints, and Orthanc answers 403 -- measured on 2026-08-29. But an
+        # authorisation must not depend on a refusal further down the line: the
+        # day a permission is added to the profile, the hole opens without
+        # anyone rereading this line.
         #
-        # En lecture, le niveau systeme reste necessaire : les visualiseurs
-        # interrogent /system et /plugins au demarrage.
+        # For reads, the system level remains necessary: the viewers query
+        # /system and /plugins at startup.
         if method == "get" and level == "system":
             return True
         if method in ("get", "post") and level in (
@@ -657,18 +656,18 @@ def check_permission_for_role(role: str, level: str, method: str, uri: str) -> b
             return True
         return False
     elif role == "external-role":
-        # Lecture seule, mais lecture REELLE.
+        # Read-only, but REAL reading.
         #
-        # Le niveau « system » manquait a cette liste. Or une requete de LISTE
-        # ne designe aucune ressource precise : le greffon la rapporte au
-        # niveau systeme, pas au niveau etude. Un compte externe se connectait
-        # donc, ouvrait Explorer -- et recevait 403 sur /studies : un
-        # explorateur ouvert sur une liste vide, ce qui ne veut rien dire.
-        # Mesure le 2026-08-29 avec un compte externe reel.
+        # The "system" level was missing from this list. Yet a LIST request
+        # names no specific resource: the plugin maps it to the system level,
+        # not the study level. An external account therefore signed in, opened
+        # Explorer -- and got 403 on /studies: an explorer opened on an empty
+        # list, which means nothing. Measured on 2026-08-29 with a real
+        # external account.
         #
-        # Le medecin avait deja ce niveau, en GET comme en POST. L'externe ne
-        # l'obtient qu'en GET : il consulte et telecharge (permissions
-        # ["view", "download"] dans son profil), il n'ecrit rien.
+        # The doctor already had this level, for GET as well as POST. The
+        # external account only gets it for GET: it views and downloads
+        # (permissions ["view", "download"] in its profile), it writes nothing.
         return method == "get" and level in [
             "patient", "study", "series", "instance", "system",
         ]
@@ -695,32 +694,30 @@ def check_resource_access(token_data: dict, level: str, method: str, orthanc_id:
         token_dicom_uid = resource.get("DicomUid", resource.get("dicom-uid", ""))
         token_level = resource.get("Level", resource.get("level", ""))
 
-        # Correspondance exacte -- des DEUX cotes non vides.
+        # Exact match -- with BOTH sides non-empty.
         #
-        # Le test etait `orthanc_id == token_orthanc_id or dicom_uid ==
-        # token_dicom_uid`. Quand les deux valeurs manquaient, "" == "" etait
-        # vrai et l'acces etait accorde : il suffisait d'une requete ou le
-        # greffon n'identifie pas la ressource pour passer.
+        # The test was `orthanc_id == token_orthanc_id or dicom_uid ==
+        # token_dicom_uid`. When both values were missing, "" == "" was true
+        # and access was granted: a request where the plugin does not identify
+        # the resource was enough to get through.
         if token_orthanc_id and orthanc_id == token_orthanc_id:
             return True
         if token_dicom_uid and dicom_uid == token_dicom_uid:
             return True
 
-        # Acces hierarchique : un jeton d'ETUDE couvre ses series et ses
-        # instances -- LES SIENNES.
+        # Hierarchical access: a STUDY token covers its series and its
+        # instances -- ITS OWN.
         #
-        # Le code precedent repondait `return True` a toute requete de niveau
-        # serie ou instance des lors que le jeton etait de niveau etude, avec
-        # ce commentaire : « We'd need to query Orthanc to check hierarchy, for
-        # now allow it ». Autrement dit, un lien de partage valide pour une
-        # etude donnait acces a TOUTE serie et TOUTE instance du serveur --
-        # 209 etudes, pas une. Meme famille que la faille fermee le
-        # 2026-08-27 : la chaine faisait confiance a une correspondance qu'elle
-        # ne verifiait pas.
+        # The previous code answered `return True` to any series- or
+        # instance-level request as soon as the token was study-level, with
+        # this comment: "We'd need to query Orthanc to check hierarchy, for now
+        # allow it". In other words, a share link valid for one study gave
+        # access to EVERY series and EVERY instance on the server -- 209
+        # studies, not one. Same family as the hole closed on 2026-08-27: the
+        # chain trusted a match it did not check.
         #
-        # On demande donc a Orthanc a quelle etude appartient reellement la
-        # ressource. Le resultat est mis en cache : la filiation d'une instance
-        # ne change jamais.
+        # So Orthanc is asked which study the resource really belongs to. The
+        # result is cached: an instance's parentage never changes.
         if token_level == "study" and level in ("series", "instance"):
             if _appartient_a_etude(level, orthanc_id, token_orthanc_id, token_dicom_uid):
                 return True
@@ -731,15 +728,15 @@ def check_resource_access(token_data: dict, level: str, method: str, orthanc_id:
     return False
 
 
-# Filiation : 24 h de cache. Une instance ne change jamais de serie, ni une
-# serie d'etude -- seule une suppression les fait disparaitre, et la requete
-# echoue alors d'elle-meme.
+# Parentage: 24 h cache. An instance never changes series, nor a series study
+# -- only a deletion makes them disappear, and the request then fails by
+# itself.
 _PARENT_CACHE_TTL = 86400
 _parent_cache: dict = {}
 
 
 def _parent_orthanc(level: str, orthanc_id: str) -> dict | None:
-    """Renvoie la fiche Orthanc d'une serie ou d'une instance, en cache."""
+    """Return the Orthanc record of a series or an instance, cached."""
     if not orthanc_id:
         return None
     cle = (level, orthanc_id)
@@ -758,10 +755,10 @@ def _parent_orthanc(level: str, orthanc_id: str) -> dict | None:
 
 def _appartient_a_etude(level: str, orthanc_id: str,
                         etude_orthanc_id: str, etude_dicom_uid: str) -> bool:
-    """La serie / l'instance demandee appartient-elle bien a cette etude ?
+    """Does the requested series / instance really belong to this study?
 
-    Refuse quand Orthanc ne repond pas : mieux vaut un partage qui echoue
-    qu'un partage qui ouvre le serveur entier.
+    Refuse when Orthanc does not answer: better a share that fails than a share
+    that opens the whole server.
     """
     fiche = _parent_orthanc(level, orthanc_id)
     if not fiche:
@@ -784,7 +781,7 @@ def _appartient_a_etude(level: str, orthanc_id: str,
 
 
 def _appartient_a_serie(orthanc_id: str, serie_orthanc_id: str) -> bool:
-    """L'instance demandee appartient-elle bien a cette serie ?"""
+    """Does the requested instance really belong to this series?"""
     if not serie_orthanc_id:
         return False
     fiche = _parent_orthanc("instance", orthanc_id)
@@ -823,19 +820,19 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
         return JSONResponse(content={
             "name": "Anonymous",
             "user-id": None,
-            # [] et NON ["*"]. La portee d'etiquettes gouverne l'ENUMERATION,
-            # independamment des permissions : avec ["*"], un anonyme sans
-            # aucun droit de lecture obtenait quand meme la liste complete des
-            # etudes par /dicom-web/studies -- noms de patients, dates,
-            # descriptions. Verifie exploitable depuis Internet le 2026-08-27,
-            # 209 etudes exposees.
+            # [] and NOT ["*"]. The label scope governs ENUMERATION,
+            # independently of permissions: with ["*"], an anonymous client
+            # with no read right at all still got the complete list of studies
+            # through /dicom-web/studies -- patient names, dates, descriptions.
+            # Checked exploitable from the Internet on 2026-08-27, 209 studies
+            # exposed.
             #
-            # Le commentaire d'origine justifiait ["*"] par : "le seul chemin
-            # qui atteint Orthanc anonymement est /api-upload/, protege par
-            # Cloudflare Access". L'hypothese etait fausse : les regles bypass
-            # d'Authelia (^/dicom-web.*token=.*$ et ses quatre soeurs) se
-            # declenchent sur la simple presence de "token=" dans l'URL et
-            # ouvrent un second chemin anonyme, celui-la sans aucun garde.
+            # The original comment justified ["*"] with: "the only path that
+            # reaches Orthanc anonymously is /api-upload/, protected by
+            # Cloudflare Access". The assumption was wrong: Authelia's bypass
+            # rules (^/dicom-web.*token=.*$ and its four siblings) fire on the
+            # mere presence of "token=" in the URL and open a second anonymous
+            # path, that one without any guard.
             "authorized-labels": [],
             "permissions": ["upload"],
             "groups": [],
@@ -850,42 +847,41 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
         user_name = TRANSLATIONS["ui"]["doctor"]
         permissions = ["view", "download", "upload", "share", "send", "edit-labels"]
     elif "external" in group:
-        # Le groupe externe DOIT etre traite ici, explicitement.
+        # The external group MUST be handled here, explicitly.
         #
-        # Il n'y etait pas, et c'etait un degat collateral du correctif du
-        # 2026-08-27 : ce jour-la le `else` ci-dessous a ete durci pour fermer
-        # la faille « token=nimportequoi », en faisant retomber toute valeur
-        # non reconnue sur le profil anonyme. Or « external » est un groupe
-        # Authelia parfaitement legitime, et il tombait dans ce meme `else` :
-        # get_token("external") ne trouve rien, et l'utilisateur heritait du
-        # profil anonyme -- permissions ["upload"], authorized-labels [], donc
-        # aucune lecture.
+        # It was not, and it was collateral damage from the 2026-08-27 fix:
+        # that day the `else` below was hardened to close the "token=anything"
+        # hole, by making any unrecognised value fall back to the anonymous
+        # profile. Yet "external" is a perfectly legitimate Authelia group, and
+        # it fell into that same `else`: get_token("external") finds nothing,
+        # and the user inherited the anonymous profile -- permissions
+        # ["upload"], authorized-labels [], hence no reading.
         #
-        # Consequence mesuree le 2026-08-29 avec un compte externe reel : il se
-        # connectait, Explorer s'ouvrait, et /studies comme /patients
-        # repondaient 403. Un explorateur sur une liste vide.
+        # Consequence measured on 2026-08-29 with a real external account: it
+        # signed in, Explorer opened, and /studies as well as /patients
+        # answered 403. An explorer on an empty list.
         #
-        # Personne ne l'avait vu parce que ce role n'etait pas utilise. C'est
-        # exactement ce qu'un correctif de securite peut casser en silence :
-        # la regression ne se voit que sur le chemin qu'on n'emprunte jamais.
+        # Nobody had noticed because the role was not in use. That is exactly
+        # what a security fix can break silently: the regression only shows on
+        # the path nobody ever takes.
         user_name = TRANSLATIONS["ui"]["external_user"]
         permissions = ["view", "download"]
     else:
-        # Cette branche recevait TOUTE valeur non reconnue et lui accordait
-        # view + download sur "authorized-labels": ["*"]. C'etait une faille
-        # exploitable par n'importe qui, sans compte :
+        # This branch received EVERY unrecognised value and granted it view +
+        # download on "authorized-labels": ["*"]. It was a hole anyone could
+        # exploit, without an account:
         #
-        #   GET /dicom-web/studies?token=nimportequoi   -> 200, 209 etudes
+        #   GET /dicom-web/studies?token=anything   -> 200, 209 studies
         #
-        # Le chemin complet : les regles `bypass` d'Authelia se declenchent sur
-        # la simple presence de "token=" dans l'URL (^/dicom-web.*token=.*$ et
-        # ses quatre soeurs) ; Orthanc appelle alors /user/get-profile avec la
-        # valeur du parametre ; et ce `else` la prenait pour un utilisateur
-        # externe legitime. Verifie exploitable depuis Internet le 2026-08-27.
+        # The full path: Authelia's `bypass` rules fire on the mere presence of
+        # "token=" in the URL (^/dicom-web.*token=.*$ and its four siblings);
+        # Orthanc then calls /user/get-profile with the parameter's value; and
+        # this `else` took it for a legitimate external user. Checked
+        # exploitable from the Internet on 2026-08-27.
         #
-        # Les seules valeurs licites ici sont les jetons de partage, emis par ce
-        # service et conserves dans Redis. Tout le reste doit retomber sur le
-        # profil anonyme -- depot autorise, aucune lecture.
+        # The only legitimate values here are share tokens, issued by this
+        # service and kept in Redis. Everything else must fall back to the
+        # anonymous profile -- upload allowed, no reading.
         jeton = get_token(group)
         if not jeton or time.time() >= jeton.get("expires_at", 0):
             logger.warning(
@@ -915,8 +911,8 @@ async def get_user_profile(request: Request, username: str = Depends(verify_basi
 async def decode_token(request: Request):
     body = await request.json()
     
-    # token-key : le greffon d'Orthanc envoie le NOM du parametre ou il a
-    # trouve le jeton (par ex. "token"). Sans usage ici, on ne le lit pas.
+    # token-key: the Orthanc plugin sends the NAME of the parameter where it
+    # found the token (e.g. "token"). Unused here, so it is not read.
     token_value = normalize_bearer_token(body.get("token-value", ""))
     
     # Check if token exists and is valid in Redis
@@ -941,9 +937,10 @@ async def decode_token(request: Request):
             "error-code": "invalid"
         })
     
-    # Seul l'UID DICOM sert ici a construire l'URL du visualiseur, et il est
-    # deja extrait plus haut. OrthancId et Level du jeton ne servent pas a ce
-    # niveau : le perimetre est applique plus loin, par check_resource_access.
+    # Only the DICOM UID is used here to build the viewer URL, and it has
+    # already been extracted above. The token's OrthancId and Level are not
+    # used at this level: the scope is enforced further on, by
+    # check_resource_access.
     token_type = token_data.get("token_type", "")
     
     # Generate redirect URL - always use /share/ route for token handling
@@ -977,16 +974,16 @@ async def create_token(token_type: str, request: Request):
     if not remote_user or not remote_groups:
         raise HTTPException(status_code=401, detail=_msg("auth_required"))
 
-    # Qui a le droit de partager : seuls admin et doctor partagent.
+    # Who may share: only admin and doctor share.
     #
-    # La route n'exigeait qu'une session, quelle qu'elle soit. Explorer 2 cache
-    # bien le bouton aux comptes externes -- leur profil ne porte pas la
-    # permission « share » -- mais cacher un bouton n'est pas une autorisation :
-    # l'appel direct restait accepte, et un compte « consultation seule »
-    # pouvait donc emettre un lien de partage public vers une etude.
+    # The route only required a session, whatever it was. Explorer 2 does hide
+    # the button from external accounts -- their profile does not carry the
+    # "share" permission -- but hiding a button is not an authorisation: the
+    # direct call was still accepted, and a "view only" account could therefore
+    # issue a public share link to a study.
     #
-    # Comparaison exacte sur la liste separee par virgules, jamais par
-    # sous-chaine : « nondoctor » ne doit pas passer pour un medecin.
+    # Exact comparison on the comma-separated list, never by substring:
+    # "nondoctor" must not pass for a doctor.
     groupes = {g.strip() for g in remote_groups.split(",") if g.strip()}
     if not ({"admin", "doctor"} & groupes):
         logger.warning(
@@ -1009,14 +1006,13 @@ async def create_token(token_type: str, request: Request):
     if validity_duration == 0:
         validity_duration = UNLIMITED_TOKEN_DURATION
 
-    # ExpirationDate : le greffon d'autorisation d'Orthanc peut demander une
-    # date d'expiration explicite au lieu d'une duree. Elle etait LUE PUIS
-    # IGNOREE -- un appelant qui demandait une date precise recevait
-    # silencieusement la duree par defaut (7 jours), sans erreur ni trace.
-    # Trouve a l'analyse statique le 2026-08-27 (variable assignee, jamais
-    # utilisee). Aucun appelant du depot ne l'envoie aujourd'hui, mais le
-    # greffon le peut : mieux vaut l'honorer que de mentir sur la duree d'un
-    # lien qui donne acces a des images de patients.
+    # ExpirationDate: the Orthanc authorization plugin may request an explicit
+    # expiry date instead of a duration. It was READ THEN IGNORED -- a caller
+    # asking for a precise date silently got the default duration (7 days),
+    # with no error and no trace. Found by static analysis on 2026-08-27
+    # (variable assigned, never used). No caller in the repository sends it
+    # today, but the plugin can: better to honour it than to lie about the
+    # duration of a link that gives access to patient images.
     date_expiration = body.get("ExpirationDate", body.get("expiration-date"))
     if date_expiration:
         try:
@@ -1031,9 +1027,9 @@ async def create_token(token_type: str, request: Request):
         except HTTPException:
             raise
         except (ValueError, TypeError, OverflowError) as err:
-            # On refuse plutot que de retomber sur la duree par defaut : une
-            # date mal formee doit se voir, pas produire un jeton dont personne
-            # ne connait la duree reelle.
+            # Refuse rather than fall back to the default duration: a malformed
+            # date must be visible, not produce a token whose real lifetime
+            # nobody knows.
             raise HTTPException(
                 400, _msg("expiration_unreadable", value=repr(date_expiration), error=err)
             ) from err
@@ -1057,19 +1053,19 @@ async def create_token(token_type: str, request: Request):
     # Generate URL based on token type
     base_url = get_base_url(request)
     
-    # Les jetons « instant-link » servent a signer une action qu'Explorer 2
-    # declenche lui-meme : il construit l'URL et n'attend de nous que le jeton.
-    # Orthanc en demande trois -- viewer-instant-link, download-instant-link et
-    # meddream-instant-link (vus dans ses journaux).
+    # "instant-link" tokens sign an action Explorer 2 triggers itself: it
+    # builds the URL and only expects the token from us. Orthanc asks for three
+    # of them -- viewer-instant-link, download-instant-link and
+    # meddream-instant-link (seen in its logs).
     #
-    # Seul viewer-instant-link etait reconnu. Les deux autres tombaient dans la
-    # branche « publication » et recevaient une URL /share/?token=... ;
-    # Explorer 2 y navigue, et /share/ ne connait pas ce type de jeton : il
-    # retombe sur son visualiseur par defaut. Resultat : cliquer « telecharger
-    # l'etude » ouvrait l'etude dans OHIF au lieu de livrer le fichier.
+    # Only viewer-instant-link was recognised. The other two fell into the
+    # "publication" branch and got a /share/?token=... URL; Explorer 2
+    # navigates to it, and /share/ does not know this kind of token: it falls
+    # back to its default viewer. Result: clicking "download study" opened the
+    # study in OHIF instead of delivering the file.
     #
-    # Le test porte donc sur le suffixe, pas sur un nom precis : un futur
-    # <quelquechose>-instant-link se comportera correctement d'office.
+    # The test therefore looks at the suffix, not at a precise name: a future
+    # <something>-instant-link will behave correctly out of the box.
     if token_type.endswith("-instant-link"):
         response_data = {
             "Token": token,  # PascalCase for Authorization Plugin
@@ -1292,11 +1288,11 @@ async def token_management_interface(request: Request):
         if js_translations:
             js_config["MESSAGES"] = js_translations
         
-        # Prepare template variables from translations.
-        # Nettoye : les cles TOTAL_TOKENS/SUBTITLE/OHIF_VIEWER/INSTANT_LINKS
-        # n'ont plus de {PLACEHOLDER} correspondant dans le template (KPI cards
-        # retirees, subtitle deplacee en HTML statique "Orthanc"). ASSET_VERSION
-        # est aussi injecte automatiquement par render_template().
+        # Prepare template variables from translations. Cleaned up: the
+        # TOTAL_TOKENS/SUBTITLE/OHIF_VIEWER/INSTANT_LINKS keys no longer have a
+        # matching {PLACEHOLDER} in the template (KPI cards removed, subtitle
+        # moved to static "Orthanc" HTML). ASSET_VERSION is also injected
+        # automatically by render_template().
         ui_translations = TRANSLATIONS["ui"]
         template_vars = {
             "TITLE": ui_translations["title"],
@@ -1402,36 +1398,35 @@ async def share_redirect(request: Request):
 
 @app.get("/api/internal/verify-share", include_in_schema=False)
 def verify_share(request: Request, token: str = ""):
-    """Valide un jeton de partage pour nginx. 204 si valide, 403 sinon.
+    """Validate a share token for nginx. 204 when valid, 403 otherwise.
 
-    Le jeton est lu dans l'en-tete X-Original-URI, que nginx renseigne avec
-    l'URI de la requete cliente. Le parametre `token` reste accepte pour un
-    appel direct, mais nginx ne peut pas s'en servir : dans le contexte d'une
-    sous-requete auth_request, $arg_token ressort VIDE. Passer par
-    $request_uri est la seule facon fiable de faire traverser la valeur.
+    The token is read from the X-Original-URI header, which nginx fills with the
+    client request's URI. The `token` parameter is still accepted for a direct
+    call, but nginx cannot use it: in the context of an auth_request
+    subrequest, $arg_token comes out EMPTY. Going through $request_uri is the
+    only reliable way to carry the value across.
 
-    Remplace le contournement aveugle d'Authelia. Les regles `bypass`
-    (^/dicom-web.*token=.*$ et ^/wado.*token=.*$) se declenchaient sur la SEULE
-    PRESENCE de la chaine "token=" dans l'URL, sans rien verifier :
+    Replaces Authelia's blind bypass. The `bypass` rules
+    (^/dicom-web.*token=.*$ and ^/wado.*token=.*$) fired on the MERE PRESENCE
+    of the string "token=" in the URL, without checking anything:
 
-        GET /dicom-web/studies?token=nimportequoi
-          -> 200, 264 Ko, 209 etudes, depuis Internet, sans compte.
+        GET /dicom-web/studies?token=anything
+          -> 200, 264 KB, 209 studies, from the Internet, without an account.
 
-    La validation etait censee revenir au greffon d'autorisation d'Orthanc.
-    Elle n'avait jamais lieu : Orthanc n'extrait pas le parametre ?token= sur
-    /dicom-web/studies, auth-service ne le voyait donc jamais. Mesure et
-    fermeture le 2026-08-27 ; ce point d'entree est ce qui permet de rouvrir le
-    partage sans rouvrir la faille.
+    Validation was supposed to fall to the Orthanc authorization plugin. It
+    never happened: Orthanc does not extract the ?token= parameter on
+    /dicom-web/studies, so auth-service never saw it. Measured and closed on
+    2026-08-27; this endpoint is what makes it possible to reopen sharing
+    without reopening the hole.
 
-    Modele : /api/internal/verify-cf, interroge par nginx via
-    `auth_request /_verify-cf`. Meme principe, meme discipline -- on echoue
-    ferme, tout imprevu repond 403.
+    Model: /api/internal/verify-cf, queried by nginx through
+    `auth_request /_verify-cf`. Same principle, same discipline -- fail
+    closed, anything unexpected answers 403.
 
-    NE COMPTE PAS L'USAGE. nginx appelle ce point d'entree a CHAQUE requete du
-    visualiseur : une etude, ce sont des centaines d'appels dicom-web. Y
-    brancher increment_token_usage epuiserait un jeton de 50 usages en une
-    seule consultation. Le decompte reste ou il etait, sur /share/ (une fois
-    par ouverture de lien) et dans /tokens/validate.
+    DOES NOT COUNT USAGE. nginx calls this endpoint on EVERY viewer request: a
+    study means hundreds of dicom-web calls. Hooking increment_token_usage in
+    here would exhaust a 50-use token in a single viewing. The count stays
+    where it was, on /share/ (once per link opening) and in /tokens/validate.
     """
     if not token:
         uri = request.headers.get("x-original-uri", "")
@@ -1452,32 +1447,32 @@ def verify_share(request: Request, token: str = ""):
         logger.warning("Partage refuse : jeton expire (%s...)", token[:8])
         return Response(status_code=403)
 
-    # Pas de test de plafond ici. Il y en avait un, et il coupait la derniere
-    # consultation autorisee : l'ouverture qui atteint le quota porte
-    # current_uses A max_uses, et ce test refusait alors toutes les requetes du
-    # visualiseur qui venait de s'ouvrir. La limite est appliquee par la duree
-    # de vie du jeton -- share_redirect la ramene a SURSIS_DERNIERE_OUVERTURE
-    # des le plafond atteint. Un jeton epuise depuis assez longtemps n'existe
-    # plus, et le test d'existence ci-dessus suffit a le refuser.
+    # No ceiling test here. There was one, and it cut off the last authorised
+    # viewing: the opening that reaches the quota brings current_uses TO
+    # max_uses, and this test then refused every request from the viewer that
+    # had just opened. The limit is enforced by the token's lifetime --
+    # share_redirect brings it down to SURSIS_DERNIERE_OUVERTURE as soon as the
+    # ceiling is reached. A token exhausted long enough ago no longer exists,
+    # and the existence test above is enough to refuse it.
 
-    # --- PORTEE : le jeton doit couvrir CE QUI EST DEMANDE ----------------
+    # --- SCOPE: the token must cover WHAT IS REQUESTED -------------------
     #
-    # Ce point d'entree ne verifiait que la validite du jeton, jamais son
-    # perimetre. Mesure le 2026-08-29, depuis un navigateur SANS aucun cookie,
-    # muni du seul lien de partage d'une etude :
+    # This endpoint only checked the token's validity, never its scope.
+    # Measured on 2026-08-29, from a browser WITHOUT any cookie, armed only
+    # with the share link of one study:
     #
-    #   GET /dicom-web/studies?limit=101&...&token=<jeton>  ->  200
-    #   -> la liste des 209 etudes, avec les noms de patients.
+    #   GET /dicom-web/studies?limit=101&...&token=<token>  ->  200
+    #   -> the list of all 209 studies, with patient names.
     #
-    # C'est la faille du 2026-08-27, revenue par la porte que nous avons
-    # ouverte en refaisant le partage : Orthanc restreint bien les ressources
-    # NOMMEES, mais une requete QIDO d'ENUMERATION ne nomme rien -- il n'y a
-    # aucune ressource a comparer, et elle passe.
+    # It is the 2026-08-27 hole, back through the door we opened when
+    # rebuilding sharing: Orthanc does restrict NAMED resources, but a QIDO
+    # ENUMERATION request names nothing -- there is no resource to compare, and
+    # it gets through.
     #
-    # La portee se verifie donc ici, sur l'URI, avant qu'Orthanc ne voie la
-    # requete. Regle : un lien de partage donne acces a UNE etude, jamais a un
-    # inventaire. Tout ce qui ne designe pas explicitement l'etude couverte est
-    # refuse.
+    # The scope is therefore checked here, on the URI, before Orthanc sees the
+    # request. Rule: a share link gives access to ONE study, never to an
+    # inventory. Anything that does not explicitly designate the covered study
+    # is refused.
     uri = request.headers.get("x-original-uri", "")
     if not _partage_couvre_uri(donnees, uri):
         logger.warning(
@@ -1490,7 +1485,7 @@ def verify_share(request: Request, token: str = ""):
 
 
 def _etudes_du_jeton(donnees: dict) -> set:
-    """UID d'etude DICOM que ce jeton couvre."""
+    """DICOM study UID this token covers."""
     uids = set()
     for r in donnees.get("resources", []):
         uid = r.get("DicomUid") or r.get("dicom-uid") or ""
@@ -1500,11 +1495,10 @@ def _etudes_du_jeton(donnees: dict) -> set:
 
 
 def _partage_couvre_uri(donnees: dict, uri: str) -> bool:
-    """Le jeton autorise-t-il cette URI precise ?
+    """Does the token allow this precise URI?
 
-    Fail-closed : tout ce qui n'est pas explicitement reconnu est refuse. Une
-    URI inattendue doit couter un partage qui ne s'ouvre pas, jamais un
-    inventaire qui s'echappe.
+    Fail-closed: anything not explicitly recognised is refused. An unexpected
+    URI must cost a share that does not open, never an inventory that leaks.
     """
     autorisees = _etudes_du_jeton(donnees)
     if not autorisees:
@@ -1514,26 +1508,25 @@ def _partage_couvre_uri(donnees: dict, uri: str) -> bool:
     chemin = parsed.path
     params = urllib.parse.parse_qs(parsed.query)
 
-    # DICOMweb : /dicom-web/studies/<StudyInstanceUID>/...
-    # Le segment qui suit « studies » doit etre l'etude partagee. Une
-    # enumeration -- /dicom-web/studies tout court, avec ou sans filtres --
-    # n'a pas ce segment : elle est refusee, et c'est tout l'objet du
-    # correctif.
+    # DICOMweb: /dicom-web/studies/<StudyInstanceUID>/... The segment after
+    # "studies" must be the shared study. An enumeration -- /dicom-web/studies
+    # on its own, with or without filters -- has no such segment: it is
+    # refused, and that is the whole point of the fix.
     prefixe = "/dicom-web/studies"
     if chemin.startswith(prefixe):
         reste = chemin[len(prefixe):].lstrip("/")
         if reste:
             return reste.split("/")[0] in autorisees
 
-        # Pas de segment d'etude : c'est une requete QIDO. Elle n'est PAS
-        # refusee d'office -- OHIF s'en sert pour resoudre l'etude a ouvrir,
-        # avec un filtre StudyInstanceUID. Refuser tout en bloc coupait le
-        # partage : le visualiseur retombait sur « notfoundstudy ».
+        # No study segment: this is a QIDO request. It is NOT refused outright
+        # -- OHIF uses it to resolve the study to open, with a StudyInstanceUID
+        # filter. Refusing it wholesale cut sharing off: the viewer fell back
+        # to "notfoundstudy".
         #
-        # La regle est donc : une QIDO doit designer l'etude partagee par son
-        # filtre. Sans filtre, ou avec un filtre qui vise autre chose, c'est un
-        # inventaire, et c'est refuse. Le nom du filtre s'ecrit indifferemment
-        # en clair ou en numero de tag (0020000D), les deux sont acceptes.
+        # The rule is therefore: a QIDO must designate the shared study through
+        # its filter. Without a filter, or with a filter aimed at something
+        # else, it is an inventory, and it is refused. The filter name may be
+        # written in clear or as a tag number (0020000D), both are accepted.
         for cle in ("StudyInstanceUID", "0020000D", "0020000d"):
             valeurs = params.get(cle) or []
             if valeurs:
