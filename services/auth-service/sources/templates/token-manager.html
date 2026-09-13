@@ -17,13 +17,13 @@
              ===================================================================== -->
         <aside class="oe2-sidebar">
             <a href="/ui/app/" class="oe2-sidebar__brand" title="{BACK_TO_PACS}">
-                <!-- Vrai logo Orthanc upstream (recupere de OE2:
-                     WebApplication/src/assets/images/orthanc.png). Bundle
-                     dans nos static assets pour ne pas dependre du
-                     /orthanc-logo.png du user, qui est son branding perso. -->
+                <!-- Real upstream Orthanc logo (taken from OE2:
+                     WebApplication/src/assets/images/orthanc.png). Bundled in
+                     our static assets so as not to depend on the user's
+                     /orthanc-logo.png, which is their own branding. -->
                 <img src="/auth/static/orthanc-logo-official.png" alt="Orthanc" class="oe2-sidebar__logo">
             </a>
-            <!-- Nom du serveur avec border-bottom blanc (reprise .orthanc-name d'OE2) -->
+            <!-- Server name with a white border-bottom (reuses OE2's .orthanc-name) -->
             <div class="oe2-sidebar__brand-name">Orthanc</div>
 
             <nav class="oe2-sidebar__nav" aria-label="{NAV_LABEL}">
@@ -31,13 +31,13 @@
                     <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
                     <span>{BACK_TO_PACS}</span>
                 </a>
-                <!-- <span> au lieu d'<a href="#"> pour eviter le scroll top au clic -->
+                <!-- <span> instead of <a href="#"> to avoid scrolling to the top on click -->
                 <span class="oe2-sidebar__link active" role="link" aria-current="page">
                     <i class="fa-solid fa-share-nodes" aria-hidden="true"></i>
-                    <!-- Libelle court : dans une barre laterale, "Orthanc Token
-                         Manager" tient sur deux lignes et repete "Orthanc" qui
-                         figure deja au-dessus. Le titre de la page, lui, reste
-                         complet -- c est {TITLE} plus bas. -->
+                    <!-- Short label: in a sidebar, "Orthanc Token Manager"
+                         takes two lines and repeats "Orthanc", already shown
+                         above. The page title stays complete -- it is {TITLE}
+                         further down. -->
                     <span>{NAV_SHARES}</span>
                 </span>
             </nav>
@@ -56,8 +56,8 @@
                 </div>
             </header>
 
-            <!-- STATS: KPI cards retirees de l'UI. Les IDs restent en tant que
-                 <span> caches pour eviter un crash JS a
+            <!-- STATS: KPI cards removed from the UI. The IDs remain as hidden
+                 <span> elements to avoid a JS crash on
                  document.getElementById('totalTokens').textContent = ... -->
             <div hidden aria-hidden="true">
                 <span id="totalTokens"></span>
@@ -73,11 +73,12 @@
                 </button>
             </div>
             <div class="tokens-table-wrapper">
-                <!-- Container bare: le JS y injecte directement <table> ou
-                     <div class="empty-state">. Le loading-state est nested
-                     pour que sa classe (avec padding 40px) disparaisse quand
-                     JS remplace l'innerHTML, sinon la table s'affichait avec
-                     40px de vide autour = "double tableau" apparent. -->
+                <!-- Bare container: the JS injects <table> or
+                     <div class="empty-state"> straight into it. The
+                     loading-state is nested so that its class (with 40px of
+                     padding) disappears when JS replaces innerHTML; otherwise
+                     the table showed with 40px of space around it = an
+                     apparent "double table". -->
                 <div id="tokensContainer">
                     <div class="loading-state" aria-busy="true">
                         <i class="fa-solid fa-spinner fa-spin" aria-hidden="true"></i>
@@ -106,7 +107,7 @@
     </div>
 
     <!-- =========================================================================
-         MODAL de confirmation
+         Confirmation MODAL
          ========================================================================= -->
     <div class="modal fade oe2-modal" id="confirmModal" tabindex="-1"
          aria-labelledby="confirmModalTitle" aria-hidden="true">
@@ -138,9 +139,9 @@
     </div>
 
     <!-- =========================================================================
-         TOASTS - le container porte aria-live="polite" pour que les toasts
-         successifs soient annonces par les lecteurs d'ecran (les toast eux-memes
-         gardent role="alert").
+         TOASTS - the container carries aria-live="polite" so that successive
+         toasts are announced by screen readers (the toasts themselves keep
+         role="alert").
          ========================================================================= -->
     <div class="toast-container position-fixed bottom-0 end-0 p-3"
          aria-live="polite" aria-atomic="true">

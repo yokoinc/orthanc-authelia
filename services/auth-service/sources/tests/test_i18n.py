@@ -1,13 +1,13 @@
-"""Catalogues de traduction : completude, coherence, et ajout d'une langue.
+"""Translation catalogues: completeness, consistency, and adding a language.
 
-Ce qui est garanti ici, et que rien d'autre ne verifierait avant qu'un
-utilisateur tombe sur une cle brute a l'ecran :
+What is guaranteed here, and what nothing else would check before a user hits
+a raw key on screen:
 
-  - toute cle appelee par le code existe dans le catalogue de reference (en) ;
-  - toutes les langues ont les memes cles, avec les memes {variables} ;
-  - une langue deposee comme simple fichier est decouverte, et ses cles
-    manquantes retombent sur l'anglais ;
-  - le panneau se rend sans jeton [[...]] residuel, dans chaque langue.
+  - every key called by the code exists in the reference catalogue (en);
+  - every language has the same keys, with the same {variables};
+  - a language dropped in as a plain file is discovered, and its missing keys
+    fall back to English;
+  - the panel renders with no leftover [[...]] token, in every language.
 """
 import json
 import re
@@ -37,7 +37,7 @@ def _lire(relatif: str) -> str:
 
 
 # ----------------------------------------------------------------------------
-# Cles appelees par le code
+# Keys called by the code
 # ----------------------------------------------------------------------------
 
 def _cles_admin_utilisees() -> set[str]:
@@ -61,7 +61,7 @@ def _cles_api_utilisees() -> set[str]:
     src = _lire("admin_module.py")
     for tuple_nom, prefixe in (("ORTHANC_AIDE", "orthanc_help"), ("SESSION_KEYS", "session_label")):
         bloc = re.search(rf"^{tuple_nom} = \((.*?)^\)", src, re.S | re.M)
-        assert bloc, f"{tuple_nom} introuvable dans admin_module.py"
+        assert bloc, f"{tuple_nom} not found in admin_module.py"
         cles |= {f"{prefixe}.{n}" for n in re.findall(r'"([A-Za-z.]+)"', bloc.group(1))}
     for nom in ("accounts", "orthanc", "authelia"):
         cles.add(f"backup_label.{nom}")
@@ -95,25 +95,25 @@ def _cles_oe2_utilisees() -> set[str]:
 ])
 def test_every_key_used_by_the_code_exists(section, utilisees):
     cles = utilisees()
-    assert cles, f"aucune cle {section} trouvee : l'extraction ne fonctionne plus"
+    assert cles, f"no {section} key found: the extraction no longer works"
     absentes = sorted(cles - set(_catalogue(REFERENCE).get(section, {})))
-    assert not absentes, f"cles {section} appelees mais absentes de {REFERENCE}.json : {absentes}"
+    assert not absentes, f"{section} keys called but missing from {REFERENCE}.json: {absentes}"
 
 
 # ----------------------------------------------------------------------------
-# Coherence entre langues
+# Consistency between languages
 # ----------------------------------------------------------------------------
 
 @pytest.mark.parametrize("code", [c for c in _langues() if c != REFERENCE])
 def test_languages_have_the_same_keys_and_variables(code):
     ref, autre = _catalogue(REFERENCE), _catalogue(code)
-    assert set(ref) == set(autre), f"sections differentes : {set(ref) ^ set(autre)}"
+    assert set(ref) == set(autre), f"different sections: {set(ref) ^ set(autre)}"
     for section, cles in ref.items():
         assert set(cles) == set(autre[section]), \
-            f"{code}.json, section {section} : {sorted(set(cles) ^ set(autre[section]))}"
+            f"{code}.json, section {section}: {sorted(set(cles) ^ set(autre[section]))}"
         for cle, texte in cles.items():
             assert set(_VARIABLE_RE.findall(texte)) == set(_VARIABLE_RE.findall(autre[section][cle])), \
-                f"{code}.json {section}.{cle} : variables differentes de {REFERENCE}.json"
+                f"{code}.json {section}.{cle}: variables differ from {REFERENCE}.json"
 
 
 @pytest.mark.parametrize("code", _langues())
@@ -122,7 +122,7 @@ def test_every_language_names_itself(code):
 
 
 # ----------------------------------------------------------------------------
-# Ajouter une langue = deposer un fichier
+# Adding a language = dropping in a file
 # ----------------------------------------------------------------------------
 
 @pytest.fixture
@@ -143,13 +143,13 @@ def test_a_dropped_file_adds_a_language_with_english_fallback(dossier_langues):
 
     assert i18n.langues_disponibles()["de"] == "Deutsch"
     assert i18n.texte("admin", "save", "de") == "Speichern"
-    # Absent du fichier allemand : l'anglais, pas la cle brute.
+    # Missing from the German file: English, not the raw key.
     assert i18n.texte("admin", "cancel", "de") == _catalogue("en")["admin"]["cancel"]
     assert i18n.section("admin", "de")["cancel"] == _catalogue("en")["admin"]["cancel"]
 
 
 def test_a_broken_file_is_ignored_not_fatal(dossier_langues):
-    (dossier_langues / "xx.json").write_text("{ pas du json", encoding="utf-8")
+    (dossier_langues / "xx.json").write_text("{ not json", encoding="utf-8")
     assert "xx" not in i18n.langues_disponibles()
     assert "en" in i18n.langues_disponibles()
 
@@ -157,9 +157,9 @@ def test_a_broken_file_is_ignored_not_fatal(dossier_langues):
 def test_a_mistranslated_variable_does_not_raise(dossier_langues):
     (dossier_langues / "de.json").write_text(json.dumps({
         "meta": {"name": "Deutsch"},
-        "admin": {"account_deleted": "Konto {nom_errone gelöscht"},
+        "admin": {"account_deleted": "Konto {falscher_name gelöscht"},
     }), encoding="utf-8")
-    assert i18n.texte("admin", "account_deleted", "de", name="x") == "Konto {nom_errone gelöscht"
+    assert i18n.texte("admin", "account_deleted", "de", name="x") == "Konto {falscher_name gelöscht"
 
 
 @pytest.mark.parametrize("brut, attendu", [

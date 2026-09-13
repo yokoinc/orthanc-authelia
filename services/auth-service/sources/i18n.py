@@ -1,21 +1,19 @@
-"""Catalogues de traduction.
+"""Translation catalogues.
 
-Une langue = un fichier translations/<code>.json. Aucune liste de langues n'est
-ecrite dans le code : le service decouvre les fichiers presents. Ajouter une
-langue revient a deposer un fichier -- voir « Adding a language » dans le
-README.
+One language = one translations/<code>.json file. No list of languages is
+written in the code: the service discovers the files present. Adding a language
+means dropping in a file -- see "Adding a language" in the README.
 
-Chaque fichier porte des sections (« admin », « api », « setup », « ui »,
-« js », « oe2 ») de cles plates, plus une section « meta » qui donne le nom de
-la langue tel qu'on l'affiche dans le selecteur (« Français », « Deutsch »).
+Each file holds sections ("admin", "api", "setup", "ui", "js", "oe2") of flat
+keys, plus a "meta" section giving the language's name as the selector shows it
+("Français", "Deutsch").
 
-Une cle absente d'un fichier retombe sur l'anglais, puis sur la cle elle-meme :
-une traduction incomplete reste utilisable, elle montre simplement de
-l'anglais la ou elle n'a pas encore de texte. La CI, elle, exige des fichiers
-complets.
+A key missing from a file falls back to English, then to the key itself: an
+incomplete translation stays usable, it simply shows English where it has no
+text yet. The CI, for its part, requires complete files.
 
-Les variables s'ecrivent {nom}, avec les memes noms dans toutes les langues
-(controle par tests/test_i18n.py).
+Variables are written {name}, with the same names in every language (checked by
+tests/test_i18n.py).
 """
 from __future__ import annotations
 
@@ -28,16 +26,16 @@ from typing import Any
 
 logger = logging.getLogger("auth-service.i18n")
 
-# /app/translations dans l'image ; surchargeable pour monter ses propres
-# fichiers sans reconstruire (voir le README).
+# /app/translations in the image; overridable to mount one's own files without
+# rebuilding (see the README).
 TRANSLATIONS_DIR = Path(
     os.getenv("I18N_DIR", str(Path(__file__).resolve().parent / "translations"))
 )
 LANGUE_REPLI = "en"
 _CODE_RE = re.compile(r"^[a-z]{2,3}(-[a-z0-9]{2,8})?$")
 
-# (nom du fichier, mtime) -> contenu. Relu seulement quand le fichier change :
-# un catalogue est consulte a chaque requete.
+# (file name, mtime) -> contents. Re-read only when the file changes: a
+# catalogue is consulted on every request.
 _cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
@@ -53,10 +51,10 @@ def _charger(code: str) -> dict[str, Any]:
     try:
         data = json.loads(chemin.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
-            raise ValueError("le fichier doit contenir un objet JSON")
+            raise ValueError("the file must contain a JSON object")
     except (OSError, ValueError) as e:
-        # Un fichier casse ne doit pas faire tomber le service : la langue
-        # disparait du selecteur, et le journal dit pourquoi.
+        # A broken file must not bring the service down: the language drops out
+        # of the selector, and the log says why.
         logger.warning("translations/%s.json unreadable, ignored: %s", code, e)
         data = {}
     _cache[code] = (mtime, data)
@@ -64,7 +62,7 @@ def _charger(code: str) -> dict[str, Any]:
 
 
 def langues_disponibles() -> dict[str, str]:
-    """{code: nom affiche} de chaque fichier de langue valide, trie par code."""
+    """{code: display name} of every valid language file, sorted by code."""
     langues = {}
     try:
         fichiers = sorted(TRANSLATIONS_DIR.glob("*.json"))
@@ -82,14 +80,14 @@ def langues_disponibles() -> dict[str, str]:
 
 
 def normaliser(valeur: str | None) -> str:
-    """« fr_FR.UTF-8 », « FR », « fr-FR » -> « fr ». Chaine vide si rien."""
+    """"fr_FR.UTF-8", "FR", "fr-FR" -> "fr". Empty string when there is nothing."""
     if not valeur:
         return ""
     return re.split(r"[_.:@-]", str(valeur).strip().lower(), maxsplit=1)[0]
 
 
 def section(nom: str, langue: str) -> dict[str, str]:
-    """Une section complete, completee par l'anglais pour les cles manquantes."""
+    """A whole section, completed with English for the missing keys."""
     resultat = dict(_charger(LANGUE_REPLI).get(nom) or {})
     if langue != LANGUE_REPLI:
         resultat.update(_charger(langue).get(nom) or {})
@@ -97,7 +95,7 @@ def section(nom: str, langue: str) -> dict[str, str]:
 
 
 def texte(nom_section: str, cle: str, langue: str, **variables: Any) -> str:
-    """Le texte d'une cle, variables substituees. Jamais d'exception."""
+    """The text of a key, variables substituted. Never raises."""
     modele = (_charger(langue).get(nom_section) or {}).get(cle)
     if modele is None:
         modele = (_charger(LANGUE_REPLI).get(nom_section) or {}).get(cle)
@@ -109,8 +107,7 @@ def texte(nom_section: str, cle: str, langue: str, **variables: Any) -> str:
     try:
         return modele.format(**variables)
     except (KeyError, IndexError, ValueError) as e:
-        # Accolade mal fermee ou variable renommee dans une traduction : on
-        # montre le texte brut plutot que de transformer un message d'erreur en
-        # erreur 500.
+        # Unclosed brace or a variable renamed in a translation: show the raw
+        # text rather than turn an error message into a 500.
         logger.warning("translation %s.%s (%s) not formattable: %s", nom_section, cle, langue, e)
         return modele

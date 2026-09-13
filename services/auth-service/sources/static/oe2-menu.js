@@ -15,17 +15,17 @@
  */
 
 (function () {
-    // Libelles des entrees injectees, dans la langue de l'installation : section
-    // « oe2 » de translations/<langue>.json, servie par auth-service. En anglais
-    // tant que la reponse n'est pas arrivee, ou si elle echoue -- le menu ne doit
-    // jamais attendre une traduction pour apparaitre.
+    // Labels of the injected entries, in the installation's language: the
+    // « oe2 » section of translations/<lang>.json, served by auth-service. In
+    // English until the response arrives, or if it fails -- the menu must never
+    // wait for a translation before appearing.
     var TEXTES = { shares: "Shares", admin: "Administration", logout: "Sign out" };
 
     function libelle(cle) {
         return TEXTES[cle] || cle;
     }
 
-    // Les entrees deja posees gardent leur noeud ; seul leur texte change.
+    // Entries already placed keep their node; only their text changes.
     function rafraichirLibelles() {
         [["shares-injected", "shares"], ["admin-injected", "admin"], ["logout-fixe", "logout"]]
             .forEach(function (paire) {
@@ -43,7 +43,7 @@
                 rafraichirLibelles();
             }
         })
-        .catch(function () { /* libelles anglais conserves */ });
+        .catch(function () { /* English labels kept */ });
 
     /**
      * Clone the exact structure of an existing menu entry so the injected one
@@ -80,8 +80,8 @@
             var attr = reference.attributes[i];
             if (attr.name.startsWith("data-v-")) li.setAttribute(attr.name, attr.value);
         }
-        // Le libelle passe par textContent : il vient d'un fichier de traduction,
-        // il n'a pas a pouvoir injecter du HTML.
+        // The label goes through textContent: it comes from a translation file,
+        // it has no business being able to inject HTML.
         li.innerHTML =
             '<i class="' + iconFamilyOf(reference) + ' ' + glyph + ' fa-lg menu-icon" ' +
             'style="width:20px;min-width:20px;margin-right:10px;text-align:center"></i>' +
@@ -128,13 +128,13 @@
     }
 
     function injectShares() {
-        // Reserve aux administrateurs.
+        // Administrators only.
         //
-        // Cette entree ouvre /auth/tokens/manage, qui liste et REVOQUE les
-        // partages de tout le monde : c'est de l'administration. Creer un lien
-        // de partage est un acte clinique, fait depuis le bouton d'une etude,
-        // et n'a rien a voir. Sans ce garde-fou un medecin voyait l'entree et
-        // tombait sur un 403.
+        // This entry opens /auth/tokens/manage, which lists and REVOKES
+        // everyone's shares: that is administration. Creating a share link is
+        // a clinical act, done from a study's button, and has nothing to do
+        // with it. Without this guard a doctor saw the entry and landed on a
+        // 403.
         if (window.__OE2_IS_ADMIN__ !== true) return;
         place(makeItem("shares-injected", "fa-share-alt", "shares", function () {
             window.location.href = "/auth/tokens/manage";
@@ -159,32 +159,32 @@
     }
 
     /**
-     * Deconnexion : posee dans <body>, PAS dans le menu.
+     * Sign-out: placed in <body>, NOT in the menu.
      *
-     * Les trois tentatives precedentes l'inseraient parmi les <li> d'OE2, et
-     * chacune a casse quelque chose : ordre aleatoire, puis element hors de la
-     * <ul> qui decalait toute la barre laterale. La cause est toujours la meme
-     * -- OE2 est une application Vue qui reconstruit son menu quand bon lui
-     * semble, et rien de ce qu'on y glisse n'y survit proprement.
+     * The three previous attempts inserted it among OE2's <li> elements, and
+     * each one broke something: random order, then an element outside the
+     * <ul> that shifted the whole sidebar. The cause is always the same -- OE2
+     * is a Vue application that rebuilds its menu whenever it sees fit, and
+     * nothing slipped into it survives cleanly.
      *
-     * On cesse donc de lutter contre le re-rendu : le bouton vit en dehors de
-     * l'arbre de Vue, en position fixe, et recopie la geometrie de la barre
-     * laterale. Vue ne touche jamais a ce qu'il n'a pas cree.
+     * So we stop fighting the re-render: the button lives outside Vue's tree,
+     * in fixed position, and copies the sidebar's geometry. Vue never touches
+     * what it did not create.
      *
-     * Effet de bord bienvenu : plus aucune dependance a l'entree « Importer »,
-     * que les comptes sans droit de depot n'ont pas -- c'est ce qui privait un
-     * compte externe de toute deconnexion.
+     * Welcome side effect: no more dependency on the "Import" entry, which
+     * accounts without upload rights do not have -- that is what deprived an
+     * external account of any way to sign out.
      */
     function seDeconnecter() {
-        // Authelia analyse le corps meme vide : sans lui, l'appel journalise
-        // « unable to parse body during logout ».
+        // Authelia parses the body even when empty: without one, the call logs
+        // "unable to parse body during logout".
         fetch("/api/logout", {
             method: "POST",
             credentials: "same-origin",
             headers: { "content-type": "application/json" },
             body: "{}",
         })
-            .catch(function () { /* deconnecter localement meme si l'appel echoue */ })
+            .catch(function () { /* sign out locally even if the call fails */ })
             .then(function () { window.location.href = "/auth/"; });
     }
 
@@ -193,11 +193,11 @@
         var menu = document.getElementById("menu-content");
         if (!menu) return;
 
-        // La barre laterale donne la position et la largeur. On la lit a chaque
-        // fois plutot que de figer des pixels : elle change avec la fenetre.
+        // The sidebar gives the position and the width. It is read every time
+        // rather than hard-coding pixels: it changes with the window.
         var barre = menu.closest("nav, aside, .sidebar") || menu;
         var r = barre.getBoundingClientRect();
-        if (r.width < 40) return;   // barre repliee ou pas encore rendue
+        if (r.width < 40) return;   // sidebar collapsed or not rendered yet
 
         if (!bouton) {
             bouton = document.createElement("div");

@@ -38,26 +38,26 @@
     </style>
 </head>
 <body>
-    <!-- Bilingue. Les textes vivent dans translations/fr.json et en.json,
-         section « setup » (la CI verifie que les deux langues ont les memes
-         cles), et arrivent ici par le rendu serveur. Langue par defaut : celle
-         du NAVIGATEUR, c'est-a-dire de la personne devant l'ecran -- la langue
-         du systeme hote, que bootstrap.sh devine, repond « anglais » sous
-         WSL/Ubuntu meme pour un utilisateur francophone. Le choix est
-         enregistre a la finalisation, pour le reste de l'installation. -->
+    <!-- Multilingual. The texts live in translations/<lang>.json, « setup »
+         section (the CI checks that every language has the same keys), and
+         arrive here through server rendering. Default language: the BROWSER's,
+         that is, the person in front of the screen -- the host system's
+         language, which bootstrap.sh guesses, answers "English" under
+         WSL/Ubuntu even for a French-speaking user. The choice is saved on
+         finalisation, for the rest of the installation. -->
     <div class="setup-wrap">
         <div class="setup-head">
             <h1><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> <span data-t="heading"></span></h1>
-            <!-- Un bouton par fichier translations/*.json, genere plus bas. -->
+            <!-- One button per translations/*.json file, generated below. -->
             <div class="langues" id="langues" role="group" aria-label="Language"></div>
         </div>
         <p class="subtitle" data-t="subtitle"></p>
 
         <form id="setup-form" novalidate>
-            <!-- Pas de champ « login » : l'adresse EST l'identifiant, comme dans le
-                 panneau. L'ancien champ refusait le « @ » et donnait au premier
-                 administrateur un identifiant different de son adresse. Constate
-                 le 2026-09-13. Sans username, le serveur prend l'adresse
+            <!-- No "login" field: the address IS the login, as in the panel.
+                 The former field refused "@" and gave the first administrator a
+                 login different from their address. Found on 2026-09-13.
+                 Without a username, the server takes the address
                  (UserCreatePayload._resolve_identity). -->
             <label for="email" data-t="email_label"></label>
             <input type="email" id="email" name="email" required autocomplete="username">
@@ -92,8 +92,8 @@ const form = document.getElementById('setup-form');
 const msg = document.getElementById('msg');
 const btn = document.getElementById('submit-btn');
 
-// Boutons generes depuis les langues disponibles : une langue ajoutee par depot
-// d'un fichier apparait ici sans modifier cette page.
+// Buttons generated from the available languages: a language added by
+// dropping in a file shows up here without editing this page.
 const zoneLangues = document.getElementById('langues');
 LANGUES.forEach(l => {
     const b = document.createElement('button');
@@ -105,7 +105,7 @@ LANGUES.forEach(l => {
     zoneLangues.appendChild(b);
 });
 
-// La langue du navigateur si elle est disponible, sinon celle de l'installation.
+// The browser's language when available, otherwise the installation's.
 const langueNavigateur = (navigator.language || '').toLowerCase().split(/[-_]/)[0];
 let langueCourante = TEXTES[langueNavigateur] ? langueNavigateur : {setup_langue};
 if (!TEXTES[langueCourante]) langueCourante = Object.keys(TEXTES)[0];
@@ -139,8 +139,8 @@ function showMsg(text, ok) {
     msg.style.display = 'block';
 }
 
-// Erreur de validation (422) : on nomme le champ fautif dans la langue de la
-// page plutot que de montrer le message technique du serveur, en anglais.
+// Validation error (422): name the faulty field in the page's language rather
+// than show the server's technical message, in English.
 async function messageValidation(r) {
     try {
         const detail = (await r.json()).detail;
@@ -173,7 +173,7 @@ async function finaliser() {
         body: JSON.stringify({langue: langueCourante}),
     });
     if (r.ok) return termine();
-    // 404 : l'assistant n'existe plus, l'installation est deja finalisee.
+    // 404: the wizard no longer exists, setup is already complete.
     if (r.status === 404 || r.status === 409) throw new Error(t('err_already_done'));
     if (r.status === 400) throw new Error(t('err_no_admin'));
     throw new Error(await detailServeur(r));
@@ -196,8 +196,8 @@ form.addEventListener('submit', async (e) => {
         const r = await fetch('/auth/setup/create-admin', {
             method: 'POST',
             headers: {'content-type': 'application/json'},
-            // Ni username (l'adresse en tient lieu) ni groups : le serveur impose
-            // le groupe administrateur.
+            // Neither username (the address stands for it) nor groups: the
+            // server enforces the administrator group.
             body: JSON.stringify({
                 displayname: form.displayname.value.trim(),
                 email: email,
@@ -206,10 +206,10 @@ form.addEventListener('submit', async (e) => {
         });
         if (r.status === 404) throw new Error(t('err_already_done'));
         if (r.status === 422) throw new Error(await messageValidation(r));
-        // 409 : un administrateur a DEJA ete cree, lors d'un essai precedent
-        // interrompu avant la finalisation (coupure, onglet ferme). Refaire la
-        // creation ne peut qu'echouer ; on reprend donc a la finalisation. Sans
-        // cela, l'installation restait bloquee indefiniment.
+        // 409: an administrator was ALREADY created, during a previous attempt
+        // interrupted before finalisation (network cut, tab closed). Creating
+        // again can only fail, so we resume at finalisation. Without this, the
+        // installation stayed stuck forever.
         if (!r.ok && r.status !== 409) throw new Error(await detailServeur(r));
         await finaliser();
     } catch (err) {

@@ -12,8 +12,8 @@
 const I18N = window.__I18N__ || {};
 const LANGUE = document.documentElement.lang || 'en';
 
-// Le texte d'une cle, {variables} substituees. Une cle absente s'affiche telle
-// quelle plutot que de casser la page : le test test_i18n l'interdit en CI.
+// The text of a key, {variables} substituted. A missing key is shown as is
+// rather than breaking the page: test_i18n forbids it in CI.
 function t(cle, variables) {
     const modele = Object.prototype.hasOwnProperty.call(I18N, cle) ? I18N[cle] : cle;
     if (!variables) return modele;
@@ -21,8 +21,8 @@ function t(cle, variables) {
         Object.prototype.hasOwnProperty.call(variables, nom) ? String(variables[nom]) : m);
 }
 
-// Le detail d'une erreur de validation (422) arrive en liste d'objets : il
-// s'affichait « [object Object] ».
+// The detail of a validation error (422) arrives as a list of objects: it used
+// to show as "[object Object]".
 function detailErreur(data, status) {
     const d = data && data.detail;
     if (Array.isArray(d)) {
@@ -85,11 +85,11 @@ function confirmDialog(message, okLabel) {
     });
 }
 
-// Les valeurs affichees viennent d'Authelia et d'orthanc.json, pas de nous, et
-// elles traversent innerHTML puis des attributs onclick. Sans echappement,
-// « o'brien@exemple.fr » -- une adresse parfaitement valide -- fermait la
-// chaine JavaScript et le bouton Modifier de cette ligne cessait de repondre.
-// Un nom affiche contenant < ou " corrompait la ligne entiere.
+// The displayed values come from Authelia and orthanc.json, not from us, and
+// they go through innerHTML and then onclick attributes. Without escaping,
+// "o'brien@exemple.fr" -- a perfectly valid address -- closed the JavaScript
+// string and that row's Edit button stopped responding. A display name
+// containing < or " corrupted the whole row.
 function echapHtml(v) {
     return String(v ?? '')
         .replace(/&/g, '&amp;')
@@ -99,9 +99,9 @@ function echapHtml(v) {
         .replace(/'/g, '&#39;');
 }
 
-// Pour une valeur placee dans une chaine JavaScript, elle-meme dans un attribut
-// HTML : JSON.stringify echappe pour JavaScript (et fournit les guillemets),
-// echapHtml pour l'attribut. Le parseur HTML redecode avant que JS ne lise.
+// For a value placed in a JavaScript string that itself sits in an HTML
+// attribute: JSON.stringify escapes for JavaScript (and supplies the quotes),
+// echapHtml for the attribute. The HTML parser decodes before JS reads it.
 function echapArg(v) {
     return echapHtml(JSON.stringify(String(v ?? '')));
 }
@@ -118,9 +118,9 @@ function ligneErreur(colspan, e) {
     return `<tr><td colspan="${colspan}">${echapHtml(t('error_prefix', { message: e.message }))}</td></tr>`;
 }
 
-// ============ Langue ============
-// Une seule langue pour l'installation : l'enregistrer puis recharger, pour que
-// les textes rendus par le serveur suivent aussi.
+// ============ Language ============
+// One language for the installation: save it then reload, so that the texts
+// rendered by the server follow as well.
 function initLangue() {
     const select = document.getElementById('langue-select');
     if (!select) return;
@@ -163,13 +163,13 @@ document.querySelectorAll('.admin-tab').forEach(btn => {
 });
 
 // ============ USERS ============
-// Doit correspondre a ADMIN_GROUP cote auth-service. Le badge testait
-// 'admins' au pluriel : il ne s'est jamais applique, l'administrateur
-// s'affichait avec la pastille bleue des medecins.
+// Must match ADMIN_GROUP on the auth-service side. The badge used to test
+// 'admins' in the plural: it never applied, and the administrator showed with
+// the doctors' blue badge.
 const GROUPE_ADMIN = 'admin';
 
-// Renseigne au chargement de la liste ; sert au message affiche si l'operateur
-// clique quand meme sur un bouton verrouille.
+// Filled when the list loads; used for the message shown if the operator
+// clicks a locked button anyway.
 let verrouMotif = '';
 
 function expliquerVerrou() {
@@ -180,19 +180,19 @@ async function loadUsers() {
     const tbody = document.querySelector('#users-table tbody');
     try {
         const data = await api('/api/admin/users');
-        // Combien d'administrateurs peuvent encore ouvrir ce panneau. Sert a
-        // verrouiller les boutons sur le dernier d'entre eux : le supprimer ou
-        // le desactiver fermerait l'administration a tout le monde, et il n'y
-        // a pas de porte de service -- il faudrait repasser par SSH.
+        // How many administrators can still open this panel. Used to lock the
+        // buttons on the last of them: deleting or disabling them would close
+        // administration to everyone, and there is no back door -- you would
+        // have to go back through SSH.
         const adminsActifs = data.users.filter(
             u => (u.groups || []).includes(GROUPE_ADMIN) && !u.disabled,
         ).length;
         tbody.innerHTML = data.users.map(u => {
         const estAdmin = (u.groups || []).includes(GROUPE_ADMIN);
-        // Le verrou porte sur le dernier administrateur ACTIF -- exactement la
-        // meme regle que celle deja appliquee cote API (_active_admins).
-        // L'interface ne fait que la rendre visible : sans cela les boutons
-        // s'affichaient normalement et l'operateur recevait un refus apres coup.
+        // The lock applies to the last ACTIVE administrator -- exactly the same
+        // rule the API already enforces (_active_admins). The interface only
+        // makes it visible: without it the buttons looked normal and the
+        // operator got a refusal after the fact.
         const verrouille = estAdmin && !u.disabled && adminsActifs <= 1;
         return `
             <tr>
@@ -231,10 +231,9 @@ async function loadUsers() {
     }
 }
 
-// Le formulaire d'edition est pre-rempli depuis la liste deja chargee, plutot
-// que par un appel dedie : les valeurs affichees sont celles que l'operateur
-// vient de lire, ce qui evite de lui montrer autre chose que ce qu'il a sous
-// les yeux.
+// The edit form is pre-filled from the list already loaded, rather than by a
+// dedicated call: the values shown are the ones the operator has just read,
+// which avoids showing anything other than what is in front of them.
 let usersCache = [];
 
 function openEdit(username) {
@@ -280,9 +279,9 @@ document.getElementById('edit-user-form').addEventListener('submit', async (e) =
     } catch (err) { showMsg(err.message, false); }
 });
 
-// Desactiver n'est pas supprimer : le compte et son historique restent, il
-// cesse simplement de fonctionner. C'est ce qu'on veut quand quelqu'un s'en
-// va, plutot que d'effacer sa trace.
+// Disabling is not deleting: the account and its history remain, it simply
+// stops working. That is what you want when someone leaves, rather than wiping
+// their trace.
 async function toggleDisabled(username, currentlyDisabled) {
     const ok = await confirmDialog(
         currentlyDisabled
@@ -311,16 +310,16 @@ async function deleteUser(username) {
     } catch (e) { showMsg(e.message, false); }
 }
 
-// Changement de mot de passe : action distincte de la modification de fiche.
+// Password change: an action distinct from editing the account record.
 //
-// La regle minimale est de DOUZE caracteres, verifiee ici et cote serveur
-// (PasswordChangePayload, min_length=12). Le controle du navigateur ne protege
-// rien -- il evite un aller-retour et donne un message comprehensible ; c'est
-// le serveur qui decide.
+// The minimum rule is TWELVE characters, checked here and on the server side
+// (PasswordChangePayload, min_length=12). The browser check protects nothing
+// -- it saves a round trip and gives an understandable message; the server is
+// what decides.
 //
-// Cette installation n'a pas de second facteur : le mot de passe est la seule
-// chose entre Internet et des images de patients. D'ou la confirmation avant
-// d'agir, et la trace au journal d'audit cote serveur.
+// This installation has no second factor: the password is the only thing
+// between the Internet and patient images. Hence the confirmation before
+// acting, and the audit log entry on the server side.
 document.getElementById('edit-password-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const username = document.getElementById('edit-user-form').dataset.username;
@@ -373,7 +372,7 @@ document.getElementById('add-user-form').addEventListener('submit', async (e) =>
     } catch (err) { showMsg(err.message, false); }
 });
 
-// ============ ÉQUIPEMENTS ============
+// ============ DEVICES ============
 async function loadModalities() {
     const tbody = document.querySelector('#modalities-table tbody');
     try {
@@ -449,44 +448,44 @@ document.getElementById('add-modality-form').addEventListener('submit', async (e
 });
 
 /**
- * Rend un « ? » portant l'explication d'un reglage.
+ * Renders a "?" carrying the explanation of a setting.
  *
- * L'onglet Orthanc affichait le nom brut de la cle et rien d'autre.
- * "DicomAlwaysAllowStore" ou "StableAge" ne disent rien a qui n'a pas lu la
- * documentation d'Orthanc -- et un PACS se regle rarement par un specialiste
- * d'Orthanc.
+ * The Orthanc tab used to show the raw key name and nothing else.
+ * "DicomAlwaysAllowStore" or "StableAge" mean nothing to someone who has not
+ * read the Orthanc documentation -- and a PACS is rarely configured by an
+ * Orthanc specialist.
  *
- * Echappement obligatoire : ces textes viennent du serveur et finissent dans
- * un attribut HTML. tabindex le rend atteignable sans souris.
+ * Escaping is mandatory: these texts come from the server and end up in an
+ * HTML attribute. tabindex makes it reachable without a mouse.
  */
 function aide(texte) {
     if (!texte) return '';
     const e = echapHtml(texte);
-    // data-aide plutot que title : l'infobulle native tarde une seconde a
-    // sortir, s'efface toute seule, et ne s'affichait pas du tout ici. La bulle
-    // est donc dessinee en CSS (.aide::after) -- instantanee et lisible.
+    // data-aide rather than title: the native tooltip takes a second to appear,
+    // disappears by itself, and did not show at all here. The bubble is
+    // therefore drawn in CSS (.aide::after) -- instant and readable.
     return ` <span class="aide" tabindex="0" role="note" data-aide="${e}"
                    aria-label="${echapHtml(t('help_label', { text: texte }))}">?</span>`;
 }
 
 // ============ ORTHANC CONFIG ============
-// Valeurs telles que lues au chargement de l'onglet. L'enregistrement s'y
-// compare pour n'envoyer que ce qui a reellement change.
+// Values as read when the tab loaded. Saving compares against them so as to
+// send only what really changed.
 let orthancCharge = {};
 
 
-// Ce qu'Orthanc applique quand le reglage est absent du fichier.
+// What Orthanc applies when the setting is absent from the file.
 //
-// « non defini » etait exact et inutile : l'operateur veut savoir ce que fait
-// le serveur, pas ce que le fichier tait. Les valeurs viennent du serveur
-// (ORTHANC_DEFAUTS), extraites de la configuration de reference qu'Orthanc
-// emet lui-meme -- elles correspondent donc a la version installee.
+// "not set" was accurate and useless: the operator wants to know what the
+// server does, not what the file leaves unsaid. The values come from the server
+// (ORTHANC_DEFAUTS), extracted from the reference configuration Orthanc emits
+// itself -- so they match the installed version.
 function texteDefaut(cle, defauts) {
     const d = defauts && Object.prototype.hasOwnProperty.call(defauts, cle)
             ? defauts[cle] : undefined;
     if (d === undefined || d === null) {
-        // Les DicomWeb.* n'ont pas de defaut connu de nous : leurs valeurs
-        // appartiennent au greffon. Mieux vaut ne rien annoncer que d'inventer.
+        // The DicomWeb.* settings have no default known to us: their values
+        // belong to the plugin. Better to announce nothing than to make one up.
         return t('not_set');
     }
     return t('not_set_default', { value: Array.isArray(d) ? d.join(', ') : d });
@@ -496,17 +495,17 @@ async function loadOrthanc() {
     const container = document.getElementById('orthanc-fields');
     try {
         const data = await api('/api/admin/orthanc/config');
-        orthancCharge = data.editable;   // reference pour le diff a l'enregistrement
+        orthancCharge = data.editable;   // reference for the diff on save
         container.innerHTML = Object.entries(data.editable).map(([key, value]) => {
             const inputId = 'orth-' + key.replace(/\./g, '_');
             const defaut = echapHtml(texteDefaut(key, data.defauts));
             let control;
-            // Le type vient du serveur, pas de la valeur. Un reglage ABSENT
-            // d'orthanc.json arrive a null : `typeof null === 'object'`, et le
-            // test precedent (`typeof value === 'boolean' || value === null`)
-            // attrapait donc TOUS les absents en menu true/false. DicomScpTimeout
-            // et DicomThreadsCount, qui sont des entiers, s'affichaient ainsi en
-            // booleens -- et enregistrer y aurait ecrit `true`.
+            // The type comes from the server, not from the value. A setting
+            // ABSENT from orthanc.json arrives as null: `typeof null === 'object'`,
+            // and the previous test (`typeof value === 'boolean' || value === null`)
+            // therefore caught EVERY absent setting as a true/false menu.
+            // DicomScpTimeout and DicomThreadsCount, which are integers, were thus
+            // shown as booleans -- and saving would have written `true`.
             const type = data.types?.[key] || (value === null ? 'str' : typeof value);
             if (type === 'bool' || typeof value === 'boolean') {
                 control = `<select id="${inputId}" data-key="${key}">
@@ -529,10 +528,10 @@ async function loadOrthanc() {
     loadDivergences();
 }
 
-// Ce que le fichier declare n'est pas forcement ce qu'Orthanc applique : une
-// variable ORTHANC__* du compose peut l'ecraser, ou le redemarrage n'a jamais
-// eu lieu. Sans cet affichage l'operateur lit ses valeurs dans le formulaire
-// et croit qu'elles tournent.
+// What the file declares is not necessarily what Orthanc applies: an
+// ORTHANC__* variable from the compose file can override it, or the restart
+// never happened. Without this display the operator reads their values in the
+// form and believes they are in effect.
 async function loadDivergences() {
     const zone = document.getElementById('orthanc-divergences');
     if (!zone) return;
@@ -554,7 +553,7 @@ async function loadDivergences() {
                 </table>
             </div>`;
     } catch {
-        // Orthanc injoignable : /health le dit deja, ne pas doubler l'alerte.
+        // Orthanc unreachable: /health already says so, do not double the alert.
     }
 }
 
@@ -564,17 +563,16 @@ document.getElementById('orthanc-form').addEventListener('submit', async (e) => 
     document.querySelectorAll('#orthanc-fields [data-key]').forEach(input => {
         const key = input.dataset.key;
         const brut = input.value;
-        // Un champ vide veut dire « pas defini dans orthanc.json », pas « zero ».
-        // L'ancienne boucle envoyait TOUS les champs et convertissait le vide en
-        // 0 : ouvrir cet onglet puis cliquer Enregistrer suffisait a ecrire
-        // MaximumStorageSize: 0, DicomScpTimeout: 0 et false sur une quinzaine
-        // de reglages jamais touches.
+        // An empty field means "not set in orthanc.json", not "zero".
+        // The former loop sent EVERY field and turned empty into 0: opening this
+        // tab and clicking Save was enough to write MaximumStorageSize: 0,
+        // DicomScpTimeout: 0 and false on some fifteen settings never touched.
         if (brut === '') return;
         let val = brut;
         if (input.tagName === 'SELECT') val = (brut === 'true');
         else if (input.type === 'number') val = Number(val);
-        // Et on n'envoie que les differences : reecrire a l'identique creerait
-        // une sauvegarde et reclamerait un redemarrage d'Orthanc pour rien.
+        // And only the differences are sent: rewriting identical values would
+        // create a backup and call for an Orthanc restart for nothing.
         if (val === orthancCharge[key]) return;
         changes[key] = val;
     });
@@ -600,11 +598,11 @@ document.getElementById('orthanc-form').addEventListener('submit', async (e) => 
     } catch (err) { showMsg(err.message, false); }
 });
 
-// ============ REDEMARRAGE ORTHANC ============
+// ============ ORTHANC RESTART ============
 
-// Signale qu'un redemarrage est en attente. Le bouton reste au meme endroit,
-// il change seulement d'apparence : deplacer un bouton qui declenche une
-// coupure du PACS serait le pire moment pour surprendre l'operateur.
+// Signals that a restart is pending. The button stays where it is and only
+// changes appearance: moving a button that triggers a PACS outage would be the
+// worst moment to surprise the operator.
 function highlightRestart() {
     const btn = document.getElementById('orthanc-restart');
     if (btn) btn.classList.add('oe2-btn--primary');
@@ -616,9 +614,9 @@ async function restartOrthanc() {
 
     const btn = document.getElementById('orthanc-restart');
     const initial = btn.innerHTML;
-    // La route attend qu'Orthanc reponde a nouveau : jusqu'a 60 secondes. Sans
-    // ce verrou l'operateur cliquerait plusieurs fois, croyant que rien ne se
-    // passe, et enchainerait les redemarrages.
+    // The route waits for Orthanc to answer again: up to 60 seconds. Without
+    // this lock the operator would click several times, believing nothing is
+    // happening, and chain restarts.
     btn.disabled = true;
     btn.innerHTML = `<i class="fa-solid fa-hourglass-half"></i> ${echapHtml(t('restarting'))}`;
     try {
@@ -690,12 +688,12 @@ document.getElementById('cf-form').addEventListener('submit', async (e) => {
     } catch (err) { showMsg(err.message, false); }
 });
 
-// ============ ADRESSE PUBLIQUE ============
+// ============ PUBLIC ADDRESS ============
 
-// Changer ce domaine touche .env et onze endroits de la configuration
-// d'Authelia. Le faire a la main veut dire tous les reussir : en manquer un
-// laisse Authelia repondre 401 partout, page de connexion comprise, et plus
-// rien dans cette interface ne sait le reparer.
+// Changing this domain touches .env and eleven places in Authelia's
+// configuration. Doing it by hand means getting all of them right: missing one
+// leaves Authelia answering 401 everywhere, sign-in page included, and nothing
+// in this interface can repair it any more.
 async function loadNetwork() {
     const note = document.getElementById('network-note');
     try {
@@ -809,9 +807,9 @@ async function restoreBackup(name, target) {
     } catch (e) { showMsg(e.message, false); }
 }
 
-// ============ JOURNAL ============
+// ============ AUDIT LOG ============
 
-// Le flux etait alimente depuis le premier jour sans que rien ne le lise.
+// The stream had been fed since day one without anything reading it.
 let auditCache = [];
 
 async function loadAudit() {
@@ -847,11 +845,11 @@ function renderAudit() {
         echapHtml(filtre ? t('no_audit_match') : t('audit_empty'))}</td></tr>`;
 }
 
-// ============ SAUVEGARDE MANUELLE ============
+// ============ MANUAL BACKUP ============
 
-// Les copies n'etaient prises qu'en reaction a une ecriture du panel : prendre
-// un point de restauration AVANT une operation risquee etait impossible, alors
-// que c'est precisement le moment ou on le veut.
+// Copies were only taken in reaction to a panel write: taking a restore point
+// BEFORE a risky operation was impossible, even though that is precisely when
+// one wants it.
 async function createBackup() {
     const btn = document.getElementById('backup-now');
     btn.disabled = true;
