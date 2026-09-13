@@ -1,45 +1,49 @@
-# Poste d'import DICOM (Windows)
+# DICOM import workstation (Windows)
 
-Importe les CD/DVD de patients vers Orthanc depuis un poste Windows.
-Lancement par double-clic sur `import-dicom.bat`.
+Imports patient CDs/DVDs into Orthanc from a Windows workstation.
+Started by double-clicking `import-dicom.bat`.
 
-Le script choisit son mode tout seul :
+The script picks its mode by itself:
 
-- **Import** — un disque est inséré : il copie les fichiers DICOM dans
-  `C:\DICOM-Import\<date>_<heure>\`, éjecte le disque, puis envoie chaque
-  fichier à Orthanc un par un (la limite Cloudflare est de 100 Mo par requête).
-- **Reprise** — aucun disque inséré : il reprend le dossier le plus récent
-  contenant un `_failed-files.txt` et retente les envois qui avaient échoué.
+- **Import** — a disc is inserted: it copies the DICOM files into
+  `C:\DICOM-Import\<date>_<time>\`, ejects the disc, then sends each file to
+  Orthanc one at a time (Cloudflare's limit is 100 MB per request).
+- **Resume** — no disc inserted: it picks up the pending folders (a
+  `_failed-files.txt`, or files never sent) and retries the uploads.
 
-## Disques abîmés
+The window and messages follow the Windows display language: French on a
+French Windows, English otherwise.
 
-Un CD rayé ou sale rend certains secteurs illisibles. Le script ne s'arrête pas
-dessus et ne pose aucune question : le fichier est noté dans
-`_unreadable-files.txt`, le compteur de la fenêtre l'affiche, et la copie
-continue. Le décompte figure dans le résumé final.
+## Damaged discs
 
-Aucune relecture n'est tentée : face à un secteur abîmé, le pilote Windows
-insiste déjà 30 s à 2 min tout seul avant de rendre la main. Pendant ce temps
-la fenêtre paraît figée -- c'est le pilote, pas le script.
+A scratched or dirty CD makes some sectors unreadable. The script does not stop
+on them and asks no question: the file is recorded in `_unreadable-files.txt`,
+the window's counter shows it, and the copy carries on. The count appears in
+the final summary.
+
+No re-read is attempted: faced with a damaged sector, the Windows driver
+already insists on its own for 30 s to 2 min before giving control back.
+Meanwhile the window looks frozen -- that is the driver, not the script.
 
 ## Configuration
 
-`config.json` — non versionné, à créer depuis `config.json.example` :
+`config.json` — not versioned, to be created from `config.json.example`:
 
 ```json
 {
   "localFolder": "C:\DICOM-Import",
   "orthancUrl": "https://pacs.example.org",
-  "orthancUser": "compte-de-depot"
+  "orthancUser": "upload-account"
 }
 ```
 
-Les secrets (mot de passe du dépôt, jeton de service Cloudflare Access) ne se
-mettent **pas** là : lancer `setup-secrets.ps1`, qui les chiffre par DPAPI dans
-`config.secrets.dpapi.json`. Ce chiffrement est lié à la machine et au compte
-Windows — le fichier est inutilisable ailleurs, et n'est pas versionné non plus.
-`verify-secrets.ps1` contrôle qu'ils se déchiffrent encore.
+The secrets (upload account password, Cloudflare Access service token) do
+**not** go there: run `setup-secrets.ps1`, which encrypts them with DPAPI into
+`config.secrets.dpapi.json`. That encryption is bound to the machine and the
+Windows account — the file is useless anywhere else, and is not versioned
+either. `verify-secrets.ps1` checks that they still decrypt.
 
-Le script accepte toujours les champs `orthancPassword`, `cfAccessClientId` et
-`cfAccessClientSecret` en clair dans `config.json`, par rétro-compatibilité.
-C'est à éviter : ils y restent lisibles par n'importe quel programme du poste.
+The script still accepts the `orthancPassword`, `cfAccessClientId` and
+`cfAccessClientSecret` fields in clear in `config.json`, for backward
+compatibility. Avoid it: they stay readable there by any program on the
+workstation.

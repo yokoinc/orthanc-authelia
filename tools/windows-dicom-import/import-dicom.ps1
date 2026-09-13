@@ -1,39 +1,50 @@
 # import-dicom.ps1
 #
-# Comportement: detection automatique du mode au lancement.
+# Behaviour: the mode is detected automatically at launch.
 #
-# MODE IMPORT (un CD/DVD est insere) :
-#   1. Copie tous les fichiers DICOM (detection par signature 'DICM' a l'offset 128)
-#      dans C:\DICOM-Import\<date>_<heure>\ en preservant l'arborescence
-#   2. Ouvre le dossier de destination + ejecte le CD
-#   3. Upload chaque fichier DICOM individuellement vers Orthanc via REST
-#      (un par un pour rester sous la limite Cloudflare 100MB par requete)
-#   4. Les echecs sont logges dans _failed-files.txt pour retry ulterieur
+# IMPORT MODE (a CD/DVD is inserted):
+#   1. Copies every DICOM file (detected by the 'DICM' signature at offset 128)
+#      into C:\DICOM-Import\<date>_<time>\, preserving the directory tree
+#   2. Opens the destination folder + ejects the CD
+#   3. Uploads each DICOM file individually to Orthanc through REST
+#      (one at a time, to stay under Cloudflare's 100MB-per-request limit)
+#   4. Failures are logged in _failed-files.txt for a later retry
 #
-# MODE REPRISE (aucun CD insere) :
-#   1. Rassemble TOUS les dossiers en attente (liste d'echecs non vide, ou
-#      fichiers encore presents) : rien ne s'accumule d'un lancement a l'autre.
-#      Un fichier est supprime des son upload reussi, donc ce qui reste n'est
-#      jamais parti (import interrompu avant meme la phase d'upload).
-#   2. Archive les anciennes listes, envoie tout, puis supprime les dossiers
-#      vides. 3. Les echecs restants ecrivent un nouveau _failed-files.txt
+# RETRY MODE (no CD inserted):
+#   1. Gathers ALL pending folders (non-empty failure list, or files still
+#      present): nothing piles up from one run to the next. A file is deleted
+#      as soon as its upload succeeds, so whatever remains never left
+#      (import interrupted before the upload phase even started).
+#   2. Archives the old lists, sends everything, then deletes the empty
+#      folders. 3. Remaining failures write a new _failed-files.txt
 #
-# Si ni CD ni dossier exploitable -> erreur explicite.
+# Neither a CD nor a usable folder -> explicit error.
+#
+# Messages follow the Windows display language: French on a French Windows,
+# English otherwise.
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+
+# Picks the message matching the Windows display language. Defined before the
+# trap below, which also uses it.
+$script:isFrench = (Get-UICulture).TwoLetterISOLanguageName -eq 'fr'
+function L {
+    param([string]$English, [string]$French)
+    if ($script:isFrench) { $French } else { $English }
+}
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-# --- Trap global: en cas d'exception non capturee, on ferme proprement la fenetre
-#     de progression et on affiche un popup d'erreur avant de sortir.
+# --- Global trap: on an uncaught exception, close the progress window cleanly
+#     and show an error popup before exiting.
 trap {
     try { Close-Status } catch { }
     try {
         [System.Windows.Forms.MessageBox]::Show(
-            "Erreur fatale non geree:`r`n$($_.Exception.Message)`r`n`r`nStack:`r`n$($_.ScriptStackTrace)",
+            (L "Unhandled fatal error:`r`n$($_.Exception.Message)`r`n`r`nStack:`r`n$($_.ScriptStackTrace)" "Erreur fatale non geree:`r`n$($_.Exception.Message)`r`n`r`nStack:`r`n$($_.ScriptStackTrace)"),
             'Import DICOM', 'OK', 'Error'
         ) | Out-Null
     } catch { }
@@ -42,27 +53,27 @@ trap {
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# --- Fenetre de progression (suit la copie puis l'upload en temps reel)
+# --- Progress window (follows the copy, then the upload, in real time)
 $script:cancelRequested = $false
 
 $statusForm = New-Object System.Windows.Forms.Form
-$statusForm.Text = 'Import DICOM en cours'
+$statusForm.Text = (L 'DICOM import in progress' 'Import DICOM en cours')
 $statusForm.Size = New-Object System.Drawing.Size(460, 240)
 $statusForm.StartPosition = 'CenterScreen'
 $statusForm.FormBorderStyle = 'FixedSingle'
 $statusForm.MinimizeBox = $true
 $statusForm.MaximizeBox = $false
-$statusForm.ControlBox = $true    # X disponible -> declenche l'annulation
+$statusForm.ControlBox = $true    # X available -> triggers cancellation
 
-# Fermeture par le X = annulation propre (la boucle upload sortira au prochain
-# tour). On empeche la fermeture immediate pour eviter de tuer le script en
-# plein milieu d'un upload.
+# Closing with the X = clean cancellation (the upload loop exits on its next
+# iteration). Immediate closing is prevented so the script is not killed in
+# the middle of an upload.
 $statusForm.Add_FormClosing({
     param($s, $e)
     if (-not $script:cancelRequested) {
         $script:cancelRequested = $true
-        if ($phaseLabel) { $phaseLabel.Text = 'Annulation demandee, finalisation...' }
-        $e.Cancel = $true   # ne pas fermer maintenant, laisser la boucle finir proprement
+        if ($phaseLabel) { $phaseLabel.Text = (L 'Cancellation requested, finishing...' 'Annulation demandee, finalisation...') }
+        $e.Cancel = $true   # do not close now, let the loop finish cleanly
     }
 })
 
@@ -70,7 +81,7 @@ $phaseLabel = New-Object System.Windows.Forms.Label
 $phaseLabel.Location = New-Object System.Drawing.Point(15, 15)
 $phaseLabel.Size = New-Object System.Drawing.Size(420, 24)
 $phaseLabel.Font = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
-$phaseLabel.Text = 'Initialisation...'
+$phaseLabel.Text = (L 'Initialising...' 'Initialisation...')
 
 $counterLabel = New-Object System.Windows.Forms.Label
 $counterLabel.Location = New-Object System.Drawing.Point(15, 44)
@@ -93,13 +104,13 @@ $detailsLabel.Text = ''
 $stopButton = New-Object System.Windows.Forms.Button
 $stopButton.Location = New-Object System.Drawing.Point(335, 155)
 $stopButton.Size = New-Object System.Drawing.Size(100, 28)
-$stopButton.Text = 'Arreter'
+$stopButton.Text = (L 'Stop' 'Arreter')
 $stopButton.Add_Click({
     if (-not $script:cancelRequested) {
         $script:cancelRequested = $true
         $stopButton.Enabled = $false
-        $stopButton.Text = 'Annulation...'
-        if ($phaseLabel) { $phaseLabel.Text = 'Annulation demandee, finalisation...' }
+        $stopButton.Text = (L 'Cancelling...' 'Annulation...')
+        if ($phaseLabel) { $phaseLabel.Text = (L 'Cancellation requested, finishing...' 'Annulation demandee, finalisation...') }
     }
 })
 
@@ -129,9 +140,9 @@ function Update-Status {
 }
 
 function Close-Status {
-    # Marque cancel pour que le handler FormClosing laisse passer la fermeture
-    # (sinon il intercepte le Close en demandant l'annulation -> dead-lock visuel
-    # a la fin du script).
+    # Set cancel so that the FormClosing handler lets the close through
+    # (otherwise it intercepts Close by requesting cancellation -> visual
+    # dead-lock at the end of the script).
     $script:cancelRequested = $true
     if ($statusForm -and -not $statusForm.IsDisposed) {
         $statusForm.Close()
@@ -151,31 +162,31 @@ function Fail {
     exit 1
 }
 
-# --- Charge config
+# --- Load config
 $configPath = Join-Path $scriptDir 'config.json'
 if (-not (Test-Path $configPath)) {
-    Fail "config.json introuvable a $configPath"
+    Fail (L "config.json not found at $configPath" "config.json introuvable a $configPath")
 }
 try {
     $config = Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
 } catch {
-    Fail "config.json invalide: $($_.Exception.Message)"
+    Fail (L "Invalid config.json: $($_.Exception.Message)" "config.json invalide: $($_.Exception.Message)")
 }
 
 $importBase  = $config.localFolder
 $orthancUrl  = $config.orthancUrl.TrimEnd('/')
 $orthancUser = $config.orthancUser
 
-# --- Charge secrets chiffres DPAPI (si presents). Fallback sur les champs
-# plain-text de config.json pour retro-compat. setup-secrets.ps1 cree le
-# fichier chiffre; une fois en place, supprime les 3 champs plain-text de
-# config.json (orthancPassword, cfAccessClientId, cfAccessClientSecret).
+# --- Load the DPAPI-encrypted secrets (if present). Falls back on the
+# plain-text fields of config.json for backward compatibility. setup-secrets.ps1
+# creates the encrypted file; once it is in place, delete the 3 plain-text
+# fields from config.json (orthancPassword, cfAccessClientId, cfAccessClientSecret).
 function Unprotect-DpapiString {
     param([Parameter(Mandatory=$false)][string]$EncryptedString)
     if ([string]::IsNullOrWhiteSpace($EncryptedString)) { return '' }
     try {
         $secure = ConvertTo-SecureString -String $EncryptedString -ErrorAction Stop
-        # Astuce PSCredential pour extraire la chaine en clair sans Marshal direct
+        # PSCredential trick to extract the clear string without calling Marshal directly
         $cred = New-Object System.Management.Automation.PSCredential('x', $secure)
         return $cred.GetNetworkCredential().Password
     } catch {
@@ -195,23 +206,23 @@ if (Test-Path $secretsPath) {
         $cfClientId     = Unprotect-DpapiString $secrets.cfAccessClientId
         $cfClientSecret = Unprotect-DpapiString $secrets.cfAccessClientSecret
     } catch {
-        Fail "config.secrets.dpapi.json invalide ou non dechiffrable: $($_.Exception.Message)`r`nRelance setup-secrets.ps1."
+        Fail (L "config.secrets.dpapi.json is invalid or cannot be decrypted: $($_.Exception.Message)`r`nRun setup-secrets.ps1 again." "config.secrets.dpapi.json invalide ou non dechiffrable: $($_.Exception.Message)`r`nRelance setup-secrets.ps1.")
     }
 }
 
-# Retro-compat: si config.json contient encore les champs plain-text et que la
-# version DPAPI n'a rien donne, on retombe dessus. Permet de migrer sans tout
-# casser. A supprimer une fois la migration validee.
+# Backward compatibility: if config.json still holds the plain-text fields and
+# the DPAPI version yielded nothing, fall back on them. Allows migrating
+# without breaking everything. To be removed once the migration is validated.
 if (-not $orthancPwd     -and $config.PSObject.Properties['orthancPassword'])     { $orthancPwd     = $config.orthancPassword }
 if (-not $cfClientId     -and $config.PSObject.Properties['cfAccessClientId'])     { $cfClientId     = $config.cfAccessClientId }
 if (-not $cfClientSecret -and $config.PSObject.Properties['cfAccessClientSecret']) { $cfClientSecret = $config.cfAccessClientSecret }
 
-# --- Detection du mode: import depuis CD, ou retry des fichiers echoues precedemment
-# Comportement:
-#   - CD insere -> mode 'import' (scan, copie, eject, upload)
-#   - Pas de CD mais un _failed-files.txt existe -> mode 'retry' (retente les uploads)
-#   - Ni CD ni _failed-files.txt -> echec explicite
-Update-Status -Phase 'Recherche d''un CD/DVD insere...' -Max 0
+# --- Mode detection: import from CD, or retry of previously failed files
+# Behaviour:
+#   - CD inserted -> 'import' mode (scan, copy, eject, upload)
+#   - No CD but a _failed-files.txt exists -> 'retry' mode (retries the uploads)
+#   - Neither CD nor _failed-files.txt -> explicit failure
+Update-Status -Phase (L 'Looking for an inserted CD/DVD...' 'Recherche d''un CD/DVD insere...') -Max 0
 $drive = Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=5' |
     Where-Object { $_.Size -gt 0 } |
     Select-Object -First 1
@@ -221,53 +232,53 @@ $srcRoot = ''
 $ejectMsg = ''
 $scanned = 0
 
-# Declaree pour les DEUX modes (import et retry) : le resume final la lit sans
-# savoir par quelle branche on est passe.
+# Declared for BOTH modes (import and retry): the final summary reads it
+# without knowing which branch was taken.
 $unreadable = New-Object System.Collections.Generic.List[string]
 
 if ($drive) {
-    # ---------- MODE IMPORT ----------
+    # ---------- IMPORT MODE ----------
     $mode = 'import'
     $srcRoot = $drive.DeviceID + '\'
-    Update-Status -Phase "Lecteur detecte: $($drive.DeviceID)" -Details "Volume: $($drive.VolumeName)"
+    Update-Status -Phase (L "Drive detected: $($drive.DeviceID)" "Lecteur detecte: $($drive.DeviceID)") -Details "Volume: $($drive.VolumeName)"
 
-    # Cree le dossier de destination
+    # Create the destination folder
     $timestamp = Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'
     $dst = Join-Path $importBase $timestamp
     New-Item -ItemType Directory -Path $dst -Force | Out-Null
 
-    # Pre-scan rapide: lister les fichiers et sommer leurs tailles. On ne lit
-    # PAS le contenu (juste la metadata du TOC ISO du CD), donc c'est rapide
-    # (~quelques secondes meme sur un gros CD). Permet d'afficher une vraie
-    # barre de progression en MB pendant la phase 1, au lieu du Marquee.
-    Update-Status -Phase 'PHASE 1/2 : Indexation du CD (calcul du total)...' -Max 0 -Details ''
+    # Quick pre-scan: list the files and add up their sizes. The content is NOT
+    # read (only the metadata of the CD's ISO TOC), so it is fast (~a few
+    # seconds even on a big CD). Allows showing a real progress bar in MB
+    # during phase 1, instead of the Marquee.
+    Update-Status -Phase (L 'PHASE 1/2: Indexing the CD (computing the total)...' 'PHASE 1/2 : Indexation du CD (calcul du total)...') -Max 0 -Details ''
     $allFiles = @(Get-ChildItem -Path $srcRoot -Recurse -File -Force -ErrorAction SilentlyContinue)
     $totalBytes = ($allFiles | Measure-Object -Sum Length).Sum
-    if (-not $totalBytes) { $totalBytes = 1 }   # safety: evite div/0 si CD vide
+    if (-not $totalBytes) { $totalBytes = 1 }   # safety: avoids div/0 on an empty CD
     $totalMB = [Math]::Round($totalBytes / 1MB, 0)
 
-    # Scan + copie des fichiers DICOM (magic 'DICM' a l'offset 128)
-    Update-Status -Phase 'PHASE 1/2 : Copie locale (scan + copie DICOM)...' -Current 0 -Max 100 -Counter "0 / $totalMB MB - 0 DICOM" -Details ''
+    # Scan + copy of the DICOM files (magic 'DICM' at offset 128)
+    Update-Status -Phase (L 'PHASE 1/2: Local copy (scan + DICOM copy)...' 'PHASE 1/2 : Copie locale (scan + copie DICOM)...') -Current 0 -Max 100 -Counter "0 / $totalMB MB - 0 DICOM" -Details ''
     $dicomFiles = New-Object System.Collections.Generic.List[string]
     $bytesScanned = 0
 
-    # Fichiers que le lecteur n'a pas reussi a lire (secteur abime, CD raye ou
-    # sale). $ErrorActionPreference vaut 'Stop' et un trap global attrape tout :
-    # sans le try/catch ci-dessous, UNE erreur CRC sur un seul fichier tuait
-    # l'import entier -- « Erreur de donnees (controle de redondance cyclique) »
-    # ligne 281 -- et faisait perdre aussi les fichiers deja copies et tous ceux
-    # qui restaient a lire. On note, on continue, et on le dit a la fin.
+    # Files the drive failed to read (damaged sector, scratched or dirty CD).
+    # $ErrorActionPreference is 'Stop' and a global trap catches everything:
+    # without the try/catch below, ONE CRC error on a single file killed the
+    # whole import -- "Data error (cyclic redundancy check)" at line 281 -- and
+    # also lost the files already copied and all those still to be read. We
+    # note it, carry on, and say so at the end.
     #
-    # Ces fichiers ne doivent JAMAIS disparaitre en silence : un import qui
-    # annonce « termine » en ayant laisse trois coupes en arriere serait bien
-    # pire qu'un import qui echoue franchement.
+    # These files must NEVER disappear silently: an import that announces
+    # "complete" while having left three slices behind would be far worse than
+    # an import that fails outright.
 
     foreach ($file in $allFiles) {
         $scanned++
         $bytesScanned += $file.Length
 
-        # Update UI tous les 10 fichiers scannes (evite de spammer l'UI).
-        # On n'affiche PAS le nom du fichier dans Details (PII potentiel).
+        # Update the UI every 10 scanned files (avoids spamming the UI).
+        # The file name is NOT shown in Details (potential PII).
         if ($scanned % 10 -eq 0) {
             $pct = [int](100 * $bytesScanned / $totalBytes)
             $mbScanned = [Math]::Round($bytesScanned / 1MB, 0)
@@ -288,13 +299,12 @@ if ($drive) {
                 $isDicom = $true
             }
         } catch [System.IO.IOException] {
-            # Le secteur qui porte l'en-tete est illisible. On ne sait donc PAS
-            # si c'est une image DICOM. L'ancien catch vide le classait
-            # implicitement en « pas du DICOM » et le fichier disparaissait sans
-            # un mot : sur un disque abime, c'est exactement le cas ou il faut
-            # parler.
+            # The sector holding the header is unreadable. So we do NOT know
+            # whether it is a DICOM image. The old empty catch implicitly
+            # classed it as "not DICOM" and the file vanished without a word:
+            # on a damaged disc, that is exactly the case where we must speak.
             $headerUnreadable = $true
-            $unreadable.Add("$($file.FullName)  [en-tete illisible] $($_.Exception.Message)")
+            $unreadable.Add((L "$($file.FullName)  [unreadable header] $($_.Exception.Message)" "$($file.FullName)  [en-tete illisible] $($_.Exception.Message)"))
         } catch { }
         finally { if ($fs) { $fs.Close() } }
         if ($headerUnreadable) { continue }
@@ -306,11 +316,11 @@ if ($drive) {
             if (-not (Test-Path $targetDir)) {
                 New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
             }
-            # Une seule tentative. Pas de relecture : face a un secteur abime,
-            # le pilote Windows insiste deja tout seul 30 s a 2 min avant de
-            # rendre la main, et chaque essai supplementaire rajoute autant.
-            # Un import se fait entre deux patients -- illisible, c'est illisible,
-            # on passe. Ce qui est perdu est compte et annonce a la fin.
+            # A single attempt. No re-read: faced with a damaged sector, the
+            # Windows driver already insists on its own for 30 s to 2 min
+            # before giving control back, and every extra attempt adds as much.
+            # An import happens between two patients -- unreadable is
+            # unreadable, move on. What is lost is counted and reported at the end.
             $copyOk = $false
             $lastErr = ''
             try {
@@ -318,108 +328,106 @@ if ($drive) {
                 $copyOk = $true
             } catch {
                 $lastErr = $_.Exception.Message
-                # Copy-Item laisse un fichier tronque derriere lui quand il meurt
-                # en cours de route : on l'efface, un reste partiel ne doit jamais
-                # partir vers Orthanc.
+                # Copy-Item leaves a truncated file behind when it dies halfway:
+                # delete it, a partial leftover must never go to Orthanc.
                 Remove-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
             }
 
             if (-not $copyOk) {
-                $unreadable.Add("$($file.FullName)  [copie impossible] $lastErr")
-                # Rafraichissement immediat : sur un disque abime, l'affichage
-                # ne bouge qu'un fichier sur dix et donne l'impression d'un
-                # blocage. Le compteur d'illisibles, lui, doit se voir tout de
-                # suite -- c'est le signe que le disque lache.
+                $unreadable.Add((L "$($file.FullName)  [copy failed] $lastErr" "$($file.FullName)  [copie impossible] $lastErr"))
+                # Immediate refresh: on a damaged disc, the display only moves
+                # one file in ten and looks frozen. The unreadable counter, on
+                # the other hand, must show at once -- it is the sign that the
+                # disc is failing.
                 $mbScanned = [Math]::Round($bytesScanned / 1MB, 0)
                 Update-Status -Current ([int](100 * $bytesScanned / $totalBytes)) -Max 100 `
-                    -Counter "$mbScanned / $totalMB MB - $($dicomFiles.Count) DICOM - $($unreadable.Count) illisible(s)" `
+                    -Counter (L "$mbScanned / $totalMB MB - $($dicomFiles.Count) DICOM - $($unreadable.Count) unreadable" "$mbScanned / $totalMB MB - $($dicomFiles.Count) DICOM - $($unreadable.Count) illisible(s)") `
                     -Details ''
                 continue
             }
 
-            # Les fichiers d'un CD heritent de l'attribut read-only et avec lui
-            # Invoke-RestMethod -InFile echoue plus tard avec "Acces refuse" sur
-            # certains setups PowerShell. On le clear systematiquement ici.
+            # Files from a CD inherit the read-only attribute, and with it
+            # Invoke-RestMethod -InFile later fails with "Access denied" on
+            # some PowerShell setups. It is cleared systematically here.
             try { (Get-Item -LiteralPath $target).IsReadOnly = $false } catch { }
             $dicomFiles.Add($target)
         }
     }
 
     $copied = $dicomFiles.Count
-    $bilanCopie = "PHASE 1/2 : Copie locale terminee ($copied fichier(s))"
-    if ($unreadable.Count -gt 0) { $bilanCopie += " - $($unreadable.Count) illisible(s)" }
+    $bilanCopie = (L "PHASE 1/2: Local copy complete ($copied file(s))" "PHASE 1/2 : Copie locale terminee ($copied fichier(s))")
+    if ($unreadable.Count -gt 0) { $bilanCopie += (L " - $($unreadable.Count) unreadable" " - $($unreadable.Count) illisible(s)") }
     Update-Status -Phase $bilanCopie -Current 100 -Max 100 `
         -Counter "$totalMB / $totalMB MB - $copied DICOM" -Details ''
 
-    # Trace sur disque des fichiers illisibles. Le dossier date n'est efface en
-    # fin de course que si TOUT a reussi ; en presence d'illisibles on le garde,
-    # ce fichier avec, pour pouvoir reprendre le disque plus tard.
+    # On-disk record of the unreadable files. The dated folder is only deleted
+    # at the end if EVERYTHING succeeded; when there are unreadable files it is
+    # kept, together with this file, so the disc can be picked up again later.
     if ($unreadable.Count -gt 0) {
         $unreadablePath = Join-Path $dst '_unreadable-files.txt'
         Set-Content -LiteralPath $unreadablePath -Value $unreadable -Encoding UTF8
     }
 
-    # Copie aussi DICOMDIR s'il existe (pratique en local, Orthanc l'ignore).
-    # Lui aussi vit sur le disque abime : un CRC ici ne doit pas tuer l'import
-    # alors que les images, elles, sont deja copiees.
+    # Also copy DICOMDIR if present (handy locally, Orthanc ignores it).
+    # It too lives on the damaged disc: a CRC error here must not kill the
+    # import when the images themselves are already copied.
     $dicomdir = Join-Path $srcRoot 'DICOMDIR'
     if (Test-Path $dicomdir) {
         try {
             Copy-Item -LiteralPath $dicomdir -Destination (Join-Path $dst 'DICOMDIR') -Force
         } catch {
-            $unreadable.Add("$dicomdir  [copie impossible] $($_.Exception.Message)")
+            $unreadable.Add((L "$dicomdir  [copy failed] $($_.Exception.Message)" "$dicomdir  [copie impossible] $($_.Exception.Message)"))
         }
     }
 
     if ($copied -eq 0) {
         Remove-Item -Path $dst -Recurse -Force -ErrorAction SilentlyContinue
-        Fail "Aucun fichier DICOM trouve sur $srcRoot ($scanned fichiers scannes)."
+        Fail (L "No DICOM file found on $srcRoot ($scanned files scanned)." "Aucun fichier DICOM trouve sur $srcRoot ($scanned fichiers scannes).")
     }
 
-    # Ejecte le CD/DVD - on a fini de lire dessus.
+    # Eject the CD/DVD - we are done reading from it.
     try {
         $shell = New-Object -ComObject Shell.Application
         $shell.Namespace(17).ParseName($drive.DeviceID).InvokeVerb('Eject')
-        $ejectMsg = "CD ejecte ($($drive.DeviceID))."
+        $ejectMsg = (L "CD ejected ($($drive.DeviceID))." "CD ejecte ($($drive.DeviceID)).")
     } catch {
-        $ejectMsg = "Ejection du CD echouee: $($_.Exception.Message)"
+        $ejectMsg = (L "CD ejection failed: $($_.Exception.Message)" "Ejection du CD echouee: $($_.Exception.Message)")
     }
 
 } else {
-    # ---------- MODE RETRY ----------
-    # Pas de CD insere -> on cherche le dossier d'import le plus recent qui contient
-    # un _failed-files.txt non vide, et on retente les uploads.
-    Update-Status -Phase 'Pas de CD - recherche d''un retry possible...' -Max 0
+    # ---------- RETRY MODE ----------
+    # No CD inserted -> look for the most recent import folder containing a
+    # non-empty _failed-files.txt, and retry the uploads.
+    Update-Status -Phase (L 'No CD - looking for something to retry...' 'Pas de CD - recherche d''un retry possible...') -Max 0
 
-    # Deux pistes, dans cet ordre.
+    # Two leads, in this order.
     #
-    # 1. Un _failed-files.txt non vide : la piste precise. L'upload a eu lieu et
-    #    a laisse la liste de ce qui n'est pas passe.
+    # 1. A non-empty _failed-files.txt: the precise lead. The upload took place
+    #    and left the list of what did not get through.
     #
-    # 2. A defaut, un dossier qui contient encore des fichiers. C'est un
-    #    invariant du script : chaque fichier est supprime des son upload reussi,
-    #    et le dossier date est efface quand tout est passe. Un fichier encore
-    #    la n'a donc JAMAIS ete envoye.
+    # 2. Failing that, a folder that still contains files. It is an invariant
+    #    of the script: each file is deleted as soon as its upload succeeds,
+    #    and the dated folder is erased when everything has gone through. A
+    #    file still there was therefore NEVER sent.
     #
-    # La piste 2 manquait, et c'est exactement le cas qu'ouvrait le plantage CRC :
-    # l'import mourait pendant la copie, donc avant tout upload, donc sans jamais
-    # ecrire de _failed-files.txt. Cinq dossiers de 790 images copiees attendaient
-    # ainsi sur le disque pendant que le script repondait « aucun dossier ne
-    # contient de fichiers a retenter ».
+    # Lead 2 was missing, and it is exactly the case the CRC crash opened up:
+    # the import died during the copy, hence before any upload, hence without
+    # ever writing a _failed-files.txt. Five folders with 790 copied images sat
+    # on the disk while the script answered "no folder contains files to retry".
     $tousDossiers = @(Get-ChildItem -Path $importBase -Directory -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending)
 
-    # TOUS les dossiers en attente, pas seulement le plus recent. Le menage de
-    # fin de course n'efface que les dossiers effectivement envoyes : n'en
-    # traiter qu'un laissait les autres s'accumuler indefiniment, a relancer un
-    # a un. Orthanc dedoublonne sur le SOP Instance UID, donc reenvoyer une
-    # etude deja presente ne cree rien -- c'est sans risque, juste plus long.
-    # Uniquement les dossiers que CE script a crees : <date>_<heure>. Le menage
-    # de fin de course supprime tout dossier ayant fourni un fichier envoye --
-    # sans ce filtre, un dossier depose a la main dans C:\DICOM-Import (un
-    # export grave par un confrere, une copie gardee de cote) serait absorbe
-    # puis EFFACE au premier lancement sans CD. Les images finiraient dans
-    # Orthanc, donc rien ne serait perdu, mais personne n'a demande ca.
+    # ALL pending folders, not only the most recent. The end-of-run cleanup
+    # only erases folders that were actually sent: handling just one left the
+    # others piling up indefinitely, to be re-run one by one. Orthanc
+    # deduplicates on the SOP Instance UID, so re-sending a study already
+    # present creates nothing -- it is safe, just slower.
+    # Only the folders THIS script created: <date>_<time>. The end-of-run
+    # cleanup deletes any folder that supplied a sent file -- without this
+    # filter, a folder dropped by hand into C:\DICOM-Import (an export burnt by
+    # a colleague, a copy kept aside) would be absorbed and then ERASED on the
+    # first run without a CD. The images would end up in Orthanc, so nothing
+    # would be lost, but nobody asked for that.
     $motifDate = '^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$'
     $enAttente = @($tousDossiers | Where-Object {
         $_.Name -match $motifDate -and (
@@ -431,16 +439,16 @@ if ($drive) {
     })
 
     if (-not $enAttente) {
-        Fail "Aucun CD insere, et aucun dossier dans $importBase ne contient de fichiers a envoyer."
+        Fail (L "No CD inserted, and no folder in $importBase contains files to send." "Aucun CD insere, et aucun dossier dans $importBase ne contient de fichiers a envoyer.")
     }
 
-    # Le plus recent sert de point de chute pour _failed-files.txt et le journal
-    # d'erreurs. La boucle d'upload sait deja travailler sur des chemins
-    # repartis dans plusieurs dossiers dates.
+    # The most recent one serves as the landing place for _failed-files.txt and
+    # the error log. The upload loop already knows how to work on paths spread
+    # across several dated folders.
     $candidate = $enAttente[0]
 
-    # « Reprise » s'il existe au moins un dossier sans liste d'echecs : ces
-    # fichiers n'ont jamais ete envoyes, ils n'ont pas echoue.
+    # "Resume" if there is at least one folder without a failure list: those
+    # files were never sent, they did not fail.
     $reprisePartielle = [bool](@($enAttente | Where-Object {
         $f = Join-Path $_.FullName '_failed-files.txt'
         -not ((Test-Path $f) -and ((Get-Item $f).Length -gt 0))
@@ -448,30 +456,30 @@ if ($drive) {
 
     $mode = 'retry'
     $dst = $candidate.FullName
-    $srcRoot = "(reprise du dossier $($candidate.Name))"
+    $srcRoot = (L "(resuming folder $($candidate.Name))" "(reprise du dossier $($candidate.Name))")
     $dicomFiles = New-Object System.Collections.Generic.List[string]
 
-    Update-Status -Phase "Reprise : inventaire de $($enAttente.Count) dossier(s)..." -Max 0
+    Update-Status -Phase (L "Resume: listing $($enAttente.Count) folder(s)..." "Reprise : inventaire de $($enAttente.Count) dossier(s)...") -Max 0
     foreach ($dossier in $enAttente) {
         $listeEchecs = Join-Path $dossier.FullName '_failed-files.txt'
 
         if ((Test-Path $listeEchecs) -and ((Get-Item $listeEchecs).Length -gt 0)) {
-            # Des envois ont echoue : on s'en tient a la liste, elle est precise.
+            # Some uploads failed: stick to the list, it is precise.
             Get-Content -Path $listeEchecs -Encoding UTF8 | ForEach-Object {
                 $line = $_.Trim()
                 if ($line -and (Test-Path -LiteralPath $line)) { $dicomFiles.Add($line) }
             }
-            # Archivee pour historique : la nouvelle liste sera ecrite a la fin.
+            # Archived for history: the new list will be written at the end.
             $arch = Join-Path $dossier.FullName (
                 '_failed-files.txt.previous-' + (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'))
             Move-Item -LiteralPath $listeEchecs -Destination $arch -Force
             continue
         }
 
-        # Import interrompu avant l'upload : on reprend tout ce qui est la.
-        # On revalide la signature DICM plutot que de faire confiance au nom :
-        # un fichier tronque par une erreur de lecture ne doit pas partir.
-        # DICOMDIR est ecarte, Orthanc n'en fait rien.
+        # Import interrupted before the upload: take everything that is there.
+        # The DICM signature is re-checked rather than trusting the name: a
+        # file truncated by a read error must not be sent.
+        # DICOMDIR is left out, Orthanc does nothing with it.
         foreach ($f in (Get-ChildItem -LiteralPath $dossier.FullName -Recurse -File -Force -ErrorAction SilentlyContinue)) {
             if ($f.Name -like '_*' -or $f.Name -eq 'DICOMDIR' -or $f.Length -lt 132) { continue }
             $fs = $null
@@ -490,24 +498,24 @@ if ($drive) {
     $copied = $dicomFiles.Count
 
     if ($copied -eq 0) {
-        Fail "Aucun fichier DICOM exploitable ne subsiste dans $importBase."
+        Fail (L "No usable DICOM file remains in $importBase." "Aucun fichier DICOM exploitable ne subsiste dans $importBase.")
     }
 
-    # (les listes d'echecs ont deja ete archivees dossier par dossier ci-dessus)
+    # (the failure lists have already been archived folder by folder above)
 
-    $libelle = if ($reprisePartielle) { 'import interrompu' } else { 'envois echoues' }
-    $source = if ($enAttente.Count -gt 1) { "$($enAttente.Count) dossiers" } else { $candidate.Name }
-    Update-Status -Phase "PHASE 2/2 : Reprise ($libelle) - $copied fichier(s)" -Current 0 -Max $copied -Counter "0 / $copied" -Details "Source: $source"
+    $libelle = if ($reprisePartielle) { (L 'interrupted import' 'import interrompu') } else { (L 'failed uploads' 'envois echoues') }
+    $source = if ($enAttente.Count -gt 1) { (L "$($enAttente.Count) folders" "$($enAttente.Count) dossiers") } else { $candidate.Name }
+    Update-Status -Phase (L "PHASE 2/2: Resume ($libelle) - $copied file(s)" "PHASE 2/2 : Reprise ($libelle) - $copied fichier(s)") -Current 0 -Max $copied -Counter "0 / $copied" -Details "Source: $source"
 }
 
-# --- Upload Orthanc fichier par fichier
-# On evite le ZIP global pour ne pas depasser la limite Cloudflare (100MB par requete sur Free/Pro).
-# Chaque .dcm est envoye individuellement avec un petit delai pour respecter le rate limit nginx (2r/s).
+# --- Upload to Orthanc file by file
+# A global ZIP is avoided so as not to exceed the Cloudflare limit (100MB per request on Free/Pro).
+# Each .dcm is sent individually with a short delay to respect the nginx rate limit (2r/s).
 $pair = "${orthancUser}:${orthancPwd}"
 $basicAuth = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($pair))
 $headers = @{ Authorization = "Basic $basicAuth" }
 
-# Headers Cloudflare Access (verifies par CF Edge AVANT meme d'atteindre nginx)
+# Cloudflare Access headers (checked by the CF edge BEFORE even reaching nginx)
 if ($cfClientId -and $cfClientSecret) {
     $headers['CF-Access-Client-Id']     = $cfClientId
     $headers['CF-Access-Client-Secret'] = $cfClientSecret
@@ -516,36 +524,36 @@ if ($cfClientId -and $cfClientSecret) {
 $uploaded = 0
 $failed = 0
 $firstError = $null
-$errorLog = Join-Path $dst '_upload-errors.log'   # log detaille des echecs
-$failedListPath = Join-Path $dst '_failed-files.txt'  # liste des paths echoues (pour retry)
-$statusCounts = @{}   # ex: { 403 = 12; 502 = 3 } pour detecter un pattern global
+$errorLog = Join-Path $dst '_upload-errors.log'   # detailed failure log
+$failedListPath = Join-Path $dst '_failed-files.txt'  # list of failed paths (for retry)
+$statusCounts = @{}   # e.g. { 403 = 12; 502 = 3 } to detect a global pattern
 
 $total = $dicomFiles.Count
 
-# Clear read-only sur tous les fichiers a uploader (defense en profondeur,
-# couvre aussi le mode RETRY ou les fichiers viennent d'un ancien import
-# qui n'avait pas le fix de copie ci-dessus). Sans ca, Invoke-RestMethod
-# -InFile echoue avec "Acces refuse" sur des fichiers herites d'un CD.
-Update-Status -Phase 'PHASE 2/2 : Preparation upload (clear read-only)...' -Max 0
+# Clear read-only on every file to upload (defence in depth, also covers the
+# RETRY mode where files come from an old import that did not have the copy
+# fix above). Without it, Invoke-RestMethod -InFile fails with "Access denied"
+# on files inherited from a CD.
+Update-Status -Phase (L 'PHASE 2/2: Preparing upload (clearing read-only)...' 'PHASE 2/2 : Preparation upload (clear read-only)...') -Max 0
 foreach ($p in $dicomFiles) {
     try { (Get-Item -LiteralPath $p).IsReadOnly = $false } catch { }
 }
 
-Update-Status -Phase 'PHASE 2/2 : Upload Orthanc...' -Current 0 -Max $total -Counter "0 / $total" -Details ''
+Update-Status -Phase (L 'PHASE 2/2: Uploading to Orthanc...' 'PHASE 2/2 : Upload Orthanc...') -Current 0 -Max $total -Counter "0 / $total" -Details ''
 
 $index = 0
 foreach ($f in $dicomFiles) {
-    # Laisse la form traiter les clicks bouton / X avant chaque iteration
+    # Let the form process button / X clicks before each iteration
     [System.Windows.Forms.Application]::DoEvents()
-    # Annulation demandee via bouton "Arreter" ou X: sortir proprement et
-    # persister les fichiers PAS ENCORE essayes dans _failed-files.txt (sinon
-    # ils seraient perdus puisqu'on a deja move l'ancien fichier en archive).
+    # Cancellation requested through the "Stop" button or X: exit cleanly and
+    # persist the files NOT YET attempted into _failed-files.txt (otherwise
+    # they would be lost, since the old file has already been moved to archive).
     if ($script:cancelRequested) {
         $remaining = $dicomFiles | Select-Object -Skip $index
         foreach ($r in $remaining) {
             try { Add-Content -Path $failedListPath -Value $r -Encoding UTF8 } catch { }
         }
-        Update-Status -Phase 'Upload interrompu par l''utilisateur' -Details ''
+        Update-Status -Phase (L 'Upload stopped by the user' 'Upload interrompu par l''utilisateur') -Details ''
         break
     }
     $index++
@@ -554,21 +562,21 @@ foreach ($f in $dicomFiles) {
     $success = $false
     while (-not $success) {
         try {
-            # /api-upload/instances, PAS /instances.
+            # /api-upload/instances, NOT /instances.
             #
-            # /instances est une route d'interface, protegee par Authelia : un
-            # depot programmatique y recoit 302 vers la page de connexion.
-            # /api-upload/ est la route prevue pour ce script -- Cloudflare
-            # Access la garde au bord, et le profil anonyme d'Orthanc y
-            # autorise le depot, rien d'autre.
+            # /instances is an interface route, protected by Authelia: a
+            # programmatic upload gets a 302 to the login page there.
+            # /api-upload/ is the route meant for this script -- Cloudflare
+            # Access guards it at the edge, and Orthanc's anonymous profile
+            # allows uploading there, nothing else.
             #
-            # -MaximumRedirection 0 est le garde-fou, et il est INDISPENSABLE.
-            # Sans lui, Invoke-RestMethod SUIT la redirection, recoit la page de
-            # connexion en 200, ne leve aucune exception -- et le script conclut
-            # au succes puis SUPPRIME le fichier local. Mesure le 2026-08-30 :
-            # 226 depots consecutifs comptes comme reussis, Orthanc n'en ayant
-            # recu aucun. Des fichiers d'un CD auraient disparu sans jamais
-            # entrer dans le PACS.
+            # -MaximumRedirection 0 is the safeguard, and it is ESSENTIAL.
+            # Without it, Invoke-RestMethod FOLLOWS the redirect, gets the login
+            # page with a 200, raises no exception -- and the script concludes
+            # success and then DELETES the local file. Measured on 2026-08-30:
+            # 226 consecutive uploads counted as successful, while Orthanc had
+            # received none. Files from a CD would have vanished without ever
+            # entering the PACS.
             Invoke-RestMethod -Uri "$orthancUrl/api-upload/instances" `
                               -Method Post `
                               -Headers $headers `
@@ -578,78 +586,76 @@ foreach ($f in $dicomFiles) {
                               -TimeoutSec 120 | Out-Null
             $uploaded++
             $success = $true
-            # Le fichier est en securite dans Orthanc -> on supprime la copie
-            # locale. Si l'upload est interrompu plus tard, le re-run en mode
-            # RETRY ne re-tentera que les fichiers encore presents (les
-            # uploades sont dedupes par SOPInstanceUID cote Orthanc de toute
-            # facon, donc pas de risque de doublon meme en cas de redondance).
+            # The file is safe in Orthanc -> delete the local copy. If the
+            # upload is interrupted later, a re-run in RETRY mode only retries
+            # the files still present (uploaded ones are deduplicated by
+            # SOPInstanceUID on the Orthanc side anyway, so no risk of a
+            # duplicate even with redundancy).
             try { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue } catch { }
         } catch {
             $statusCode = $null
             if ($_.Exception.Response) {
                 try { $statusCode = [int]$_.Exception.Response.StatusCode } catch { }
             }
-            # 429 (rate limit) ou 5xx (erreur serveur transitoire) -> backoff exponentiel + retry
+            # 429 (rate limit) or 5xx (transient server error) -> exponential backoff + retry
             $isRetryable = ($statusCode -eq 429) -or ($statusCode -ge 500 -and $statusCode -lt 600)
             if ($isRetryable -and $retries -lt $maxRetries) {
                 Start-Sleep -Seconds ([Math]::Pow(2, $retries))
                 $retries++
                 continue
             }
-            # Echec definitif: log + comptage
+            # Final failure: log + count
             $failed++
             $name = Split-Path $f -Leaf
             $errMsg = $_.Exception.Message
-            $codeStr = if ($statusCode) { "HTTP $statusCode" } else { 'erreur reseau' }
+            $codeStr = if ($statusCode) { "HTTP $statusCode" } else { (L 'network error' 'erreur reseau') }
 
-            # Ligne dans le log detaille (UTF8 pour gerer les filenames non-ASCII)
+            # Line in the detailed log (UTF8 to handle non-ASCII file names)
             $stamp = (Get-Date).ToString('HH:mm:ss')
             Add-Content -Path $errorLog -Value "[$stamp] $codeStr - $f`r`n         -> $errMsg`r`n" -Encoding UTF8
-            # Liste des paths echoues (1 par ligne, format simple pour retry)
+            # List of failed paths (1 per line, simple format for retry)
             Add-Content -Path $failedListPath -Value $f -Encoding UTF8
 
-            # Premier echec memorise pour affichage rapide
+            # First failure remembered for quick display
             if (-not $firstError) {
                 $firstError = "${name} (${codeStr}): $errMsg"
             }
-            # Statistique par code HTTP (detecter un pb global ex: tous en 403)
+            # Statistics per HTTP code (detect a global problem, e.g. all 403)
             $key = if ($statusCode) { "$statusCode" } else { 'net' }
             if ($statusCounts.ContainsKey($key)) { $statusCounts[$key]++ } else { $statusCounts[$key] = 1 }
 
-            $success = $true   # sort de la boucle while (echec definitif)
+            $success = $true   # leaves the while loop (final failure)
         }
     }
-    # Update UI - on affiche compteurs uniquement (pas le filename, PII potentiel)
+    # Update UI - only counters are shown (not the file name, potential PII)
     $done = $uploaded + $failed
-    $detail = if ($failed -gt 0) { "$uploaded reussis, $failed echecs" } else { "$uploaded reussis" }
+    $detail = if ($failed -gt 0) { (L "$uploaded succeeded, $failed failed" "$uploaded reussis, $failed echecs") } else { (L "$uploaded succeeded" "$uploaded reussis") }
     Update-Status -Current $done -Max $total -Counter "$done / $total" -Details $detail
 
-    # Petit delai pour rester sous le rate limit nginx (2r/s sustained)
+    # Short delay to stay under the nginx rate limit (2r/s sustained)
     Start-Sleep -Milliseconds 500
 }
 
 $pushOk = ($uploaded -gt 0 -and $failed -eq 0)
-$pushMsg = "$uploaded/$($dicomFiles.Count) fichier(s) DICOM uploades vers Orthanc."
+$pushMsg = (L "$uploaded/$($dicomFiles.Count) DICOM file(s) uploaded to Orthanc." "$uploaded/$($dicomFiles.Count) fichier(s) DICOM uploades vers Orthanc.")
 
-# Nettoyage des dossiers dates affectes:
-#   - Si TOUT a reussi (pas d'echec, pas d'annulation) -> on rm -rf le(s)
-#     dossier(s) date(s) qui contenai(en)t les fichiers uploades. Comme on
-#     vient deja de supprimer chaque fichier apres son upload reussi (cf.
-#     Remove-Item dans la boucle), il reste juste les coquilles vides +
-#     DICOMDIR + d'eventuels fichiers non-DICOM.
-#   - Si echecs OU annulation -> on garde le dossier intact (les fichiers
-#     restants + _failed-files.txt + _upload-errors.log) pour permettre un
-#     re-run propre.
-# On supporte le cas "combined retry" ou _failed-files.txt contient des
-# paths qui pointent vers plusieurs dossiers dates differents: on collecte
-# l'ensemble des dossiers dates effectivement touches.
-# $unreadable.Count : le menage effacerait _unreadable-files.txt avec le
-# dossier. Tant qu'il reste des fichiers illisibles, on garde tout sur place --
-# c'est la trace de ce qui manque, et elle doit survivre a un import « reussi ».
+# Cleanup of the affected dated folders:
+#   - If EVERYTHING succeeded (no failure, no cancellation) -> rm -rf the dated
+#     folder(s) that held the uploaded files. Since each file has just been
+#     deleted after its successful upload (see Remove-Item in the loop), only
+#     the empty shells + DICOMDIR + possible non-DICOM files remain.
+#   - If failures OR cancellation -> the folder is kept intact (remaining
+#     files + _failed-files.txt + _upload-errors.log) to allow a clean re-run.
+# The "combined retry" case is supported, where _failed-files.txt holds paths
+# pointing to several different dated folders: the set of dated folders
+# actually touched is collected.
+# $unreadable.Count: the cleanup would erase _unreadable-files.txt along with
+# the folder. As long as unreadable files remain, everything stays in place --
+# it is the record of what is missing, and it must survive a "successful" import.
 if ($pushOk -and -not $script:cancelRequested -and $unreadable.Count -eq 0) {
     $importBaseTrimmed = $importBase.TrimEnd('\','/')
     $affectedDatedFolders = $dicomFiles | ForEach-Object {
-        # Remonte jusqu'au dossier immediat sous $importBase
+        # Walk up to the folder directly under $importBase
         $cur = Split-Path $_ -Parent
         while ($cur -and $cur -ne $importBaseTrimmed) {
             $parent = Split-Path $cur -Parent
@@ -666,44 +672,44 @@ if ($pushOk -and -not $script:cancelRequested -and $unreadable.Count -eq 0) {
         } catch { }
     }
     if ($affectedDatedFolders) {
-        $pushMsg += "`r`n$($affectedDatedFolders.Count) dossier(s) local(aux) supprime(s) apres upload reussi."
+        $pushMsg += (L "`r`n$($affectedDatedFolders.Count) local folder(s) deleted after successful upload." "`r`n$($affectedDatedFolders.Count) dossier(s) local(aux) supprime(s) apres upload reussi.")
     }
 }
 if ($failed -gt 0) {
-    # Resume des codes HTTP pour reperer un probleme systemique (ex: tous en 403 = pb auth CF)
+    # Summary of HTTP codes to spot a systemic problem (e.g. all 403 = CF auth problem)
     $codesSummary = ($statusCounts.GetEnumerator() | ForEach-Object { "$($_.Value)x $($_.Key)" }) -join ', '
-    $pushMsg += "`r`n$failed echec(s) [$codesSummary]"
-    $pushMsg += "`r`nPremier: $firstError"
-    $pushMsg += "`r`nLog detaille: $errorLog"
-    $pushMsg += "`r`nListe a rejouer: $failedListPath"
+    $pushMsg += (L "`r`n$failed failure(s) [$codesSummary]" "`r`n$failed echec(s) [$codesSummary]")
+    $pushMsg += (L "`r`nFirst: $firstError" "`r`nPremier: $firstError")
+    $pushMsg += (L "`r`nDetailed log: $errorLog" "`r`nLog detaille: $errorLog")
+    $pushMsg += (L "`r`nList to replay: $failedListPath" "`r`nListe a rejouer: $failedListPath")
 }
 
-# --- Resume
-Close-Status   # ferme la fenetre de progression avant d'afficher le popup final
+# --- Summary
+Close-Status   # close the progress window before showing the final popup
 
 $lines = New-Object System.Collections.Generic.List[string]
 if ($mode -eq 'import') {
-    $lines.Add("Mode: Import CD")
+    $lines.Add((L "Mode: CD import" "Mode: Import CD"))
     $lines.Add("Source: $srcRoot")
     $lines.Add("Destination: $dst")
-    $lines.Add("$copied fichier(s) DICOM copie(s) (sur $scanned scannes).")
+    $lines.Add((L "$copied DICOM file(s) copied (out of $scanned scanned)." "$copied fichier(s) DICOM copie(s) (sur $scanned scannes)."))
     if ($ejectMsg) { $lines.Add($ejectMsg) }
 } elseif ($reprisePartielle) {
-    # Distinction utile : « retry » laisse croire que des envois avaient echoue,
-    # alors qu'ici l'import precedent s'etait arrete avant meme d'en tenter un.
-    $lines.Add("Mode: Reprise d'un import interrompu")
-    $lines.Add("Dossier(s): $($enAttente.Count) en attente dans $importBase")
-    $lines.Add("$copied fichier(s) copie(s) mais jamais envoye(s).")
+    # A useful distinction: "retry" suggests uploads had failed, whereas here
+    # the previous import had stopped before even attempting one.
+    $lines.Add((L "Mode: Resuming an interrupted import" "Mode: Reprise d'un import interrompu"))
+    $lines.Add((L "Folder(s): $($enAttente.Count) pending in $importBase" "Dossier(s): $($enAttente.Count) en attente dans $importBase"))
+    $lines.Add((L "$copied file(s) copied but never sent." "$copied fichier(s) copie(s) mais jamais envoye(s)."))
 } else {
-    $lines.Add("Mode: Nouvelle tentative sur les envois echoues")
-    $lines.Add("Dossier(s): $($enAttente.Count) en attente dans $importBase")
-    $lines.Add("$copied fichier(s) a renvoyer.")
+    $lines.Add((L "Mode: Retrying failed uploads" "Mode: Nouvelle tentative sur les envois echoues"))
+    $lines.Add((L "Folder(s): $($enAttente.Count) pending in $importBase" "Dossier(s): $($enAttente.Count) en attente dans $importBase"))
+    $lines.Add((L "$copied file(s) to send again." "$copied fichier(s) a renvoyer."))
 }
 if ($unreadable.Count -gt 0) {
-    # Le fait, sans conseil ni consigne : l'operateur sait quoi faire d'un CD
-    # abime, et l'import se fait entre deux patients.
-    $lines.Add("$($unreadable.Count) fichier(s) illisible(s) sur le disque, non importe(s).")
-    $lines.Add("Liste : $(Join-Path $dst '_unreadable-files.txt')")
+    # The fact, with no advice or instruction: the operator knows what to do
+    # with a damaged CD, and the import happens between two patients.
+    $lines.Add((L "$($unreadable.Count) unreadable file(s) on the disc, not imported." "$($unreadable.Count) fichier(s) illisible(s) sur le disque, non importe(s)."))
+    $lines.Add((L "List: $(Join-Path $dst '_unreadable-files.txt')" "Liste : $(Join-Path $dst '_unreadable-files.txt')"))
 }
 $lines.Add($pushMsg)
 $summary = $lines -join "`r`n"

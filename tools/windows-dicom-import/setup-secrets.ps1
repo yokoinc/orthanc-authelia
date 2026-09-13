@@ -1,12 +1,12 @@
 # setup-secrets.ps1
 #
-# A lancer UNE FOIS pour chiffrer tes secrets (CF Access + mot de passe Orthanc)
-# via DPAPI. Le fichier resultant config.secrets.dpapi.json ne sera utilisable
-# QUE par ton compte Windows actuel et sur CE poste. Si tu changes de poste ou
-# de session Windows, il faudra relancer ce script.
+# Run ONCE to encrypt your secrets (CF Access + Orthanc password) with DPAPI.
+# The resulting config.secrets.dpapi.json file can ONLY be used by your
+# current Windows account, on THIS machine. If you change machine or Windows
+# session, run this script again.
 #
-# Pas de dependance, pas de module a installer: utilise les APIs Windows natives
-# (DPAPI via ConvertFrom-SecureString -> Data Protection API).
+# No dependency, no module to install: uses the native Windows APIs
+# (DPAPI through ConvertFrom-SecureString -> Data Protection API).
 
 $ErrorActionPreference = 'Stop'
 
@@ -14,32 +14,32 @@ $scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $secretsPath = Join-Path $scriptDir 'config.secrets.dpapi.json'
 
 Write-Host ''
-Write-Host '=== Setup secrets DPAPI ===' -ForegroundColor Cyan
-Write-Host "Cible: $secretsPath"
+Write-Host '=== DPAPI secrets setup ===' -ForegroundColor Cyan
+Write-Host "Target: $secretsPath"
 Write-Host ''
-Write-Host 'Ces secrets seront chiffres avec ta cle DPAPI utilisateur Windows.'
-Write-Host 'Personne d''autre (autre user / autre poste) ne pourra les dechiffrer.'
+Write-Host 'These secrets will be encrypted with your Windows user DPAPI key.'
+Write-Host 'Nobody else (another user / another machine) will be able to decrypt them.'
 Write-Host ''
 
 if (Test-Path $secretsPath) {
-    $resp = Read-Host "Le fichier existe deja. L'ecraser ? (o/N)"
+    $resp = Read-Host "The file already exists. Overwrite it? (y/N)"
     if ($resp -notmatch '^[oOyY]') {
-        Write-Host 'Abandonne.' -ForegroundColor Yellow
+        Write-Host 'Aborted.' -ForegroundColor Yellow
         exit 0
     }
 }
 
 function Get-Fingerprint {
-    # Affiche longueur + 4 premiers + 4 derniers caracteres.
-    # Suffisant pour reconnaitre "c'est bien celui que j'ai voulu taper"
-    # sans exposer le secret entier dans le terminal/historique.
+    # Shows the length + first 4 + last 4 characters.
+    # Enough to recognise "that is indeed the one I meant to type"
+    # without exposing the whole secret in the terminal/history.
     param([string]$Plain)
-    if ([string]::IsNullOrEmpty($Plain)) { return '(vide)' }
+    if ([string]::IsNullOrEmpty($Plain)) { return '(empty)' }
     $len = $Plain.Length
-    if ($len -le 8) { return "longueur=$len, contenu masque (trop court pour fingerprint)" }
+    if ($len -le 8) { return "length=$len, content hidden (too short for a fingerprint)" }
     $first = $Plain.Substring(0, 4)
     $last  = $Plain.Substring($len - 4, 4)
-    return "longueur=$len, debut=$first... fin=...$last"
+    return "length=$len, start=$first... end=...$last"
 }
 
 function Read-SecretAndEncrypt {
@@ -51,27 +51,27 @@ function Read-SecretAndEncrypt {
         $secure = Read-Host -AsSecureString
         if ($secure.Length -eq 0) {
             if ($AllowEmpty) {
-                Write-Host '  -> vide, ignore' -ForegroundColor DarkGray
+                Write-Host '  -> empty, skipped' -ForegroundColor DarkGray
                 return $null
             }
-            Write-Host '  -> vide, on recommence (Ctrl+C pour abandonner)' -ForegroundColor Red
+            Write-Host '  -> empty, try again (Ctrl+C to abort)' -ForegroundColor Red
             continue
         }
-        # Re-extraire le plain-text pour montrer le fingerprint
+        # Extract the plain text again to show the fingerprint
         $cred = New-Object System.Management.Automation.PSCredential('x', $secure)
         $plain = $cred.GetNetworkCredential().Password
         $fp = Get-Fingerprint $plain
         Write-Host "  Fingerprint: $fp" -ForegroundColor Cyan
-        $resp = Read-Host '  C''est bien ce que tu voulais saisir ? (o/N)'
+        $resp = Read-Host '  Is that what you meant to type? (y/N)'
         if ($resp -match '^[oOyY]') {
-            # ConvertFrom-SecureString sans -Key utilise DPAPI (CurrentUser scope)
+            # ConvertFrom-SecureString without -Key uses DPAPI (CurrentUser scope)
             return ConvertFrom-SecureString -SecureString $secure
         }
-        Write-Host '  -> on recommence cette valeur' -ForegroundColor Yellow
+        Write-Host '  -> entering this value again' -ForegroundColor Yellow
     }
 }
 
-$encOrthancPwd = Read-SecretAndEncrypt 'Mot de passe Orthanc (Entree directe pour laisser vide, auth_basic inactif)' -AllowEmpty
+$encOrthancPwd = Read-SecretAndEncrypt 'Orthanc password (press Enter to leave empty, auth_basic inactive)' -AllowEmpty
 $encCfId       = Read-SecretAndEncrypt 'CF-Access-Client-Id'
 $encCfSecret   = Read-SecretAndEncrypt 'CF-Access-Client-Secret'
 
@@ -84,8 +84,8 @@ $payload = [ordered]@{
 
 $payload | ConvertTo-Json -Depth 3 | Out-File -FilePath $secretsPath -Encoding UTF8
 
-# ACL: lecture seule pour le proprietaire (defense en profondeur, DPAPI suffit
-# techniquement mais autant pas exposer le fichier aux autres users locaux)
+# ACL: read-only for the owner (defence in depth; DPAPI is technically enough,
+# but no point exposing the file to the other local users)
 try {
     $acl = Get-Acl $secretsPath
     $acl.SetAccessRuleProtection($true, $false)   # disable inheritance
@@ -95,15 +95,15 @@ try {
     )
     $acl.SetAccessRule($rule)
     Set-Acl -Path $secretsPath -AclObject $acl
-    Write-Host "ACL: lecture seule pour $($env:USERDOMAIN)\$($env:USERNAME)" -ForegroundColor DarkGray
+    Write-Host "ACL: read-only for $($env:USERDOMAIN)\$($env:USERNAME)" -ForegroundColor DarkGray
 } catch {
-    Write-Host "(Impossible de durcir l'ACL, pas grave: $($_.Exception.Message))" -ForegroundColor DarkGray
+    Write-Host "(Could not harden the ACL, not a problem: $($_.Exception.Message))" -ForegroundColor DarkGray
 }
 
 Write-Host ''
 Write-Host "OK -> $secretsPath" -ForegroundColor Green
 Write-Host ''
-Write-Host 'Maintenant tu peux supprimer ces champs du config.json:' -ForegroundColor Yellow
+Write-Host 'You can now delete these fields from config.json:' -ForegroundColor Yellow
 Write-Host '  orthancPassword, cfAccessClientId, cfAccessClientSecret'
-Write-Host '(le script import-dicom.ps1 lit les versions chiffrees depuis config.secrets.dpapi.json)'
+Write-Host '(import-dicom.ps1 reads the encrypted versions from config.secrets.dpapi.json)'
 Write-Host ''

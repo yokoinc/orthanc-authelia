@@ -1,11 +1,11 @@
 # verify-secrets.ps1
 #
-# Affiche les fingerprints (longueur + debut + fin) des secrets stockes dans
-# config.secrets.dpapi.json. Permet de verifier "j'ai bien tape les bons mdp"
-# sans avoir a re-saisir, et sans exposer les secrets entiers dans le terminal.
+# Shows the fingerprints (length + start + end) of the secrets stored in
+# config.secrets.dpapi.json. Lets you check "I did type the right passwords"
+# without typing them again, and without exposing the whole secrets in the terminal.
 #
-# Ne modifie rien. Si un secret n'arrive pas a se dechiffrer (mauvaise session
-# Windows, fichier corrompu) c'est aussi ce script qui le dira.
+# Changes nothing. If a secret cannot be decrypted (wrong Windows session,
+# corrupted file), this script is also the one that will say so.
 
 $ErrorActionPreference = 'Stop'
 
@@ -13,8 +13,8 @@ $scriptDir   = Split-Path -Parent $MyInvocation.MyCommand.Path
 $secretsPath = Join-Path $scriptDir 'config.secrets.dpapi.json'
 
 if (-not (Test-Path $secretsPath)) {
-    Write-Host "Fichier introuvable: $secretsPath" -ForegroundColor Red
-    Write-Host "Lance d'abord setup-secrets.ps1." -ForegroundColor Yellow
+    Write-Host "File not found: $secretsPath" -ForegroundColor Red
+    Write-Host "Run setup-secrets.ps1 first." -ForegroundColor Yellow
     exit 1
 }
 
@@ -26,30 +26,30 @@ function Unprotect-DpapiString {
         $cred = New-Object System.Management.Automation.PSCredential('x', $secure)
         return $cred.GetNetworkCredential().Password
     } catch {
-        return '<<echec dechiffrement: pas la bonne session Windows ou fichier corrompu>>'
+        return '<<decryption failed: wrong Windows session or corrupted file>>'
     }
 }
 
 function Get-Fingerprint {
     param([string]$Plain)
-    if ([string]::IsNullOrEmpty($Plain)) { return '(vide / non defini)' }
-    if ($Plain.StartsWith('<<echec')) { return $Plain }
+    if ([string]::IsNullOrEmpty($Plain)) { return '(empty / not set)' }
+    if ($Plain.StartsWith('<<decryption failed')) { return $Plain }
     $len = $Plain.Length
-    if ($len -le 8) { return "longueur=$len, contenu masque (trop court pour fingerprint)" }
+    if ($len -le 8) { return "length=$len, content hidden (too short for a fingerprint)" }
     $first = $Plain.Substring(0, 4)
     $last  = $Plain.Substring($len - 4, 4)
-    return "longueur=$len, debut=$first... fin=...$last"
+    return "length=$len, start=$first... end=...$last"
 }
 
 $secrets = Get-Content $secretsPath -Raw -Encoding UTF8 | ConvertFrom-Json
 
 Write-Host ''
-Write-Host '=== Verification des secrets DPAPI ===' -ForegroundColor Cyan
-Write-Host "Fichier: $secretsPath"
+Write-Host '=== DPAPI secrets check ===' -ForegroundColor Cyan
+Write-Host "File: $secretsPath"
 Write-Host ''
 
 $fields = @(
-    @{ Key = 'orthancPassword';      Label = 'Mot de passe Orthanc      ' }
+    @{ Key = 'orthancPassword';      Label = 'Orthanc password           ' }
     @{ Key = 'cfAccessClientId';     Label = 'CF-Access-Client-Id        ' }
     @{ Key = 'cfAccessClientSecret'; Label = 'CF-Access-Client-Secret    ' }
 )
@@ -63,5 +63,5 @@ foreach ($f in $fields) {
 }
 
 Write-Host ''
-Write-Host 'Si un fingerprint ne correspond pas a ce que tu attendais, relance setup-secrets.ps1.' -ForegroundColor DarkGray
+Write-Host 'If a fingerprint does not match what you expected, run setup-secrets.ps1 again.' -ForegroundColor DarkGray
 Write-Host ''
