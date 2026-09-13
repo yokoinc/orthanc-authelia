@@ -78,5 +78,31 @@
     "link_copied": "Link copied to clipboard",
     "link_copy_error": "Could not copy link",
     "revoke": "Revoke"
+  },
+  "setup": {
+    "page_title": "Initial setup — Orthanc",
+    "heading": "Initial setup",
+    "subtitle": "First start: create the administrator account. This account will then manage the other users from the administration panel.",
+    "email_label": "Email address",
+    "email_placeholder": "jane.doe@example.org",
+    "email_hint": "This is your login. Use a real address: local domains (.localhost, .local) are not accepted.",
+    "displayname_label": "Display name",
+    "displayname_placeholder": "Jane Doe",
+    "password_label": "Password",
+    "password_placeholder": "At least 12 characters",
+    "password_hint": "Stored only as a hash (argon2id).",
+    "password2_label": "Confirm password",
+    "submit": "Create administrator",
+    "submitting": "Creating…",
+    "success": "Administrator created. Redirecting to the sign-in page…",
+    "err_email": "Invalid email address. Use a real address: local domains (.localhost, .local) are not accepted.",
+    "err_displayname": "Enter a display name.",
+    "err_password": "The password must be at least 12 characters long.",
+    "err_mismatch": "The two passwords do not match.",
+    "err_password_is_email": "The password cannot be the email address.",
+    "err_already_done": "Setup is already complete. Sign in with the administrator account.",
+    "err_no_admin": "No administrator was created. Reload the page and start again.",
+    "err_network": "The server is not responding. Check that all services are running, then try again.",
+    "err_generic": "Unexpected error"
   }
 }

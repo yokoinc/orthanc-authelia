@@ -15,6 +15,7 @@ Run:
 import json
 import threading
 import time
+from pathlib import Path
 
 import fakeredis.aioredis
 import httpx
@@ -261,6 +262,87 @@ class TestSetupWizard:
         r = client.post("/auth/setup/finalize")
         assert r.status_code == 400
         assert "admin" in r.text.lower()
+
+    @staticmethod
+    def _yml_with_bootstrap_account(tmp_paths, bootstrap: dict, redis_sync) -> None:
+        # State right after create-admin: the admin is in the file AND the
+        # first-admin lock is set. Without the lock, _setup_is_done reads the
+        # active admin as a pre-existing install and the wizard answers 404.
+        redis_sync.set(admin_module.SETUP_FIRST_ADMIN_KEY, "1")
+        data = {"users": {
+            admin_module.COMPTE_AMORCAGE: bootstrap,
+            "j.dupont@exemple.fr": {
+                "disabled": False, "displayname": "Jean Dupont",
+                "email": "j.dupont@exemple.fr",
+                "password": admin_module._hasher.hash("premier-admin-12345"),
+                "groups": [admin_module.ADMIN_GROUP],
+            },
+        }}
+        tmp_paths["authelia"].write_text(yaml.safe_dump(data, sort_keys=False))
+
+    def test_finalize_removes_inert_bootstrap_account_and_saves_language(
+        self, client, tmp_paths, fake_redis, redis_sync,
+    ):
+        """bootstrap.sh announces that finalize removes its placeholder account.
+
+        It did not: on a fresh install (2026-09-13) the disabled
+        bootstrap@localhost stayed in the panel's user list for good. The
+        language chosen on the wizard screen is recorded at the same step.
+        """
+        self._yml_with_bootstrap_account(tmp_paths, {
+            "disabled": True, "displayname": "amorcage",
+            "email": "bootstrap@localhost", "password": "x", "groups": [],
+        }, redis_sync)
+        r = client.post("/auth/setup/finalize", json={"langue": "en"})
+        assert r.status_code == 200, r.text
+
+        users = yaml.safe_load(tmp_paths["authelia"].read_text())["users"]
+        assert admin_module.COMPTE_AMORCAGE not in users
+        assert "j.dupont@exemple.fr" in users
+        assert json.loads(tmp_paths["settings"].read_text())["langue"] == "en"
+
+    def test_finalize_keeps_a_bootstrap_account_that_was_put_to_use(
+        self, client, tmp_paths, fake_redis, redis_sync,
+    ):
+        """Enabled or given a group, the account is no longer the placeholder."""
+        self._yml_with_bootstrap_account(tmp_paths, {
+            "disabled": False, "displayname": "reutilise",
+            "email": "bootstrap@localhost", "password": "x", "groups": ["doctor"],
+        }, redis_sync)
+        r = client.post("/auth/setup/finalize")
+        assert r.status_code == 200, r.text
+        users = yaml.safe_load(tmp_paths["authelia"].read_text())["users"]
+        assert admin_module.COMPTE_AMORCAGE in users
+
+    def test_finalize_rejects_an_unknown_language(
+        self, client, tmp_paths, fake_redis, redis_sync,
+    ):
+        self._yml_with_bootstrap_account(tmp_paths, {
+            "disabled": True, "displayname": "amorcage",
+            "email": "bootstrap@localhost", "password": "x", "groups": [],
+        }, redis_sync)
+        r = client.post("/auth/setup/finalize", json={"langue": "de"})
+        assert r.status_code == 422
+
+    def test_setup_page_is_bilingual(self, client, tmp_paths, fake_redis, monkeypatch):
+        """Both languages reach the page, with the same keys in each.
+
+        The wizard was hard-coded in French while bootstrap.sh had just set the
+        interface to English. Read from the source tree, not the image's
+        /app/templates, which holds the previous version when tests run in an
+        older image.
+        """
+        sources = Path(admin_module.__file__).resolve().parent
+        monkeypatch.setattr(admin_module, "TEMPLATES_DIR", sources / "templates")
+        r = client.get("/auth/setup")
+        assert r.status_code == 200
+        assert "{setup_i18n}" not in r.text
+        assert "Configuration initiale" in r.text and "Initial setup" in r.text
+        assert 'id="username"' not in r.text, "the login is the e-mail address"
+
+        textes = admin_module._setup_translations()
+        assert set(textes) == {"fr", "en"}
+        assert set(textes["fr"]) == set(textes["en"])
 
     def test_create_admin_forces_admins_group(self, client, tmp_paths, fake_redis):
         """Even if the user forgets 'admins' in groups, we add it."""

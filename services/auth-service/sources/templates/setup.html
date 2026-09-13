@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Configuration initiale — Orthanc</title>
+    <title>Orthanc</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <link href="/auth/static/oe2-shared.css?v={asset_version}" rel="stylesheet">
@@ -11,6 +11,7 @@
         .setup-wrap { max-width: 520px; margin: 60px auto; padding: 32px 28px;
                       background: var(--oe2-card-bg); border: 1px solid var(--oe2-border);
                       border-radius: 4px; color: var(--oe2-nav-color); }
+        .setup-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
         .setup-wrap h1 { font-size: 20px; font-weight: 400; margin: 0 0 8px; }
         .setup-wrap .subtitle { color: var(--oe2-muted); font-size: 13px; margin-bottom: 24px; }
         .setup-wrap label { display: block; font-size: 12px; color: var(--oe2-muted);
@@ -28,52 +29,95 @@
                                 border-left: 3px solid var(--oe2-danger); color: #ffb0b0; }
         .setup-wrap .msg--ok { background: rgba(40,167,69,0.15);
                                border-left: 3px solid var(--oe2-success); color: #b6f0c0; }
+        .langues { display: flex; gap: 4px; flex-shrink: 0; }
+        .langues button { background: transparent; border: 1px solid var(--oe2-border-subtle);
+                          color: var(--oe2-muted); font-size: 11px; padding: 2px 8px;
+                          border-radius: 3px; cursor: pointer; }
+        .langues button[aria-pressed="true"] { color: var(--oe2-nav-color);
+                                               border-color: var(--oe2-accent); }
     </style>
 </head>
 <body>
+    <!-- Bilingue. Les textes vivent dans translations/fr.json et en.json,
+         section « setup » (la CI verifie que les deux langues ont les memes
+         cles), et arrivent ici par le rendu serveur. Langue par defaut : celle
+         du NAVIGATEUR, c'est-a-dire de la personne devant l'ecran -- la langue
+         du systeme hote, que bootstrap.sh devine, repond « anglais » sous
+         WSL/Ubuntu meme pour un utilisateur francophone. Le choix est
+         enregistre a la finalisation, pour le reste de l'installation. -->
     <div class="setup-wrap">
-        <h1><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> Configuration initiale</h1>
-        <p class="subtitle">
-            Premier démarrage — création du compte administrateur.
-            Ce compte pourra ensuite gérer les autres users depuis le hub Admin.
-        </p>
+        <div class="setup-head">
+            <h1><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> <span data-t="heading"></span></h1>
+            <div class="langues" role="group" aria-label="Langue / Language">
+                <button type="button" data-langue="fr" lang="fr">FR</button>
+                <button type="button" data-langue="en" lang="en">EN</button>
+            </div>
+        </div>
+        <p class="subtitle" data-t="subtitle"></p>
 
-        <form id="setup-form">
-            <label for="username">Login</label>
-            <input type="text" id="username" name="username" required
-                   pattern="[a-zA-Z0-9._-]{3,32}" placeholder="j.dupont">
-            <div class="hint">3-32 caractères, alphanumériques + . _ -</div>
+        <form id="setup-form" novalidate>
+            <!-- Pas de champ « login » : l'adresse EST l'identifiant, comme dans le
+                 panneau. L'ancien champ refusait le « @ » et donnait au premier
+                 administrateur un identifiant different de son adresse. Constate
+                 le 2026-09-13. Sans username, le serveur prend l'adresse
+                 (UserCreatePayload._resolve_identity). -->
+            <label for="email" data-t="email_label"></label>
+            <input type="email" id="email" name="email" required autocomplete="username">
+            <div class="hint" data-t="email_hint"></div>
 
-            <label for="displayname">Nom affiché</label>
-            <input type="text" id="displayname" name="displayname" required
-                   maxlength="100" placeholder="Jean Dupont">
+            <label for="displayname" data-t="displayname_label"></label>
+            <input type="text" id="displayname" name="displayname" required maxlength="100"
+                   autocomplete="name">
 
-            <label for="email">Email</label>
-            <input type="email" id="email" name="email" required
-                   placeholder="j.dupont@exemple.fr">
+            <label for="password" data-t="password_label"></label>
+            <input type="password" id="password" name="password" required minlength="12"
+                   autocomplete="new-password">
+            <div class="hint" data-t="password_hint"></div>
 
-            <label for="password">Mot de passe</label>
-            <input type="password" id="password" name="password" required
-                   minlength="12" placeholder="min 12 caractères">
-            <div class="hint">Hashé argon2id avant écriture dans users_database.yml</div>
+            <label for="password2" data-t="password2_label"></label>
+            <input type="password" id="password2" name="password2" required minlength="12"
+                   autocomplete="new-password">
 
-            <label for="password2">Confirmation</label>
-            <input type="password" id="password2" name="password2" required minlength="12">
-
-            <div id="msg" class="msg"></div>
+            <div id="msg" class="msg" role="alert"></div>
 
             <div class="actions">
-                <button type="submit" class="oe2-btn oe2-btn--primary" id="submit-btn">
-                    Créer l'admin et finaliser
-                </button>
+                <button type="submit" class="oe2-btn oe2-btn--primary" id="submit-btn" data-t="submit"></button>
             </div>
         </form>
     </div>
 
 <script>
+const TEXTES = {setup_i18n};
+
 const form = document.getElementById('setup-form');
 const msg = document.getElementById('msg');
 const btn = document.getElementById('submit-btn');
+
+let langueCourante = (navigator.language || '').toLowerCase().startsWith('fr') ? 'fr' : 'en';
+if (!TEXTES[langueCourante]) langueCourante = Object.keys(TEXTES)[0];
+
+function t(cle) {
+    return (TEXTES[langueCourante] || {})[cle] || cle;
+}
+
+function appliquerLangue(langue) {
+    langueCourante = langue;
+    document.documentElement.lang = langue;
+    document.title = t('page_title');
+    document.querySelectorAll('[data-t]').forEach(el => { el.textContent = t(el.dataset.t); });
+    form.email.placeholder = t('email_placeholder');
+    form.displayname.placeholder = t('displayname_placeholder');
+    form.password.placeholder = t('password_placeholder');
+    document.querySelectorAll('[data-langue]').forEach(b => {
+        b.setAttribute('aria-pressed', String(b.dataset.langue === langue));
+    });
+    msg.style.display = 'none';
+}
+
+document.querySelectorAll('[data-langue]').forEach(b => {
+    b.addEventListener('click', () => appliquerLangue(b.dataset.langue));
+});
+appliquerLangue(langueCourante);
 
 function showMsg(text, ok) {
     msg.className = 'msg msg--' + (ok ? 'ok' : 'err');
@@ -81,46 +125,83 @@ function showMsg(text, ok) {
     msg.style.display = 'block';
 }
 
+// Erreur de validation (422) : on nomme le champ fautif dans la langue de la
+// page plutot que de montrer le message technique du serveur, en anglais.
+async function messageValidation(r) {
+    try {
+        const detail = (await r.json()).detail;
+        const champs = Array.isArray(detail)
+            ? detail.map(d => (d.loc || []).join('.')) : [];
+        if (champs.some(c => c.endsWith('email'))) return t('err_email');
+        if (champs.some(c => c.endsWith('password'))) return t('err_password');
+        if (typeof detail === 'string') return detail;
+    } catch (_) { /* reponse illisible */ }
+    return t('err_generic');
+}
+
+async function detailServeur(r) {
+    try {
+        const d = (await r.json()).detail;
+        if (typeof d === 'string') return d;
+    } catch (_) { /* reponse illisible */ }
+    return t('err_generic') + ' (HTTP ' + r.status + ')';
+}
+
+function termine() {
+    showMsg(t('success'), true);
+    setTimeout(() => { window.location.href = '/auth/admin'; }, 1500);
+}
+
+async function finaliser() {
+    const r = await fetch('/auth/setup/finalize', {
+        method: 'POST',
+        headers: {'content-type': 'application/json'},
+        body: JSON.stringify({langue: langueCourante}),
+    });
+    if (r.ok) return termine();
+    // 404 : l'assistant n'existe plus, l'installation est deja finalisee.
+    if (r.status === 404 || r.status === 409) throw new Error(t('err_already_done'));
+    if (r.status === 400) throw new Error(t('err_no_admin'));
+    throw new Error(await detailServeur(r));
+}
+
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (form.password.value !== form.password2.value) {
-        showMsg('Les 2 mots de passe ne correspondent pas.', false);
-        return;
+    const email = form.email.value.trim();
+    if (!email || !form.email.checkValidity()) return showMsg(t('err_email'), false);
+    if (!form.displayname.value.trim()) return showMsg(t('err_displayname'), false);
+    if (form.password.value.length < 12) return showMsg(t('err_password'), false);
+    if (form.password.value !== form.password2.value) return showMsg(t('err_mismatch'), false);
+    if (form.password.value.toLowerCase() === email.toLowerCase()) {
+        return showMsg(t('err_password_is_email'), false);
     }
-    btn.disabled = true;
-    btn.textContent = 'Création en cours…';
 
+    btn.disabled = true;
+    btn.textContent = t('submitting');
     try {
-        // 1. Créer l'admin
-        let r = await fetch('/auth/setup/create-admin', {
+        const r = await fetch('/auth/setup/create-admin', {
             method: 'POST',
             headers: {'content-type': 'application/json'},
+            // Ni username (l'adresse en tient lieu) ni groups : le serveur impose
+            // le groupe administrateur.
             body: JSON.stringify({
-                username: form.username.value,
-                displayname: form.displayname.value,
-                email: form.email.value,
+                displayname: form.displayname.value.trim(),
+                email: email,
                 password: form.password.value,
-                groups: ['admins'],
             }),
         });
-        if (!r.ok) {
-            const err = await r.text();
-            throw new Error('create-admin: ' + err);
-        }
-
-        // 2. Finaliser
-        r = await fetch('/auth/setup/finalize', {method: 'POST'});
-        if (!r.ok) {
-            const err = await r.text();
-            throw new Error('finalize: ' + err);
-        }
-
-        showMsg('Admin créé et setup finalisé. Redirection vers la connexion…', true);
-        setTimeout(() => { window.location.href = '/auth/admin'; }, 1500);
-    } catch (e) {
-        showMsg(e.message, false);
+        if (r.status === 404) throw new Error(t('err_already_done'));
+        if (r.status === 422) throw new Error(await messageValidation(r));
+        // 409 : un administrateur a DEJA ete cree, lors d'un essai precedent
+        // interrompu avant la finalisation (coupure, onglet ferme). Refaire la
+        // creation ne peut qu'echouer ; on reprend donc a la finalisation. Sans
+        // cela, l'installation restait bloquee indefiniment.
+        if (!r.ok && r.status !== 409) throw new Error(await detailServeur(r));
+        await finaliser();
+    } catch (err) {
+        showMsg(err instanceof TypeError ? t('err_network') : err.message, false);
         btn.disabled = false;
-        btn.textContent = "Créer l'admin et finaliser";
+        btn.textContent = t('submit');
     }
 });
 </script>

@@ -78,5 +78,31 @@
     "link_copied": "Lien copié dans le presse-papiers",
     "link_copy_error": "Impossible de copier le lien",
     "revoke": "Révoquer"
+  },
+  "setup": {
+    "page_title": "Configuration initiale — Orthanc",
+    "heading": "Configuration initiale",
+    "subtitle": "Premier démarrage : création du compte administrateur. Ce compte gérera ensuite les autres utilisateurs depuis le panneau d'administration.",
+    "email_label": "Adresse e-mail",
+    "email_placeholder": "j.dupont@exemple.fr",
+    "email_hint": "C'est votre identifiant de connexion. Utilisez une adresse réelle : les domaines locaux (.localhost, .local) sont refusés.",
+    "displayname_label": "Nom affiché",
+    "displayname_placeholder": "Jean Dupont",
+    "password_label": "Mot de passe",
+    "password_placeholder": "12 caractères minimum",
+    "password_hint": "Conservé uniquement sous forme d'empreinte (argon2id).",
+    "password2_label": "Confirmation du mot de passe",
+    "submit": "Créer l'administrateur",
+    "submitting": "Création en cours…",
+    "success": "Administrateur créé. Redirection vers la page de connexion…",
+    "err_email": "Adresse e-mail invalide. Utilisez une adresse réelle : les domaines locaux (.localhost, .local) sont refusés.",
+    "err_displayname": "Indiquez le nom à afficher.",
+    "err_password": "Le mot de passe doit contenir au moins 12 caractères.",
+    "err_mismatch": "Les deux mots de passe ne correspondent pas.",
+    "err_password_is_email": "Le mot de passe ne peut pas être l'adresse e-mail.",
+    "err_already_done": "L'installation est déjà terminée. Connectez-vous avec le compte administrateur.",
+    "err_no_admin": "Aucun administrateur n'a été créé. Rechargez la page et recommencez.",
+    "err_network": "Le serveur ne répond pas. Vérifiez que tous les services sont démarrés, puis réessayez.",
+    "err_generic": "Erreur inattendue"
   }
 }

@@ -1355,10 +1355,35 @@ def _cf_enforced() -> bool:
 router = APIRouter()
 
 
+TRANSLATIONS_DIR = Path(__file__).resolve().parent / "translations"
+LANGUES_INTERFACE = ("fr", "en")
+
+# Compte cree par bootstrap.sh uniquement parce qu'Authelia refuse de demarrer
+# sur une base sans utilisateur. authelia-users.yml.example le declare desactive
+# et sans groupe ; bootstrap.sh annonce que la finalisation le supprime -- ce
+# qu'elle ne faisait pas : il restait dans la liste des comptes du panneau.
+COMPTE_AMORCAGE = "bootstrap@localhost"
+
+
+def _setup_translations() -> dict[str, dict[str, str]]:
+    """Section « setup » de chaque fichier de langue, pour l'assistant."""
+    textes = {}
+    for langue in LANGUES_INTERFACE:
+        try:
+            data = json.loads((TRANSLATIONS_DIR / f"{langue}.json").read_text(encoding="utf-8"))
+            if data.get("setup"):
+                textes[langue] = data["setup"]
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning("setup translations for %s unreadable: %s", langue, e)
+    return textes
+
+
 @router.get("/auth/setup", response_class=HTMLResponse)
 async def setup_page():
     """Wizard HTML. setup_gate blocks it once setup is finalised."""
-    return HTMLResponse(_render("setup.html"))
+    # Injecte dans un <script> : « </ » fermerait la balise avant la fin du JSON.
+    textes = json.dumps(_setup_translations(), ensure_ascii=False).replace("</", "<\\/")
+    return HTMLResponse(_render("setup.html", setup_i18n=textes))
 
 
 @router.get("/auth/admin", response_class=HTMLResponse)
@@ -1418,14 +1443,39 @@ async def setup_create_admin(payload: UserCreatePayload):
     return {"ok": True, "username": payload.username}
 
 
+class SetupFinalizePayload(BaseModel):
+    # Langue choisie dans l'assistant, enregistree pour le reste de
+    # l'installation. Facultative : un appel sans corps reste valable.
+    langue: str | None = Field(default=None, pattern="^(fr|en)$")
+
+
 @router.post("/auth/setup/finalize")
-async def setup_finalize():
+async def setup_finalize(payload: SetupFinalizePayload | None = None):
     """Final step: check the active-admin invariant, then flip the flag."""
     if (await _r().get(SETUP_KEY)) == "1":
         raise HTTPException(409, "installation deja finalisee")
-    admins = _active_admins(_load_authelia())
+    data = _load_authelia()
+    admins = _active_admins(data)
     if not admins:
         raise HTTPException(400, "creez d'abord un administrateur")
+
+    # Retrait du compte d'amorcage, seulement s'il est reste inerte : un compte
+    # de ce nom qu'on aurait active ou mis dans un groupe n'est plus le sien.
+    # Avant le drapeau, pour qu'un echec d'ecriture laisse l'assistant ouvert et
+    # la finalisation rejouable.
+    amorce = (data.get("users") or {}).get(COMPTE_AMORCAGE)
+    if amorce is not None and amorce.get("disabled") and not amorce.get("groups"):
+        del data["users"][COMPTE_AMORCAGE]
+        _write_authelia(data)
+
+    if payload and payload.langue:
+        # Un reglage d'affichage ne doit pas bloquer l'installation : un dossier
+        # de reglages non monte en ecriture est journalise, pas fatal.
+        try:
+            _write_setting("langue", payload.langue)
+        except HTTPException as e:
+            logger.warning("language not saved at setup: %s", e.detail)
+
     await _r().set(SETUP_KEY, "1")
     await _r().delete(SETUP_FIRST_ADMIN_KEY)  # setup lock lifted, no longer useful
     await _audit("setup.finalized", actor="wizard", admin_count=len(admins))

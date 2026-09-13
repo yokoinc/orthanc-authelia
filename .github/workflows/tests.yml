@@ -97,7 +97,7 @@ jobs:
           fr = json.loads((d / 'fr.json').read_text(encoding='utf-8'))
           en = json.loads((d / 'en.json').read_text(encoding='utf-8'))
           code = 0
-          for section in ('ui', 'js'):
+          for section in ('ui', 'js', 'setup'):
               drift = set(fr.get(section, {})) ^ set(en.get(section, {}))
               if drift:
                   print(f"section {section} out of sync: {sorted(drift)}")
