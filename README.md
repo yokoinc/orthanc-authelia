@@ -42,16 +42,10 @@ is unreachable — see [Rescue paths](#rescue-paths).
 | Docker socket proxy | `tecnativa/docker-socket-proxy` | `0.1.2` |
 | OHIF Viewer | `registry.yokoinc.ovh/orthanc-ohif` | `3.13.4-2` |
 | Nginx | `registry.yokoinc.ovh/orthanc-nginx` | `1.1.2` |
-| Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.0.16` |
+| Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.1.0` |
 
 These are the versions pinned in `docker-compose.yml.example`. Keep this table
 and that file in sync when bumping an image.
-
-> **Two of those tags are not published yet.** `orthanc-ohif:3.13.4-2` and
-> `orthanc-nginx:1.1.2` exist only as local builds, so `docker compose up -d`
-> cannot pull them. Until they are pushed, build them yourself — see
-> [Building the images](#building-the-images) — or fall back to
-> `orthanc-ohif:3.13.4` and `orthanc-nginx:1.1.1`, which are in the registry.
 
 > **PostgreSQL is not part of this stack.** Orthanc connects to an **external**
 > PostgreSQL instance over the `database` network — see the
