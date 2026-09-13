@@ -351,7 +351,7 @@ class TestSetupWizard:
             "displayname": "Jean",
             "email": "j.dupont@exemple.fr",
             "password": "long-password-1234",
-            "groups": ["doctor"],  # PAS le groupe admin
+            "groups": ["doctor"],  # NOT the admin group
         })
         assert r.status_code == 200
         yml = yaml.safe_load(tmp_paths["authelia"].read_text())
@@ -942,9 +942,9 @@ class TestHealth:
         with respx.mock as mock:
             mock.get("http://orthanc:8042/system").respond(
                 status_code=200, json={"Version": "26.4.2"})
-            # Authelia doit etre simule EXPLICITEMENT : respx refuse tout appel
-            # non declare. C'est tant mieux -- un controle de sante qui
-            # interroge un composant oublie du test ne prouve rien.
+            # Authelia must be mocked EXPLICITLY: respx refuses any undeclared
+            # call. All the better -- a health check that queries a component
+            # the test forgot proves nothing.
             mock.get("http://authelia:9091/api/health").respond(
                 status_code=200, json={"status": "OK"})
 
@@ -972,7 +972,7 @@ class TestHealth:
         r = client.get("/auth/setup")
         assert r.status_code == 200
         assert "setup-form" in r.text
-        assert "create-admin" in r.text  # le fetch JS pointe dessus
+        assert "create-admin" in r.text  # the JS fetch points at it
 
     def test_setup_page_redirects_when_setup_done(
         self, client, tmp_paths, fake_redis, redis_sync,
@@ -1014,9 +1014,8 @@ class TestHealth:
             assert r.status_code == 200
             checks = r.json()["checks"]
             assert checks["orthanc_json"]["ok"] is False
-            # Un composant en panne n'en masque aucun autre : c'est la raison
-            # pour laquelle cette route rend 200 avec un etat par composant
-            # plutot qu'un 503 global.
+            # A failing component hides no other one: that is why this route
+            # returns 200 with a status per component rather than a global 503.
             assert checks["orthanc_api"]["ok"] is True
             assert checks["authelia_api"]["ok"] is True
 
@@ -1213,10 +1212,10 @@ class TestCFAccessJWT:
     verify perfectly well against that team's own keys.
     """
 
-    # Valeurs de test, sans rapport avec une installation reelle : le domaine
-    # d equipe suivait deja example.*, l audience non — c etait celle de la
-    # vraie application, dont les 32 premiers caracteres suffisent a
-    # l identifier dans un depot public.
+    # Test values, unrelated to any real installation: the team domain already
+    # followed example.*, the audience did not — it was the real application's,
+    # whose first 32 characters are enough to identify it in a public
+    # repository.
     TEAM = "example.cloudflareaccess.com"
     AUD = "00000000000000000000000000000000"
     KID = "test-key-1"
@@ -1996,7 +1995,7 @@ session:
         texte = authelia_full.read_text(encoding="utf-8")
         assert "ancien.example.org" not in texte, "une occurrence a survecu"
         assert texte.count("nouveau.example.org") == 5
-        # .env suit, sinon nginx resterait sur l ancien domaine
+        # .env follows, otherwise nginx would stay on the old domain
         env = env_file.read_text(encoding="utf-8")
         assert "PUBLIC_URL=https://nouveau.example.org" in env
         assert "DOMAIN=nouveau.example.org" in env
