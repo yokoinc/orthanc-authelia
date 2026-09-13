@@ -41,6 +41,13 @@
 #   nuit suffit.
 set -eu
 
+# Le planificateur de DSM lance les scripts avec un PATH minimal (/usr/bin:/bin),
+# ou docker -- installe sous /usr/local/bin -- est introuvable. Sans cette
+# ligne, la tache planifiee aurait echoue chaque nuit sur « docker: command not
+# found », sans que personne ne regarde. Verifie le 2026-09-13, avant la toute
+# premiere planification.
+PATH=/usr/local/bin:$PATH
+
 CONTENEUR="${PG_CONTAINER:-postgres-database-15}"
 BASE="${PG_DATABASE:-orthanc}"
 UTILISATEUR="${PG_USER:-cuffel.gregory}"   # cf. le bloc PostgreSQL d orthanc.json, pas les POSTGRES_* du compose
