@@ -109,7 +109,7 @@ for you.
 ### Three steps
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/yokoinc/orthanc-authelia.git
 cd orthanc-authelia
 ./bootstrap.sh
 ```
