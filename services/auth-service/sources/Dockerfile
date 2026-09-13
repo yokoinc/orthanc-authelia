@@ -15,6 +15,10 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY entrypoint.sh /app/
 COPY auth_service.py /app/
 COPY admin_module.py /app/
+# Les catalogues de langue, importes par les deux modules ci-dessus. Les .py
+# sont copies un par un : un module ajoute sans sa ligne ici empeche le service
+# de demarrer (ModuleNotFoundError).
+COPY i18n.py /app/
 COPY static/ /app/static/
 COPY templates/ /app/templates/
 COPY translations/ /app/translations/

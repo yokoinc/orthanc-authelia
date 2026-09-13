@@ -87,23 +87,27 @@ jobs:
           echo "Syntax correct."
 
       - name: Translations in sync
-        # A key present in one language and missing from the other goes
-        # unnoticed until a user hits a raw label.
+        # A key present in one language and missing from another goes
+        # unnoticed until a user hits a raw label. Every translations/*.json is
+        # compared with en.json, every section: a language added as a new file
+        # is checked without editing this workflow. tests/test_i18n.py goes
+        # further (keys used by the code, {variables}).
         run: |
           python3 - <<'PY'
           import json, sys
           from pathlib import Path
           d = Path('services/auth-service/sources/translations')
-          fr = json.loads((d / 'fr.json').read_text(encoding='utf-8'))
-          en = json.loads((d / 'en.json').read_text(encoding='utf-8'))
+          ref = json.loads((d / 'en.json').read_text(encoding='utf-8'))
           code = 0
-          for section in ('ui', 'js', 'setup'):
-              drift = set(fr.get(section, {})) ^ set(en.get(section, {}))
-              if drift:
-                  print(f"section {section} out of sync: {sorted(drift)}")
-                  code = 1
+          for f in sorted(d.glob('*.json')):
+              data = json.loads(f.read_text(encoding='utf-8'))
+              for section in set(ref) | set(data):
+                  drift = set(ref.get(section, {})) ^ set(data.get(section, {}))
+                  if drift:
+                      print(f"{f.name}, section {section}, out of sync with en.json: {sorted(drift)}")
+                      code = 1
           if not code:
-              print("fr and en cover the same keys.")
+              print("Every language covers the same keys as en.json.")
           sys.exit(code)
           PY
 

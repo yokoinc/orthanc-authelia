@@ -4,7 +4,33 @@
  *
  * window.__CSRF__ is initialised in admin.html from the orthanc_admin_csrf
  * cookie the server sets while rendering the template.
+ *
+ * Texts: the t() helper reads the « admin » section of translations/<lang>.json,
+ * rendered by the server into window.__I18N__. No text is written here.
  */
+
+const I18N = window.__I18N__ || {};
+const LANGUE = document.documentElement.lang || 'en';
+
+// Le texte d'une cle, {variables} substituees. Une cle absente s'affiche telle
+// quelle plutot que de casser la page : le test test_i18n l'interdit en CI.
+function t(cle, variables) {
+    const modele = Object.prototype.hasOwnProperty.call(I18N, cle) ? I18N[cle] : cle;
+    if (!variables) return modele;
+    return modele.replace(/\{(\w+)\}/g, (m, nom) =>
+        Object.prototype.hasOwnProperty.call(variables, nom) ? String(variables[nom]) : m);
+}
+
+// Le detail d'une erreur de validation (422) arrive en liste d'objets : il
+// s'affichait « [object Object] ».
+function detailErreur(data, status) {
+    const d = data && data.detail;
+    if (Array.isArray(d)) {
+        return d.map(x => String(x.msg || '').replace(/^Value error, /, '')).join(' ; ')
+            || `HTTP ${status}`;
+    }
+    return d || `HTTP ${status}`;
+}
 
 function api(path, opts) {
     opts = opts || {};
@@ -18,7 +44,7 @@ function api(path, opts) {
         const text = await r.text();
         let data;
         try { data = text ? JSON.parse(text) : {}; } catch { data = { detail: text }; }
-        if (!r.ok) throw new Error((data && data.detail) || `HTTP ${r.status}`);
+        if (!r.ok) throw new Error(detailErreur(data, r.status));
         return data;
     });
 }
@@ -34,7 +60,7 @@ function confirmDialog(message, okLabel) {
     const ok = document.getElementById('confirm-ok');
     const cancel = document.getElementById('confirm-cancel');
     document.getElementById('confirm-text').textContent = message;
-    ok.textContent = okLabel || 'Confirmer';
+    ok.textContent = okLabel || t('confirm');
     backdrop.hidden = false;
     ok.focus();
 
@@ -88,14 +114,42 @@ function showMsg(text, ok) {
     setTimeout(() => { el.style.display = 'none'; }, 4000);
 }
 
+function ligneErreur(colspan, e) {
+    return `<tr><td colspan="${colspan}">${echapHtml(t('error_prefix', { message: e.message }))}</td></tr>`;
+}
+
+// ============ Langue ============
+// Une seule langue pour l'installation : l'enregistrer puis recharger, pour que
+// les textes rendus par le serveur suivent aussi.
+function initLangue() {
+    const select = document.getElementById('langue-select');
+    if (!select) return;
+    (window.__LANGUES__ || []).forEach(l => {
+        const o = document.createElement('option');
+        o.value = l.code;
+        o.textContent = l.name;
+        o.selected = l.code === LANGUE;
+        select.appendChild(o);
+    });
+    select.addEventListener('change', async () => {
+        try {
+            await api('/api/admin/language', { method: 'POST', body: { langue: select.value } });
+            window.location.reload();
+        } catch (e) {
+            showMsg(e.message, false);
+            select.value = LANGUE;
+        }
+    });
+}
+
 // ============ Tabs ============
 document.querySelectorAll('.admin-tab').forEach(btn => {
     btn.addEventListener('click', () => {
         document.querySelectorAll('.admin-tab').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         const target = btn.dataset.tab;
-        ['users', 'orthanc', 'modalities', 'cf', 'session', 'backups', 'audit', 'health'].forEach(t => {
-            document.getElementById('panel-' + t).hidden = (t !== target);
+        ['users', 'orthanc', 'modalities', 'cf', 'session', 'backups', 'audit', 'health'].forEach(p => {
+            document.getElementById('panel-' + p).hidden = (p !== target);
         });
         if (target === 'users') loadUsers();
         if (target === 'orthanc') loadOrthanc();
@@ -114,18 +168,12 @@ document.querySelectorAll('.admin-tab').forEach(btn => {
 // s'affichait avec la pastille bleue des medecins.
 const GROUPE_ADMIN = 'admin';
 
-const MOTIF_VERROU =
-    "Dernier administrateur actif : le desactiver ou le supprimer fermerait "
-    + "le panneau d'administration a tout le monde, et il n'existe pas de porte "
-    + "de service -- il faudrait repasser par SSH sur le NAS. Nommez un second "
-    + "administrateur d'abord. Le nom et l'adresse, eux, restent modifiables.";
-
 // Renseigne au chargement de la liste ; sert au message affiche si l'operateur
 // clique quand meme sur un bouton verrouille.
 let verrouMotif = '';
 
 function expliquerVerrou() {
-    showMsg(verrouMotif || MOTIF_VERROU, false);
+    showMsg(verrouMotif || t('lock_reason'), false);
 }
 
 async function loadUsers() {
@@ -154,32 +202,32 @@ async function loadUsers() {
                     `<span class="badge-${g === GROUPE_ADMIN ? 'admin' : 'doctor'}">${echapHtml(g)}</span>`
                 ).join(' ')}</td>
                 <td>${u.disabled
-                    ? '<span style="color:var(--oe2-danger)">désactivé</span>'
-                    : '<span style="color:var(--oe2-success)">actif</span>'}</td>
+                    ? `<span style="color:var(--oe2-danger)">${echapHtml(t('state_disabled'))}</span>`
+                    : `<span style="color:var(--oe2-success)">${echapHtml(t('state_active'))}</span>`}</td>
                 <td style="text-align:right;white-space:nowrap">
                     <button class="oe2-btn oe2-btn--sm" onclick="openEdit(${echapArg(u.username)})">
-                        <i class="fa-solid fa-pen"></i> Modifier
+                        <i class="fa-solid fa-pen"></i> ${echapHtml(t('edit'))}
                     </button>
                     <button class="oe2-btn oe2-btn--sm${verrouille ? ' btn-verrouille' : ''}"
                             ${verrouille
                               ? `onclick="expliquerVerrou()" aria-disabled="true"`
                               : `onclick="toggleDisabled(${echapArg(u.username)}, ${!!u.disabled})"`}>
-                        <i class="fa-solid fa-power-off"></i> ${u.disabled ? 'Activer' : 'Désactiver'}
+                        <i class="fa-solid fa-power-off"></i> ${echapHtml(u.disabled ? t('enable') : t('disable'))}
                     </button>
                     <button class="oe2-btn oe2-btn--danger oe2-btn--sm${verrouille ? ' btn-verrouille' : ''}"
                             ${verrouille
                               ? `onclick="expliquerVerrou()" aria-disabled="true"`
                               : `onclick="deleteUser(${echapArg(u.username)})"`}>
-                        <i class="fa-solid fa-trash"></i> Supprimer
+                        <i class="fa-solid fa-trash"></i> ${echapHtml(t('delete'))}
                     </button>
                 </td>
             </tr>
         `;
-        }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--oe2-muted)">Aucun compte</td></tr>';
+        }).join('') || `<tr><td colspan="5" style="text-align:center;color:var(--oe2-muted)">${echapHtml(t('no_accounts'))}</td></tr>`;
         usersCache = data.users;
-        verrouMotif = adminsActifs <= 1 ? MOTIF_VERROU : '';
+        verrouMotif = adminsActifs <= 1 ? t('lock_reason') : '';
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="5">Erreur : ${e.message}</td></tr>`;
+        tbody.innerHTML = ligneErreur(5, e);
     }
 }
 
@@ -223,9 +271,8 @@ document.getElementById('edit-user-form').addEventListener('submit', async (e) =
         });
         showMsg(
             res.renomme
-                ? `Compte renomme : la connexion se fait desormais avec ${res.renomme}, `
-                  + `plus avec ${username}. Le mot de passe est inchange.`
-                : `${username} modifie`,
+                ? t('account_renamed', { new: res.renomme, old: username })
+                : t('account_modified', { name: username }),
             true,
         );
         closeEdit();
@@ -239,10 +286,9 @@ document.getElementById('edit-user-form').addEventListener('submit', async (e) =
 async function toggleDisabled(username, currentlyDisabled) {
     const ok = await confirmDialog(
         currentlyDisabled
-            ? `Reactiver "${username}" ? Il pourra de nouveau se connecter.`
-            : `Desactiver "${username}" ? Le compte est conserve, il ne pourra `
-              + 'plus se connecter.',
-        currentlyDisabled ? 'Reactiver' : 'Desactiver',
+            ? t('confirm_enable', { name: username })
+            : t('confirm_disable', { name: username }),
+        currentlyDisabled ? t('enable') : t('disable'),
     );
     if (!ok) return;
     try {
@@ -250,20 +296,17 @@ async function toggleDisabled(username, currentlyDisabled) {
             method: 'PATCH',
             body: { disabled: !currentlyDisabled },
         });
-        showMsg(`${username} ${currentlyDisabled ? 'reactive' : 'desactive'}`, true);
+        showMsg(t(currentlyDisabled ? 'account_enabled' : 'account_disabled', { name: username }), true);
         loadUsers();
     } catch (e) { showMsg(e.message, false); }
 }
 
 async function deleteUser(username) {
-    const ok = await confirmDialog(
-        `Supprimer definitivement l'utilisateur "${username}" ? Un backup du fichier est conserve.`,
-        'Supprimer',
-    );
+    const ok = await confirmDialog(t('confirm_delete_user', { name: username }), t('delete'));
     if (!ok) return;
     try {
         await api(`/api/admin/users/${encodeURIComponent(username)}`, { method: 'DELETE' });
-        showMsg(`Compte ${username} supprime`, true);
+        showMsg(t('account_deleted', { name: username }), true);
         loadUsers();
     } catch (e) { showMsg(e.message, false); }
 }
@@ -285,25 +328,17 @@ document.getElementById('edit-password-form').addEventListener('submit', async (
     const mdp = champ.value;
 
     if (mdp.length < 12) {
-        showMsg(`Mot de passe trop court : ${mdp.length} caractere(s), il en faut 12 `
-                + `au minimum. Une phrase longue vaut mieux qu'un mot complique.`, false);
+        showMsg(t('password_too_short', { count: mdp.length }), false);
         champ.focus();
         return;
     }
     if (mdp.toLowerCase() === (username || '').toLowerCase()) {
-        showMsg("Le mot de passe ne peut pas etre l'adresse du compte.", false);
+        showMsg(t('password_is_login'), false);
         champ.focus();
         return;
     }
 
-    const ok = await confirmDialog(
-        `Remplacer le mot de passe de ${username} ?
-
-`
-        + `La personne ne pourra plus se connecter avec l'ancien, et devra `
-        + `utiliser le nouveau que vous venez de saisir.`,
-        'Changer le mot de passe',
-    );
+    const ok = await confirmDialog(t('confirm_password', { name: username }), t('change_password'));
     if (!ok) return;
 
     try {
@@ -312,8 +347,7 @@ document.getElementById('edit-password-form').addEventListener('submit', async (
             body: { new_password: mdp },
         });
         champ.value = '';
-        showMsg(`Mot de passe de ${username} remplace. Transmettez-le a la personne `
-                + `par un canal sur : il n'est affiche nulle part et ne peut pas etre relu.`, true);
+        showMsg(t('password_changed', { name: username }), true);
     } catch (err) { showMsg(err.message, false); }
 });
 
@@ -333,7 +367,7 @@ document.getElementById('add-user-form').addEventListener('submit', async (e) =>
                 groups,
             },
         });
-        showMsg('Compte cree. Authelia relit le fichier automatiquement.', true);
+        showMsg(t('account_created'), true);
         e.target.reset();
         loadUsers();
     } catch (err) { showMsg(err.message, false); }
@@ -349,21 +383,21 @@ async function loadModalities() {
                 <td><strong>${echapHtml(m.name)}</strong></td>
                 <td>${echapHtml(m.aet)}</td>
                 <td>${echapHtml(m.host)}</td>
-                <td>${m.port}</td>
+                <td>${echapHtml(m.port)}</td>
                 <td style="text-align:right;white-space:nowrap">
                     <span id="echo-${echapHtml(m.name)}" style="color:var(--oe2-muted);margin-right:8px"></span>
                     <button class="oe2-btn oe2-btn--sm" onclick="echoModality(${echapArg(m.name)})">
-                        <i class="fa-solid fa-tower-broadcast"></i> Tester
+                        <i class="fa-solid fa-tower-broadcast"></i> ${echapHtml(t('test'))}
                     </button>
                     <button class="oe2-btn oe2-btn--danger oe2-btn--sm"
                             onclick="deleteModality(${echapArg(m.name)})">
-                        <i class="fa-solid fa-trash"></i> Supprimer
+                        <i class="fa-solid fa-trash"></i> ${echapHtml(t('delete'))}
                     </button>
                 </td>
             </tr>
-        `).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--oe2-muted)">Aucun équipement déclaré</td></tr>';
+        `).join('') || `<tr><td colspan="5" style="text-align:center;color:var(--oe2-muted)">${echapHtml(t('no_modalities'))}</td></tr>`;
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="5">Erreur : ${e.message}</td></tr>`;
+        tbody.innerHTML = ligneErreur(5, e);
     }
 }
 
@@ -375,7 +409,7 @@ async function echoModality(name) {
     try {
         const r = await api(`/api/admin/modalities/${encodeURIComponent(name)}/echo`,
                             { method: 'POST' });
-        cell.textContent = r.reachable ? '✓ répond' : '✗ muet';
+        cell.textContent = r.reachable ? t('echo_ok') : t('echo_silent');
         cell.title = r.detail || '';
         cell.style.color = r.reachable ? 'var(--oe2-ok, #4caf50)' : 'var(--oe2-danger, #e57373)';
     } catch (e) {
@@ -385,14 +419,11 @@ async function echoModality(name) {
 }
 
 async function deleteModality(name) {
-    const ok = await confirmDialog(
-        `Supprimer l'équipement "${name}" ? Il ne pourra plus envoyer d'examens.`,
-        'Supprimer',
-    );
+    const ok = await confirmDialog(t('confirm_delete_modality', { name }), t('delete'));
     if (!ok) return;
     try {
         await api(`/api/admin/modalities/${encodeURIComponent(name)}`, { method: 'DELETE' });
-        showMsg(`Équipement ${name} supprimé`, true);
+        showMsg(t('modality_deleted', { name }), true);
         loadModalities();
     } catch (e) { showMsg(e.message, false); }
 }
@@ -410,7 +441,7 @@ document.getElementById('add-modality-form').addEventListener('submit', async (e
                 port: Number(fd.get('port')),
             },
         });
-        showMsg(`Équipement ${name} déclaré`, true);
+        showMsg(t('modality_added', { name }), true);
         e.target.reset();
         e.target.port.value = 104;
         loadModalities();
@@ -418,30 +449,24 @@ document.getElementById('add-modality-form').addEventListener('submit', async (e
 });
 
 /**
- * Rend un « ? » cliquable portant l'explication d'un reglage.
+ * Rend un « ? » portant l'explication d'un reglage.
  *
  * L'onglet Orthanc affichait le nom brut de la cle et rien d'autre.
  * "DicomAlwaysAllowStore" ou "StableAge" ne disent rien a qui n'a pas lu la
  * documentation d'Orthanc -- et un PACS se regle rarement par un specialiste
  * d'Orthanc.
  *
- * Le texte passe par title= plutot que par une infobulle maison : il survit au
- * clavier, au lecteur d'ecran et a la copie, ce qu'une div positionnee ne fait
- * pas gratuitement. tabindex le rend atteignable sans souris.
- *
  * Echappement obligatoire : ces textes viennent du serveur et finissent dans
- * un attribut HTML.
+ * un attribut HTML. tabindex le rend atteignable sans souris.
  */
 function aide(texte) {
     if (!texte) return '';
-    const t = String(texte)
-        .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-        .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const e = echapHtml(texte);
     // data-aide plutot que title : l'infobulle native tarde une seconde a
     // sortir, s'efface toute seule, et ne s'affichait pas du tout ici. La bulle
     // est donc dessinee en CSS (.aide::after) -- instantanee et lisible.
-    return ` <span class="aide" tabindex="0" role="note" data-aide="${t}"
-                   aria-label="Explication : ${t}">?</span>`;
+    return ` <span class="aide" tabindex="0" role="note" data-aide="${e}"
+                   aria-label="${echapHtml(t('help_label', { text: texte }))}">?</span>`;
 }
 
 // ============ ORTHANC CONFIG ============
@@ -457,15 +482,14 @@ let orthancCharge = {};
 // (ORTHANC_DEFAUTS), extraites de la configuration de reference qu'Orthanc
 // emet lui-meme -- elles correspondent donc a la version installee.
 function texteDefaut(cle, defauts) {
-    var d = defauts && Object.prototype.hasOwnProperty.call(defauts, cle)
+    const d = defauts && Object.prototype.hasOwnProperty.call(defauts, cle)
             ? defauts[cle] : undefined;
     if (d === undefined || d === null) {
         // Les DicomWeb.* n'ont pas de defaut connu de nous : leurs valeurs
         // appartiennent au greffon. Mieux vaut ne rien annoncer que d'inventer.
-        return 'non défini';
+        return t('not_set');
     }
-    if (Array.isArray(d)) return 'non défini — Orthanc applique : ' + d.join(', ');
-    return 'non défini — Orthanc applique : ' + d;
+    return t('not_set_default', { value: Array.isArray(d) ? d.join(', ') : d });
 }
 
 async function loadOrthanc() {
@@ -475,6 +499,7 @@ async function loadOrthanc() {
         orthancCharge = data.editable;   // reference pour le diff a l'enregistrement
         container.innerHTML = Object.entries(data.editable).map(([key, value]) => {
             const inputId = 'orth-' + key.replace(/\./g, '_');
+            const defaut = echapHtml(texteDefaut(key, data.defauts));
             let control;
             // Le type vient du serveur, pas de la valeur. Un reglage ABSENT
             // d'orthanc.json arrive a null : `typeof null === 'object'`, et le
@@ -485,21 +510,21 @@ async function loadOrthanc() {
             const type = data.types?.[key] || (value === null ? 'str' : typeof value);
             if (type === 'bool' || typeof value === 'boolean') {
                 control = `<select id="${inputId}" data-key="${key}">
-                    <option value="" ${value === null ? 'selected' : ''}>(${texteDefaut(key, data.defauts)})</option>
+                    <option value="" ${value === null ? 'selected' : ''}>(${defaut})</option>
                     <option value="true" ${value === true ? 'selected' : ''}>true</option>
                     <option value="false" ${value === false ? 'selected' : ''}>false</option>
                 </select>`;
             } else if (type === 'int' || typeof value === 'number') {
-                control = `<input type="number" id="${inputId}" data-key="${key}" value="${value ?? ''}"
-                                  placeholder="${texteDefaut(key, data.defauts)}">`;
+                control = `<input type="number" id="${inputId}" data-key="${key}" value="${echapHtml(value ?? '')}"
+                                  placeholder="${defaut}">`;
             } else {
-                control = `<input type="text" id="${inputId}" data-key="${key}" value="${value ?? ''}"
-                                  placeholder="${texteDefaut(key, data.defauts)}">`;
+                control = `<input type="text" id="${inputId}" data-key="${key}" value="${echapHtml(value ?? '')}"
+                                  placeholder="${defaut}">`;
             }
             return `<div class="form-row"><label for="${inputId}">${key}${aide(data.aide?.[key])}</label>${control}</div>`;
         }).join('');
     } catch (e) {
-        container.innerHTML = `<div class="msg msg--err" style="display:block">${e.message}</div>`;
+        container.innerHTML = `<div class="msg msg--err" style="display:block">${echapHtml(e.message)}</div>`;
     }
     loadDivergences();
 }
@@ -517,16 +542,14 @@ async function loadDivergences() {
         if (!d.mismatches.length) return;
         zone.innerHTML = `
             <div class="msg msg--err" style="display:block">
-                <strong>${d.mismatches.length} reglage(s) ne sont pas appliques
-                tels qu'ecrits.</strong> Une variable ORTHANC__* du compose les
-                ecrase peut-etre, ou Orthanc n'a pas redemarre depuis la
-                derniere modification.
+                <strong>${echapHtml(t('divergences', { count: d.mismatches.length }))}</strong>
+                ${echapHtml(t('divergences_detail'))}
                 <table class="data-table" style="margin-top:8px">
-                    <thead><tr><th>Reglage</th><th>Dans le fichier</th><th>Applique</th></tr></thead>
+                    <thead><tr><th>${echapHtml(t('col_setting'))}</th><th>${echapHtml(t('col_in_file'))}</th><th>${echapHtml(t('col_applied'))}</th></tr></thead>
                     <tbody>${d.mismatches.map(m => `
-                        <tr><td><strong>${m.field}</strong></td>
-                            <td>${JSON.stringify(m.in_file)}</td>
-                            <td>${JSON.stringify(m.applied_by_orthanc)}</td></tr>
+                        <tr><td><strong>${echapHtml(m.field)}</strong></td>
+                            <td>${echapHtml(JSON.stringify(m.in_file))}</td>
+                            <td>${echapHtml(JSON.stringify(m.applied_by_orthanc))}</td></tr>
                     `).join('')}</tbody>
                 </table>
             </div>`;
@@ -556,7 +579,7 @@ document.getElementById('orthanc-form').addEventListener('submit', async (e) => 
         changes[key] = val;
     });
     if (Object.keys(changes).length === 0) {
-        showMsg('Aucune modification.', true);
+        showMsg(t('no_changes'), true);
         return;
     }
     try {
@@ -567,13 +590,13 @@ document.getElementById('orthanc-form').addEventListener('submit', async (e) => 
         // The server tells us whether Orthanc actually picked the change up.
         // Saying "applied" when it only got written would be a lie.
         showMsg(
-            data.restart_required
-                ? `Ecrit (backup ${data.backup}). Orthanc lit une copie faite a son `
-                  + `demarrage : cliquer « Redemarrer Orthanc » pour appliquer.`
-                : `Applique. Backup : ${data.backup}`,
+            data.warning
+                || (data.restart_required
+                    ? t('orthanc_written_restart', { backup: data.backup })
+                    : t('orthanc_applied', { backup: data.backup })),
             true,
         );
-        if (data.restart_required) highlightRestart();
+        if (data.restart_required || data.warning) highlightRestart();
     } catch (err) { showMsg(err.message, false); }
 });
 
@@ -588,12 +611,7 @@ function highlightRestart() {
 }
 
 async function restartOrthanc() {
-    const ok = await confirmDialog(
-        'Redemarrer Orthanc ? Le PACS sera indisponible quelques secondes. '
-        + "Si la configuration l'empeche de repartir, la derniere sauvegarde "
-        + 'est restauree automatiquement.',
-        'Redemarrer',
-    );
+    const ok = await confirmDialog(t('confirm_restart'), t('restart_btn'));
     if (!ok) return;
 
     const btn = document.getElementById('orthanc-restart');
@@ -602,10 +620,10 @@ async function restartOrthanc() {
     // ce verrou l'operateur cliquerait plusieurs fois, croyant que rien ne se
     // passe, et enchainerait les redemarrages.
     btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-hourglass-half"></i> Redemarrage…';
+    btn.innerHTML = `<i class="fa-solid fa-hourglass-half"></i> ${echapHtml(t('restarting'))}`;
     try {
         const r = await api('/api/admin/orthanc/restart', { method: 'POST' });
-        showMsg(r.warning || r.message || `Orthanc ${r.version} a redemarre.`,
+        showMsg(r.warning || r.message || t('orthanc_restarted', { version: r.version }),
                 !r.warning);
         btn.classList.remove('oe2-btn--primary');
     } catch (e) {
@@ -621,19 +639,19 @@ async function loadCF() {
     const el = document.getElementById('cf-status');
     try {
         const d = await api('/api/admin/cf-access');
-        const yes = '<span style="color:var(--oe2-success)">oui</span>';
-        const no = '<span style="color:var(--oe2-danger)">non</span>';
+        const yes = `<span style="color:var(--oe2-success)">${echapHtml(t('yes'))}</span>`;
+        const no = `<span style="color:var(--oe2-danger)">${echapHtml(t('no'))}</span>`;
+        const nonConfigure = echapHtml(t('not_configured'));
         const warn = d.configured && d.enforced ? '' : `
             <div class="msg msg--err" style="display:block;margin-bottom:12px">
-                La verification n'est pas active : les uploads ne dependent que du
-                filtrage Cloudflare, sans controle a l'origine.
+                ${echapHtml(t('cf_not_enforced'))}
             </div>`;
         el.innerHTML = warn + `
-            Domaine d'equipe : <code>${d.team_domain || '(non configure)'}</code><br>
-            Application (aud) : <code>${d.aud_masked || '(non configure)'}</code><br>
-            Verification a l'origine : ${d.configured ? yes : no}<br>
-            Appliquee par nginx sur /api-upload/ : ${d.enforced ? yes : no}<br>
-            Assertions acceptees : ${d.checks_ok}
+            ${echapHtml(t('cf_team_domain'))} : <code>${d.team_domain ? echapHtml(d.team_domain) : nonConfigure}</code><br>
+            ${echapHtml(t('cf_aud_status'))} : <code>${d.aud_masked ? echapHtml(d.aud_masked) : nonConfigure}</code><br>
+            ${echapHtml(t('cf_origin_check'))} : ${d.configured ? yes : no}<br>
+            ${echapHtml(t('cf_nginx_enforced'))} : ${d.enforced ? yes : no}<br>
+            ${echapHtml(t('cf_accepted'))} : ${echapHtml(d.checks_ok)}
         `;
         // Prefill the form with what is actually in force. The audience comes
         // back masked, so we only overwrite the field when it is still empty:
@@ -642,10 +660,10 @@ async function loadCF() {
         form.team_domain.value = d.team_domain || '';
         form.enforced.checked = !!d.enforced;
         if (!form.aud.value) {
-            form.aud.placeholder = d.aud_masked || "Identifiant de l'application Cloudflare";
+            form.aud.placeholder = d.aud_masked || t('placeholder_cf_aud');
         }
     } catch (e) {
-        el.textContent = 'Erreur : ' + e.message;
+        el.textContent = t('error_prefix', { message: e.message });
     }
 }
 
@@ -654,8 +672,7 @@ document.getElementById('cf-form').addEventListener('submit', async (e) => {
     const fd = new FormData(e.target);
     const aud = (fd.get('aud') || '').trim();
     if (!aud) {
-        showMsg("Saisir l'audience : elle revient masquee, donc elle doit etre "
-                + 'ressaisie en entier a chaque enregistrement.', false);
+        showMsg(t('cf_aud_required'), false);
         return;
     }
     try {
@@ -667,7 +684,7 @@ document.getElementById('cf-form').addEventListener('submit', async (e) => {
                 enforced: fd.get('enforced') === 'on',
             },
         });
-        showMsg('Cloudflare Access enregistre. Effet immediat, sans redemarrage.', true);
+        showMsg(t('cf_saved'), true);
         e.target.aud.value = '';
         loadCF();
     } catch (err) { showMsg(err.message, false); }
@@ -686,42 +703,26 @@ async function loadNetwork() {
         document.getElementById('network-form').public_url.value = d.public_url || '';
         const bouton = document.querySelector('#network-form button[type=submit]');
         const champ = document.getElementById('network-form').public_url;
-        if (!d.editable) {
-            champ.disabled = true;
-            bouton.disabled = true;
-            note.textContent = "Modification indisponible : le fichier .env n'est pas "
-                + "monte dans le conteneur. Ajouter './.env:/host/env/.env:rw' au "
-                + 'service auth-service, puis recreer le conteneur.';
-        } else {
-            champ.disabled = false;
-            bouton.disabled = false;
-            note.textContent = 'Le changement prend effet au redemarrage de la pile, '
-                + 'et impose de se reconnecter a la nouvelle adresse : le cookie de '
-                + "session est lie a l'ancien domaine.";
-        }
+        champ.disabled = !d.editable;
+        bouton.disabled = !d.editable;
+        note.textContent = d.editable ? t('network_note') : t('network_not_editable');
     } catch (e) {
-        note.textContent = 'Erreur : ' + e.message;
+        note.textContent = t('error_prefix', { message: e.message });
     }
 }
 
 document.getElementById('network-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const url = e.target.public_url.value.trim();
-    const ok = await confirmDialog(
-        `Faire pointer le PACS sur ${url} ? Authelia et .env sont reecrits, une `
-        + 'sauvegarde est prise avant. Il faudra redemarrer la pile et se '
-        + 'reconnecter a la nouvelle adresse.',
-        'Changer',
-    );
+    const ok = await confirmDialog(t('confirm_network', { url }), t('change_btn'));
     if (!ok) return;
     try {
         const r = await api('/api/admin/network', {
             method: 'POST', body: { public_url: url },
         });
         showMsg(r.unchanged
-            ? 'Adresse inchangee, rien de reecrit.'
-            : `${r.substitutions} occurrence(s) mises a jour. Redemarrer la pile `
-              + 'pour appliquer.', true);
+            ? t('network_unchanged')
+            : t('network_updated', { count: r.substitutions }), true);
         loadNetwork();
     } catch (err) { showMsg(err.message, false); }
 });
@@ -734,15 +735,15 @@ async function loadSession() {
         container.innerHTML = Object.entries(data.durations).map(([key, value]) => `
             <div class="form-row">
                 <label for="sess-${key}">${key}${aide(data.labels[key])}</label>
-                <input id="sess-${key}" name="${key}" value="${value ?? ''}"
+                <input id="sess-${key}" name="${key}" value="${echapHtml(value ?? '')}"
                        pattern="(\\d+[smhdwMy])+" required>
             </div>
             <div style="font-size:11px;color:var(--oe2-muted);margin:-6px 0 10px">
-                ${data.labels[key] || ''}
+                ${echapHtml(data.labels[key] || '')}
             </div>
         `).join('');
     } catch (e) {
-        container.innerHTML = `<div class="msg msg--err" style="display:block">${e.message}</div>`;
+        container.innerHTML = `<div class="msg msg--err" style="display:block">${echapHtml(e.message)}</div>`;
     }
 }
 
@@ -753,17 +754,13 @@ document.getElementById('session-form').addEventListener('submit', async (e) => 
     fd.forEach((value, key) => { if (value) body[key] = value; });
     try {
         const data = await api('/api/admin/session', { method: 'PATCH', body });
-        showMsg(
-            `Ecrit (backup ${data.backup}). Authelia ne relit pas sa configuration : `
-            + 'relancer le conteneur pour appliquer — docker compose restart authelia',
-            true,
-        );
+        showMsg(t('session_written', { backup: data.backup }), true);
     } catch (err) { showMsg(err.message, false); }
 });
 
 // ============ BACKUPS ============
 function formatBytes(n) {
-    return n < 1024 ? n + ' o' : (n / 1024).toFixed(1) + ' ko';
+    return n < 1024 ? `${n} ${t('bytes_unit')}` : `${(n / 1024).toFixed(1)} ${t('kbytes_unit')}`;
 }
 
 async function loadBackups() {
@@ -771,52 +768,41 @@ async function loadBackups() {
     try {
         const data = await api('/api/admin/backups');
         if (!data.backups.length) {
-            tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--oe2-muted)">'
-                + 'Aucune sauvegarde pour le moment</td></tr>';
+            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--oe2-muted)">${echapHtml(t('no_backups'))}</td></tr>`;
             return;
         }
         tbody.innerHTML = data.backups.map(b => {
-            const when = new Date(b.modified * 1000).toLocaleString('fr-FR');
+            const when = new Date(b.modified * 1000).toLocaleString(LANGUE);
             return `
             <tr>
-                <td style="white-space:nowrap">${when}</td>
-                <td><strong>${b.target}</strong><br>
+                <td style="white-space:nowrap">${echapHtml(when)}</td>
+                <td><strong>${echapHtml(b.target)}</strong><br>
                     <span style="font-family:monospace;font-size:11px;color:var(--oe2-muted)">
-                        ${b.name} — ${formatBytes(b.size)}
+                        ${echapHtml(b.name)} — ${echapHtml(formatBytes(b.size))}
                     </span></td>
-                <td style="font-size:12px">${b.detail || ''}</td>
+                <td style="font-size:12px">${echapHtml(b.detail || '')}</td>
                 <td style="text-align:right;white-space:nowrap">
                     <button class="oe2-btn oe2-btn--secondary oe2-btn--sm"
-                            onclick="restoreBackup('${b.name}', '${b.target}')">
-                        <i class="fa-solid fa-clock-rotate-left"></i> Restaurer
+                            onclick="restoreBackup(${echapArg(b.name)}, ${echapArg(b.target)})">
+                        <i class="fa-solid fa-clock-rotate-left"></i> ${echapHtml(t('restore'))}
                     </button>
                 </td>
             </tr>`;
         }).join('');
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="4">Erreur : ${e.message}</td></tr>`;
+        tbody.innerHTML = ligneErreur(4, e);
     }
 }
 
 async function restoreBackup(name, target) {
-    const ok = await confirmDialog(
-        `Restaurer ${target} depuis ${name} ? Le contenu actuel sera remplace, `
-        + 'mais il est sauvegarde au prealable : l\'operation reste reversible.',
-        'Restaurer',
-    );
+    const ok = await confirmDialog(t('confirm_restore', { target, name }), t('restore'));
     if (!ok) return;
     try {
         const data = await api(
             `/api/admin/backups/restore?backup_name=${encodeURIComponent(name)}`,
             { method: 'POST' },
         );
-        showMsg(
-            data.restart_required
-                ? `${target} restaure. Orthanc lit une copie faite a son demarrage : `
-                  + 'cliquer « Redemarrer Orthanc » dans Configuration Orthanc pour appliquer.'
-                : `${target} restaure`,
-            true,
-        );
+        showMsg(t(data.restart_required ? 'restored_restart' : 'restored', { target }), true);
         if (data.restart_required) highlightRestart();
         loadBackups();
         if (target === 'users_database.yml') loadUsers();
@@ -835,7 +821,7 @@ async function loadAudit() {
         auditCache = d.entries;
         renderAudit();
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="4">Erreur : ${e.message}</td></tr>`;
+        tbody.innerHTML = ligneErreur(4, e);
     }
 }
 
@@ -850,15 +836,15 @@ function renderAudit() {
     );
     tbody.innerHTML = lignes.map(e => `
         <tr>
-            <td style="white-space:nowrap">${new Date(e.ts * 1000).toLocaleString()}</td>
-            <td><strong>${e.event}</strong></td>
-            <td>${e.actor}</td>
+            <td style="white-space:nowrap">${echapHtml(new Date(e.ts * 1000).toLocaleString(LANGUE))}</td>
+            <td><strong>${echapHtml(e.event)}</strong></td>
+            <td>${echapHtml(e.actor)}</td>
             <td style="color:var(--oe2-muted)">${
-                Object.entries(e.details).map(([k, v]) => `${k} : ${v}`).join(' · ')
+                echapHtml(Object.entries(e.details).map(([k, v]) => `${k}: ${v}`).join(' · '))
             }</td>
         </tr>
     `).join('') || `<tr><td colspan="4" style="text-align:center;color:var(--oe2-muted)">${
-        filtre ? 'Aucun evenement ne correspond' : 'Journal vide'}</td></tr>`;
+        echapHtml(filtre ? t('no_audit_match') : t('audit_empty'))}</td></tr>`;
 }
 
 // ============ SAUVEGARDE MANUELLE ============
@@ -871,7 +857,7 @@ async function createBackup() {
     btn.disabled = true;
     try {
         const r = await api('/api/admin/backups', { method: 'POST' });
-        showMsg(`${r.created.length} fichier(s) sauvegarde(s).`, true);
+        showMsg(t('backups_created', { count: r.created.length }), true);
         loadBackups();
     } catch (e) {
         showMsg(e.message, false);
@@ -887,19 +873,20 @@ async function loadHealth() {
         const data = await api('/api/admin/health');
         tbody.innerHTML = Object.entries(data.checks).map(([name, info]) => `
             <tr>
-                <td><strong>${name}</strong></td>
+                <td><strong>${echapHtml(name)}</strong></td>
                 <td>${info.ok
                     ? '<span style="color:var(--oe2-success)"><i class="fa-solid fa-check"></i> OK</span>'
                     : '<span style="color:var(--oe2-danger)"><i class="fa-solid fa-xmark"></i> KO</span>'}</td>
-                <td style="font-family:monospace;font-size:11px;color:var(--oe2-muted)">${info.detail}</td>
+                <td style="font-family:monospace;font-size:11px;color:var(--oe2-muted)">${echapHtml(info.detail)}</td>
             </tr>
         `).join('');
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="3">Erreur : ${e.message}</td></tr>`;
+        tbody.innerHTML = ligneErreur(3, e);
     }
 }
 
 // ============ Init ============
 function initAdmin() {
+    initLangue();
     loadUsers();
 }

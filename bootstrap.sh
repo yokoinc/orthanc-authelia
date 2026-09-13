@@ -43,17 +43,17 @@ err()   { printf "\033[31m✗\033[0m %s\n" "$*" >&2; }
 # ---------------------------------------------------------------------------
 # Dependances
 # ---------------------------------------------------------------------------
-info "Verification des dependances"
+info "Checking dependencies"
 for cmd in docker openssl; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
-        err "$cmd manquant. Installe-le avant de continuer."
+        err "$cmd is missing. Install it before continuing."
         exit 1
     fi
 done
 if ! docker compose version >/dev/null 2>&1; then
-    err "docker compose (v2) manquant. Installe le plugin :"
+    err "docker compose (v2) is missing. Install the plugin:"
     err "  sudo apt install docker-compose-v2  # Ubuntu/Debian"
-    err "  ou Docker Desktop qui l'embarque"
+    err "  or Docker Desktop, which ships it"
     exit 1
 fi
 # `docker compose version` et `command -v docker` n'interrogent que le client :
@@ -63,12 +63,12 @@ fi
 # Authelia refuse de demarrer -- et nginx avec lui. Constate le 2026-09-13 sur
 # une installation neuve sous WSL Ubuntu, compte hors du groupe docker.
 if ! docker info >/dev/null 2>&1; then
-    err "Le demon Docker est injoignable depuis ce compte."
-    err "Soit il n'est pas demarre (Docker Desktop, service docker),"
-    err "soit ce compte n'a pas le droit d'y acceder (« permission denied »"
-    err "sur /var/run/docker.sock). Dans ce cas :"
+    err "The Docker daemon cannot be reached from this account."
+    err "Either it is not running (Docker Desktop, docker service),"
+    err "or this account is not allowed to use it (\"permission denied\""
+    err "on /var/run/docker.sock). In that case:"
     err "  sudo usermod -aG docker \$USER"
-    err "puis fermer et rouvrir le terminal, et relancer ./bootstrap.sh"
+    err "then close and reopen the terminal, and run ./bootstrap.sh again"
     exit 1
 fi
 ok "docker + docker compose + openssl OK"
@@ -106,14 +106,14 @@ for d in $CONFIG_DIRS; do
 done
 
 if [[ -n ${BESOIN_REPRISE// /} ]]; then
-    info "Dossiers appartenant a un autre utilisateur (conteneurs) :$BESOIN_REPRISE"
+    info "Directories owned by another user (containers):$BESOIN_REPRISE"
     if docker run --rm -v "$PWD:/depot" alpine \
         sh -c "chown -R $(id -u):$(id -g)$(printf ' /depot/%s' $BESOIN_REPRISE)" \
         >/dev/null 2>&1; then
-        ok "Proprietaire retabli sur$BESOIN_REPRISE"
+        ok "Ownership restored on$BESOIN_REPRISE"
     else
-        err "Impossible de reprendre la main sur :$BESOIN_REPRISE"
-        err "Lance manuellement :"
+        err "Could not take back ownership of:$BESOIN_REPRISE"
+        err "Run manually:"
         err "  docker run --rm -v \"\$PWD:/depot\" alpine chown -R $(id -u):$(id -g) /depot"
         exit 1
     fi
@@ -124,25 +124,25 @@ fi
 # ---------------------------------------------------------------------------
 if [[ -f docker-compose.yml ]]; then
     if [[ $FORCE -eq 1 ]]; then
-        warn "docker-compose.yml existant — ecrase (--force)"
+        warn "docker-compose.yml exists — overwritten (--force)"
         cp docker-compose.yml.example docker-compose.yml
     else
-        info "docker-compose.yml existant — conserve"
+        info "docker-compose.yml exists — kept"
     fi
 else
     cp docker-compose.yml.example docker-compose.yml
-    ok "docker-compose.yml cree depuis le template"
+    ok "docker-compose.yml created from the template"
 fi
 
 # ---------------------------------------------------------------------------
 # .env avec secrets aleatoires
 # ---------------------------------------------------------------------------
 if [[ -f .env ]] && [[ $FORCE -eq 0 ]]; then
-    info ".env existant — conserve. Utilise --force pour regenerer."
+    info ".env exists — kept. Use --force to regenerate it."
 else
     if [[ -f .env ]]; then
         cp .env ".env.bak.$(date +%Y%m%d-%H%M%S)"
-        warn "Backup de l'ancien .env"
+        warn "Previous .env backed up"
     fi
     # Genere des secrets 64-char hex chacun
     S1=$(openssl rand -hex 32)
@@ -163,8 +163,8 @@ else
         EXISTING_KEY=$(grep '^AUTHELIA_STORAGE_ENCRYPTION_KEY=' .env 2>/dev/null | cut -d= -f2- || true)
         if [[ -n ${EXISTING_KEY:-} ]]; then
             S2=$EXISTING_KEY
-            warn "Base Authelia existante : cle de chiffrement conservee"
-            warn "  (pour repartir de zero : supprimer services/authelia/config/db.sqlite3)"
+            warn "Existing Authelia database: encryption key kept"
+            warn "  (to start from scratch: delete services/authelia/config/db.sqlite3)"
         fi
     fi
     # Mot de passe du PostgreSQL embarque. Comme la cle de stockage d'Authelia,
@@ -178,7 +178,7 @@ else
     EXISTING_PG=$(grep '^POSTGRES_PASSWORD=' .env 2>/dev/null | cut -d= -f2- || true)
     if [[ -n ${EXISTING_PG:-} ]]; then
         PG_PASS=$EXISTING_PG
-        warn "Mot de passe PostgreSQL existant conserve (la base en depend)"
+        warn "Existing PostgreSQL password kept (the database depends on it)"
     fi
     AUTH_PASS=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
     ORTHANC_PASS=$(openssl rand -hex 32)
@@ -190,11 +190,18 @@ else
     # traduction correspondante existe : sans cela le panel s'affiche en
     # anglais sur un poste francophone, sans que rien n'indique d'ou vient ce
     # choix ni comment en changer.
+    #
+    # Toute langue dont le fichier de traduction existe est retenue, pas
+    # seulement fr et en : ajouter une langue ne demande pas de modifier ce
+    # script. Ce n'est qu'une valeur initiale -- l'assistant propose la langue
+    # du navigateur et l'enregistre, le panneau permet d'en changer.
     LANGUE_SYSTEME=${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}
-    case "$LANGUE_SYSTEME" in
-        fr*|FR*) LANGUAGE_VALUE="fr" ;;
-        *)       LANGUAGE_VALUE="en" ;;
-    esac
+    LANGUE_SYSTEME=$(printf '%s' "$LANGUE_SYSTEME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[_.@:-].*$//')
+    if [[ -n $LANGUE_SYSTEME && -f "services/auth-service/sources/translations/${LANGUE_SYSTEME}.json" ]]; then
+        LANGUAGE_VALUE=$LANGUE_SYSTEME
+    else
+        LANGUAGE_VALUE="en"
+    fi
 
     UPLOAD_USER_VALUE="import-dicom"
     UPLOAD_PASS_VALUE=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
@@ -212,8 +219,8 @@ else
     PUBLIC_URL_DEFAUT="https://pacs.localhost:30443"
     PUBLIC_URL_SAISIE=""
     if [[ -t 0 ]]; then
-        printf "\n  URL publique de l'installation, port compris s'il n'est pas 443.\n"
-        printf "  Entree pour accepter le defaut local.\n"
+        printf "\n  Public address of this installation, including the port if it is not 443.\n"
+        printf "  Press Enter to accept the local default.\n"
         printf "  [%s] > " "$PUBLIC_URL_DEFAUT"
         read -r PUBLIC_URL_SAISIE || true
     fi
@@ -225,13 +232,13 @@ else
     # "localhost" est la seule exception admise.
     DOMAIN_SAISI=$(printf '%s' "$PUBLIC_URL_VALUE" | sed -E 's#^https?://##; s#:[0-9]+$##; s#/.*$##')
     if [[ $DOMAIN_SAISI != *.* && $DOMAIN_SAISI != "localhost" ]]; then
-        err "'$DOMAIN_SAISI' ne contient pas de point : le navigateur refusera"
-        err "le cookie de session et la connexion bouclera sans rien afficher."
-        err "Utilise un nom qualifie, par exemple https://pacs.example.org"
+        err "'$DOMAIN_SAISI' contains no dot: the browser will reject the"
+        err "session cookie and sign-in will loop without any message."
+        err "Use a qualified name, for example https://pacs.example.org"
         exit 1
     fi
     if [[ $PUBLIC_URL_VALUE != https://* ]]; then
-        err "L'URL publique doit commencer par https:// (recu : $PUBLIC_URL_VALUE)"
+        err "The public address must start with https:// (got: $PUBLIC_URL_VALUE)"
         exit 1
     fi
 
@@ -260,8 +267,8 @@ else
         -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG_PASS|" \
         .env.example > .env
 
-    ok ".env genere : 6 secrets aleatoires (Authelia x3, service Orthanc, import DICOM, PostgreSQL), aucun a saisir"
-    ok "Interface en ${LANGUAGE_VALUE} (d'apres la langue du systeme ; modifiable depuis le panel)"
+    ok ".env generated: 6 random secrets (Authelia x3, Orthanc service, DICOM import, PostgreSQL), nothing to type"
+    ok "Interface language: ${LANGUAGE_VALUE} (from the system locale; can be changed in the setup wizard and the admin panel)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -271,21 +278,18 @@ fi
 # l'hote, Docker le cree lui-meme, et il appartient alors a root. Les
 # containers tournent sous PUID/PGID (voir .env) et echouent a y ecrire, avec
 # un "Permission denied" qui n'a plus rien a voir avec sa cause.
-for dossier in data/admin-backups data/app-settings; do
+for dossier in data/admin-backups; do
     if [[ ! -d "$dossier" ]]; then
         mkdir -p "$dossier"
-        ok "$dossier/ cree"
+        ok "$dossier/ created"
     fi
 done
 
-# Langue de l'interface. Elle vit avec les reglages applicatifs et non dans le
-# .env : c'est une preference d'affichage, modifiable depuis le panel sans
-# recreer le moindre container.
-if [[ ! -f data/app-settings/settings.json ]]; then
-    printf '{\n  "langue": "%s"\n}\n' "${LANGUAGE_VALUE:-en}" \
-        > data/app-settings/settings.json
-    ok "langue de l'interface : ${LANGUAGE_VALUE:-en}"
-fi
+# Langue de l'interface : plus de fichier data/app-settings/settings.json. Ce
+# script l'ecrivait, mais aucun conteneur ne monte ce dossier -- le reglage
+# n'etait lu par rien, et « modifiable depuis le panel » etait faux. La valeur
+# initiale est LANGUAGE dans .env ; l'assistant et le panneau enregistrent
+# ensuite le choix dans data/admin-backups/settings.json, qui prime.
 
 # ---------------------------------------------------------------------------
 # Configs Authelia + Orthanc
@@ -295,10 +299,10 @@ copy_if_missing() {
     local dest=$2
     mkdir -p "$(dirname "$dest")"
     if [[ -f $dest ]] && [[ $FORCE -eq 0 ]]; then
-        info "$dest existant — conserve"
+        info "$dest exists — kept"
     else
         cp "$src" "$dest"
-        ok "$dest copie depuis $src"
+        ok "$dest copied from $src"
     fi
 }
 
@@ -352,13 +356,13 @@ for f in .env docker-compose.yml services/orthanc/config/orthanc.json; do
     case "$droits" in
         600|400) ;;
         *) warn "$f est en $droits, attendu 600 -- un partage a ACL (Synology)"
-           warn "peut reimposer 777. Corrigez a la main : chmod 600 $f" ;;
+           warn "may force 777 back. Fix it by hand: chmod 600 $f" ;;
     esac
 done
 
 if [ "$(stat -c '%a' services/authelia/config/users_database.yml 2>/dev/null)" != "600" ]; then
-    warn "users_database.yml n'est pas en 600 (droits actuels : $(stat -c '%a' services/authelia/config/users_database.yml 2>/dev/null))."
-    warn "Il contient les empreintes des mots de passe. Corrigez depuis le conteneur :"
+    warn "users_database.yml is not 600 (current mode: $(stat -c '%a' services/authelia/config/users_database.yml 2>/dev/null))."
+    warn "It holds the password hashes. Fix it from the container:"
     warn "  docker exec orthanc-authelia sh -c 'find /config -type f -exec chmod 600 {} \\;'"
 fi
 
@@ -379,8 +383,8 @@ if grep -q '\${' "$AUTHELIA_CFG" 2>/dev/null; then
     # shellcheck disable=SC1091
     PUBLIC_URL_VALUE=$(grep '^PUBLIC_URL=' .env 2>/dev/null | cut -d= -f2- || true)
     if [[ -z ${PUBLIC_URL_VALUE:-} ]]; then
-        err "PUBLIC_URL absente de .env : impossible de substituer le domaine"
-        err "dans configuration.yml. Verifie que .env.example la porte."
+        err "PUBLIC_URL missing from .env: cannot substitute the domain"
+        err "in configuration.yml. Check that .env.example has it."
         exit 1
     fi
     # Nom d'hote seul, sans schema ni port : c'est ce qu'attend le cookie
@@ -393,7 +397,7 @@ if grep -q '\${' "$AUTHELIA_CFG" 2>/dev/null; then
         -e "s|\${REDIS_PORT:-6379}|6379|g" \
         -e "s|\${REDIS_DB:-0}|0|g" \
         "$AUTHELIA_CFG"
-    ok "configuration.yml : domaine ${DOMAIN_VALUE}, URL publique ${PUBLIC_URL_VALUE}"
+    ok "configuration.yml: domain ${DOMAIN_VALUE}, public address ${PUBLIC_URL_VALUE}"
 fi
 
 # ---------------------------------------------------------------------------
@@ -417,7 +421,7 @@ if grep -q 'set-via-env-AUTH_PASSWORD' "$ORTHANC_CFG" 2>/dev/null; then
     remplacer_dans "$ORTHANC_CFG" \
         '"WebServicePassword": "set-via-env-AUTH_PASSWORD"' \
         "\"WebServicePassword\": \"${AUTH_PASS_VALUE}\""
-    ok "orthanc.json : identifiants du plugin Authorization synchronises"
+    ok "orthanc.json: Authorization plugin credentials synchronised"
 fi
 
 # ---------------------------------------------------------------------------
@@ -430,14 +434,14 @@ if ! grep -qE '^POSTGRES_PASSWORD=.+' .env 2>/dev/null; then
     sed -i '/^POSTGRES_PASSWORD=/d' .env
     printf '\n# PostgreSQL embarque -- genere par bootstrap.sh, a ne pas changer\nPOSTGRES_PASSWORD=%s\n' \
         "$(openssl rand -hex 24)" >> .env
-    ok ".env : mot de passe PostgreSQL ajoute"
+    ok ".env: PostgreSQL password added"
 fi
 if grep -q 'set-via-env-POSTGRES_PASSWORD' "$ORTHANC_CFG" 2>/dev/null; then
     PG_PASS_VALUE=$(grep '^POSTGRES_PASSWORD=' .env | cut -d= -f2-)
     remplacer_dans "$ORTHANC_CFG" \
         '"Password": "set-via-env-POSTGRES_PASSWORD"' \
         "\"Password\": \"${PG_PASS_VALUE}\""
-    ok "orthanc.json : mot de passe PostgreSQL synchronise"
+    ok "orthanc.json: PostgreSQL password synchronised"
 fi
 
 # ---------------------------------------------------------------------------
@@ -455,7 +459,7 @@ fi
 # desactive dans l'onglet Utilisateurs, d'ou on peut le supprimer.
 USERS_DB="services/authelia/config/users_database.yml"
 if grep -q 'EXAMPLE_HASH_REPLACE_THIS' "$USERS_DB" 2>/dev/null; then
-    info "Generation d'un hash argon2id (via l'image Authelia)…"
+    info "Generating an argon2id hash (with the Authelia image)…"
     THROWAWAY=$(openssl rand -base64 32)
     # `|| true` : sous `set -euo pipefail`, un echec de docker faisait echouer
     # l'affectation et tuait le script ICI, sans message (stderr est jete).
@@ -467,14 +471,14 @@ if grep -q 'EXAMPLE_HASH_REPLACE_THIS' "$USERS_DB" 2>/dev/null; then
         remplacer_dans "$USERS_DB" \
             '$argon2id$v=19$m=65536,t=3,p=4$EXAMPLE_HASH_REPLACE_THIS' \
             "$REAL_HASH"
-        ok "users_database.yml : hash argon2id valide (compte d'amorcage inactif)"
+        ok "users_database.yml: valid argon2id hash (inactive bootstrap account)"
     else
         # Erreur et non avertissement : sans ce hash, Authelia ne demarre pas,
         # nginx non plus, et un « Bootstrap complet » affiche ensuite serait un
         # mensonge. Relancer le script reprend a cette etape.
-        err "Generation du hash argon2id echouee : Authelia refuserait de demarrer."
-        err "Verifie que docker fonctionne sans sudo (docker run --rm hello-world),"
-        err "puis relance ./bootstrap.sh : il reprendra a cette etape."
+        err "argon2id hash generation failed: Authelia would refuse to start."
+        err "Check that docker works without sudo (docker run --rm hello-world),"
+        err "then run ./bootstrap.sh again: it will resume at this step."
         exit 1
     fi
 fi
@@ -490,27 +494,27 @@ URL=${URL:-https://pacs.localhost:30443}
 cat <<EOF
 
 ${G}════════════════════════════════════════════${R}
-${G} Bootstrap complet${R}
+${G} Bootstrap complete${R}
 ${G}════════════════════════════════════════════${R}
 
-Etapes suivantes :
+Next steps:
 
-  1. ${C}Reviser .env${R} si besoin (domaine, langue, TZ)
+  1. ${C}Review .env${R} if needed (domain, language, TZ)
 
-  2. ${C}Demarrer la stack${R} :
+  2. ${C}Start the stack${R}:
        docker compose up -d
 
-  3. ${C}Setup wizard${R} — creation du premier admin :
+  3. ${C}Setup wizard${R} — create the first administrator:
        ${URL}/auth/setup
-       (cert self-signed : accepter l'avertissement du navigateur)
+       (self-signed certificate: accept the browser warning)
 
-  4. ${C}Apres le wizard${R} :
+  4. ${C}After the wizard${R}:
        ${URL}/                Orthanc Explorer
-       ${URL}/auth/admin      Panel d'administration
+       ${URL}/auth/admin      Administration panel
 
-Repartir de zero :
+Start over (deletes every stored image):
   docker compose down -v
-  rm -rf .env docker-compose.yml data/admin-backups data/app-settings \\
+  rm -rf .env docker-compose.yml data/admin-backups \\
          services/authelia/config/{configuration.yml,users_database.yml} \\
          services/orthanc/config/orthanc.json
   ./bootstrap.sh

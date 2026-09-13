@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="{lang}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Orthanc Partages</title>
+    <title>{PAGE_TITLE}</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <link href="/auth/static/oe2-shared.css?v={asset_version}" rel="stylesheet">
@@ -26,7 +26,7 @@
             <!-- Nom du serveur avec border-bottom blanc (reprise .orthanc-name d'OE2) -->
             <div class="oe2-sidebar__brand-name">Orthanc</div>
 
-            <nav class="oe2-sidebar__nav" aria-label="Navigation principale">
+            <nav class="oe2-sidebar__nav" aria-label="{NAV_LABEL}">
                 <a href="/ui/app/" class="oe2-sidebar__link">
                     <i class="fa-solid fa-arrow-left" aria-hidden="true"></i>
                     <span>{BACK_TO_PACS}</span>
@@ -38,7 +38,7 @@
                          Manager" tient sur deux lignes et repete "Orthanc" qui
                          figure deja au-dessus. Le titre de la page, lui, reste
                          complet -- c est {TITLE} plus bas. -->
-                    <span>Partages</span>
+                    <span>{NAV_SHARES}</span>
                 </span>
             </nav>
         </aside>

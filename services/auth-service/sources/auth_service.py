@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import JSONResponse, HTMLResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
@@ -16,8 +17,25 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
+import i18n
+
 app = FastAPI(title="PACS Auth Service", description="Authentication and token management for PACS")
 security = HTTPBasic()
+
+
+# Libelles du menu injecte dans Orthanc Explorer 2 (oe2-menu.js), dans la langue
+# de l'installation. Declaree AVANT le montage de /static : une route ajoutee
+# apres serait masquee par lui. Publique comme le reste de /auth/static/ -- trois
+# libelles et un code de langue, rien de sensible -- et non mise en cache, pour
+# qu'un changement de langue dans le panneau se voie au rechargement.
+@app.get("/static/oe2-menu-i18n.json")
+def oe2_menu_i18n():
+    langue = _langue()
+    return JSONResponse(
+        {"langue": langue, "textes": i18n.section("oe2", langue)},
+        headers={"Cache-Control": "no-store"},
+    )
+
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="/app/static"), name="static")
@@ -233,44 +251,69 @@ ASSET_VERSION = os.getenv("ASSET_VERSION", str(int(time.time())))
 # ASSET_VERSION cache-buster, which is a Unix timestamp.
 IMAGE_VERSION = os.getenv("IMAGE_VERSION", "dev")
 
-# Load translations from JSON files
-def load_translations(language="en"):
-    """Load translations from JSON files"""
-    translations_dir = Path("/app/translations")
-    translation_file = translations_dir / f"{language}.json"
-    
-    # Fallback to English if requested language not found
-    if not translation_file.exists():
-        translation_file = translations_dir / "en.json"
-    
+def _langue() -> str:
+    """Langue de l'installation, lue a chaque appel.
+
+    Elle etait figee au demarrage depuis LANGUAGE : changer de langue imposait
+    de recreer le conteneur, et la page des partages ignorait le reglage que
+    l'assistant et le panneau enregistrent. admin_module fait foi ; s'il n'a pas
+    pu etre charge, LANGUAGE puis l'anglais.
+    """
     try:
-        with open(translation_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        logger.error(f"Error loading translations: {e}")
-        # Return minimal English fallback
-        return {
-            "ui": {
-                "invalid_token": "No token provided.",
-                "expired_token": "This sharing link is no longer valid.",
-                "no_study": "No study associated with this token.",
-                "invalid_study": "Missing study identifier.",
-                "usage_limit": "This sharing link has reached its usage limit."
-            },
-            "js": {}
-        }
+        return admin_module.langue_courante()
+    except Exception:  # noqa: BLE001 - admin_module absent ou reglages illisibles
+        code = i18n.normaliser(LANGUAGE)
+        return code if code in i18n.langues_disponibles() else i18n.LANGUE_REPLI
 
-# Load translations based on configured language
-TRANSLATIONS = load_translations(LANGUAGE)
 
-# Extract UI messages for backward compatibility
-UI_MESSAGES = {
-    "INVALID_TOKEN": TRANSLATIONS["ui"]["invalid_token"],
-    "EXPIRED_TOKEN": TRANSLATIONS["ui"]["expired_token"],
-    "NO_STUDY": TRANSLATIONS["ui"]["no_study"],
-    "INVALID_STUDY": TRANSLATIONS["ui"]["invalid_study"],
-    "USAGE_LIMIT": TRANSLATIONS["ui"]["usage_limit"]
-}
+def _msg(cle: str, **variables) -> str:
+    """Message d'API (section « api »), dans la langue de l'installation."""
+    return i18n.texte("api", cle, _langue(), **variables)
+
+
+class _CatalogueCourant(Mapping):
+    """TRANSLATIONS["ui"][...] resolu dans la langue en vigueur a CHAQUE acces.
+
+    Le code existant indexe un dictionnaire charge une fois pour toutes ; cet
+    objet garde la meme forme d'acces, sans figer la langue. Les cles absentes
+    d'une traduction retombent sur l'anglais (i18n.section).
+    """
+    SECTIONS = ("ui", "js")
+
+    def __getitem__(self, section):
+        return i18n.section(section, _langue())
+
+    def __iter__(self):
+        return iter(self.SECTIONS)
+
+    def __len__(self):
+        return len(self.SECTIONS)
+
+
+TRANSLATIONS = _CatalogueCourant()
+
+
+class _MessagesUI(Mapping):
+    """UI_MESSAGES[...] : memes cles qu'avant, resolues a la volee."""
+    CLES = {
+        "INVALID_TOKEN": "invalid_token",
+        "EXPIRED_TOKEN": "expired_token",
+        "NO_STUDY": "no_study",
+        "INVALID_STUDY": "invalid_study",
+        "USAGE_LIMIT": "usage_limit",
+    }
+
+    def __getitem__(self, cle):
+        return TRANSLATIONS["ui"][self.CLES[cle]]
+
+    def __iter__(self):
+        return iter(self.CLES)
+
+    def __len__(self):
+        return len(self.CLES)
+
+
+UI_MESSAGES = _MessagesUI()
 
 # Configuration CDN
 FONT_AWESOME_CDN = "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
@@ -380,7 +423,7 @@ def verify_basic_auth(credentials: HTTPBasicCredentials = Depends(security)):
     """Verify HTTP Basic authentication"""
     correct_password = VALID_USERS.get(credentials.username)
     if not correct_password or not secrets.compare_digest(credentials.password, correct_password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        raise HTTPException(status_code=401, detail=_msg("invalid_credentials"))
     return credentials.username
 
 def verify_admin_auth(request: Request):
@@ -405,7 +448,7 @@ def verify_admin_auth(request: Request):
     # referme.
     groupes = {g.strip() for g in remote_groups.split(",") if g.strip()}
     if ADMIN_GROUP not in groupes:
-        raise HTTPException(status_code=403, detail="Acces administrateur requis")
+        raise HTTPException(status_code=403, detail=_msg("admin_access_required"))
     return remote_user or "unknown"
 
 def normalize_bearer_token(token_value: str) -> str:
@@ -435,6 +478,9 @@ def render_template(template_name: str, **kwargs) -> str:
             template_content = f.read()
 
         kwargs["font_awesome_cdn"] = FONT_AWESOME_CDN
+        # Attribut lang des pages : il etait « fr » en dur, quelle que soit la
+        # langue des textes -- lecteurs d'ecran et correcteurs s'y fient.
+        kwargs.setdefault("lang", _langue())
         kwargs.setdefault("asset_version", ASSET_VERSION)
         kwargs.setdefault("image_version", IMAGE_VERSION)
 
@@ -929,7 +975,7 @@ async def create_token(token_type: str, request: Request):
     remote_groups = request.headers.get("Remote-Groups")
     
     if not remote_user or not remote_groups:
-        raise HTTPException(status_code=401, detail="authentification requise")
+        raise HTTPException(status_code=401, detail=_msg("auth_required"))
 
     # Qui a le droit de partager : seuls admin et doctor partagent.
     #
@@ -949,7 +995,7 @@ async def create_token(token_type: str, request: Request):
         )
         raise HTTPException(
             status_code=403,
-            detail="votre role ne permet pas de creer un lien de partage.",
+            detail=_msg("share_role_forbidden"),
         )
     
     body = await request.json()
@@ -980,7 +1026,7 @@ async def create_token(token_type: str, request: Request):
                 instant = instant.replace(tzinfo=datetime.timezone.utc)
             restant = instant.timestamp() - time.time()
             if restant <= 0:
-                raise HTTPException(400, "ExpirationDate est deja passee")
+                raise HTTPException(400, _msg("expiration_past"))
             validity_duration = restant
         except HTTPException:
             raise
@@ -989,7 +1035,7 @@ async def create_token(token_type: str, request: Request):
             # date mal formee doit se voir, pas produire un jeton dont personne
             # ne connait la duree reelle.
             raise HTTPException(
-                400, f"ExpirationDate illisible ({date_expiration!r}) : {err}"
+                400, _msg("expiration_unreadable", value=repr(date_expiration), error=err)
             ) from err
     
     # Generate unique token
@@ -1097,7 +1143,7 @@ async def revoke_token(token_id: str, request: Request):
     # Check if token exists
     token_data = get_token(token_id)
     if not token_data:
-        raise HTTPException(status_code=404, detail="Token not found")
+        raise HTTPException(status_code=404, detail=_msg("token_not_found"))
     
     # Audit log for token revocation
     audit_data = {
@@ -1269,7 +1315,10 @@ async def token_management_interface(request: Request):
             "TOKEN_REVOKED_SUCCESS": ui_translations["token_revoked_success"],
             "ERROR_TOAST": ui_translations["error_toast"],
             "ERROR_OCCURRED": ui_translations["error_occurred"],
-            "BACK_TO_PACS": ui_translations.get("back_to_pacs", "Retour au PACS"),
+            "BACK_TO_PACS": ui_translations["back_to_pacs"],
+            "PAGE_TITLE": ui_translations["page_title_shares"],
+            "NAV_SHARES": ui_translations["nav_shares"],
+            "NAV_LABEL": ui_translations["nav_label"],
         }
         
         # Render template with variables

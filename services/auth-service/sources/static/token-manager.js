@@ -24,6 +24,7 @@ const CONFIG = {
         SUSPICIOUS_USAGE: "Suspicious usage",
         SUSPICIOUS_USAGE_DETECTED: "Suspicious usage detected",
         REVOCATION_ERROR: "Error during revocation: ",
+        ERROR_OCCURRED: "An error occurred",
         LOADING_TOKENS: "Loading tokens...",
         LOADING_EXPIRED_TOKENS: "Loading expired tokens...",
         LOADING_ERROR: "Error loading: ",
@@ -211,7 +212,7 @@ function showSuccessToast(message = CONFIG.MESSAGES.TOKEN_REVOKED_SUCCESS) {
     new bootstrap.Toast(toast).show();
 }
 
-function showErrorToast(message = 'Une erreur est survenue') {
+function showErrorToast(message = CONFIG.MESSAGES.ERROR_OCCURRED) {
     const toast = document.getElementById('errorToast');
     document.getElementById('errorMessage').textContent = message;
     new bootstrap.Toast(toast).show();

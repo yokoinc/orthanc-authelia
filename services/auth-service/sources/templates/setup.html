@@ -48,10 +48,8 @@
     <div class="setup-wrap">
         <div class="setup-head">
             <h1><i class="fa-solid fa-shield-halved" aria-hidden="true"></i> <span data-t="heading"></span></h1>
-            <div class="langues" role="group" aria-label="Langue / Language">
-                <button type="button" data-langue="fr" lang="fr">FR</button>
-                <button type="button" data-langue="en" lang="en">EN</button>
-            </div>
+            <!-- Un bouton par fichier translations/*.json, genere plus bas. -->
+            <div class="langues" id="langues" role="group" aria-label="Language"></div>
         </div>
         <p class="subtitle" data-t="subtitle"></p>
 
@@ -88,12 +86,28 @@
 
 <script>
 const TEXTES = {setup_i18n};
+const LANGUES = {setup_langues};
 
 const form = document.getElementById('setup-form');
 const msg = document.getElementById('msg');
 const btn = document.getElementById('submit-btn');
 
-let langueCourante = (navigator.language || '').toLowerCase().startsWith('fr') ? 'fr' : 'en';
+// Boutons generes depuis les langues disponibles : une langue ajoutee par depot
+// d'un fichier apparait ici sans modifier cette page.
+const zoneLangues = document.getElementById('langues');
+LANGUES.forEach(l => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset.langue = l.code;
+    b.lang = l.code;
+    b.textContent = l.code.toUpperCase();
+    b.title = l.name;
+    zoneLangues.appendChild(b);
+});
+
+// La langue du navigateur si elle est disponible, sinon celle de l'installation.
+const langueNavigateur = (navigator.language || '').toLowerCase().split(/[-_]/)[0];
+let langueCourante = TEXTES[langueNavigateur] ? langueNavigateur : {setup_langue};
 if (!TEXTES[langueCourante]) langueCourante = Object.keys(TEXTES)[0];
 
 function t(cle) {

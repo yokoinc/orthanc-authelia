@@ -15,6 +15,36 @@
  */
 
 (function () {
+    // Libelles des entrees injectees, dans la langue de l'installation : section
+    // « oe2 » de translations/<langue>.json, servie par auth-service. En anglais
+    // tant que la reponse n'est pas arrivee, ou si elle echoue -- le menu ne doit
+    // jamais attendre une traduction pour apparaitre.
+    var TEXTES = { shares: "Shares", admin: "Administration", logout: "Sign out" };
+
+    function libelle(cle) {
+        return TEXTES[cle] || cle;
+    }
+
+    // Les entrees deja posees gardent leur noeud ; seul leur texte change.
+    function rafraichirLibelles() {
+        [["shares-injected", "shares"], ["admin-injected", "admin"], ["logout-fixe", "logout"]]
+            .forEach(function (paire) {
+                var el = document.getElementById(paire[0]);
+                var texte = el && el.querySelector("[data-libelle]");
+                if (texte) texte.textContent = libelle(paire[1]);
+            });
+    }
+
+    fetch("/auth/static/oe2-menu-i18n.json", { credentials: "same-origin", cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+            if (d && d.textes) {
+                TEXTES = Object.assign({}, TEXTES, d.textes);
+                rafraichirLibelles();
+            }
+        })
+        .catch(function () { /* libelles anglais conserves */ });
+
     /**
      * Clone the exact structure of an existing menu entry so the injected one
      * inherits OE2's classes and its scoped-style attribute (data-v-*), which is
@@ -36,7 +66,7 @@
         return families.length ? families.join(" ") : "fa";
     }
 
-    function makeItem(id, glyph, label, onClick) {
+    function makeItem(id, glyph, cleLibelle, onClick) {
         var menu = document.getElementById("menu-content");
         if (!menu || document.getElementById(id)) return null;
         var upload = document.getElementById("upload-handler");
@@ -50,10 +80,13 @@
             var attr = reference.attributes[i];
             if (attr.name.startsWith("data-v-")) li.setAttribute(attr.name, attr.value);
         }
+        // Le libelle passe par textContent : il vient d'un fichier de traduction,
+        // il n'a pas a pouvoir injecter du HTML.
         li.innerHTML =
             '<i class="' + iconFamilyOf(reference) + ' ' + glyph + ' fa-lg menu-icon" ' +
-            'style="width:20px;min-width:20px;margin-right:10px;text-align:center"></i>' + label +
-            ' <span class="ms-auto"></span>';
+            'style="width:20px;min-width:20px;margin-right:10px;text-align:center"></i>' +
+            '<span data-libelle></span> <span class="ms-auto"></span>';
+        li.querySelector("[data-libelle]").textContent = libelle(cleLibelle);
         li.style.cursor = "pointer";
         li.addEventListener("click", onClick);
         return { li: li, after: upload };
@@ -103,14 +136,14 @@
         // et n'a rien a voir. Sans ce garde-fou un medecin voyait l'entree et
         // tombait sur un 403.
         if (window.__OE2_IS_ADMIN__ !== true) return;
-        place(makeItem("shares-injected", "fa-share-alt", "Partages", function () {
+        place(makeItem("shares-injected", "fa-share-alt", "shares", function () {
             window.location.href = "/auth/tokens/manage";
         }), []);
     }
 
     function injectAdmin() {
         if (window.__OE2_IS_ADMIN__ !== true) return;
-        var made = makeItem("admin-injected", "fa-cogs", "Administration", function () {
+        var made = makeItem("admin-injected", "fa-cogs", "admin", function () {
             window.location.href = "/auth/admin";
         });
         if (!made) return;
@@ -171,7 +204,8 @@
             bouton.id = "logout-fixe";
             bouton.innerHTML =
                 '<i class="fa fa-sign-out-alt fa-lg" style="width:20px;min-width:20px;' +
-                'margin-right:10px;text-align:center"></i><span>Déconnexion</span>';
+                'margin-right:10px;text-align:center"></i><span data-libelle></span>';
+            bouton.querySelector("[data-libelle]").textContent = libelle("logout");
             bouton.style.cssText =
                 "position:fixed;z-index:1030;cursor:pointer;display:flex;" +
                 "align-items:center;padding:10px 16px;font-size:0.95rem;" +

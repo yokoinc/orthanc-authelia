@@ -541,7 +541,7 @@ class TestBackupRestore:
         backups = r.json()["backups"]
         assert len(backups) == 1
         assert backups[0]["target"] == tmp_paths["authelia"].name
-        assert "1 compte(s)" in backups[0]["detail"]
+        assert "1 account(s)" in backups[0]["detail"]
         assert "j.dupont" in backups[0]["detail"]
 
     def test_list_backups_ignores_unrestorable_files(
@@ -617,6 +617,43 @@ class TestCSRF:
         r = client.get("/api/admin/cf-access")
         assert r.status_code == 200  # OK, csrf_gate laisse passer
 
+    # A local installation listens on 30443: the browser's Origin carries the
+    # port, while nginx sets Host without it. Every panel write answered 403
+    # until the port was taken into account (found in a browser, 2026-09-13).
+    ORIGINE_LOCALE = "https://pacs.localhost:30443"
+
+    def _post_langue(self, client, csrf_headers, origin, **headers):
+        return client.post("/api/admin/language", json={"langue": "en"},
+                           headers={**csrf_headers, "origin": origin, "host": "pacs.localhost", **headers})
+
+    def test_origin_with_port_accepted_through_forwarded_host(
+        self, client, tmp_paths, fake_redis, csrf_headers, tmp_path, monkeypatch,
+    ):
+        monkeypatch.setattr(admin_module, "ENV_FILE", tmp_path / "absent.env")
+        r = self._post_langue(client, csrf_headers, self.ORIGINE_LOCALE,
+                              **{"x-forwarded-host": "pacs.localhost:30443"})
+        assert r.status_code == 200, r.text
+
+    def test_origin_with_port_accepted_through_public_url(
+        self, client, tmp_paths, fake_redis, csrf_headers, tmp_path, monkeypatch,
+    ):
+        env = tmp_path / ".env"
+        env.write_text(f"PUBLIC_URL={self.ORIGINE_LOCALE}\n")
+        monkeypatch.setattr(admin_module, "ENV_FILE", env)
+        r = self._post_langue(client, csrf_headers, self.ORIGINE_LOCALE)
+        assert r.status_code == 200, r.text
+
+    def test_foreign_origin_still_refused(
+        self, client, tmp_paths, fake_redis, csrf_headers, tmp_path, monkeypatch,
+    ):
+        env = tmp_path / ".env"
+        env.write_text(f"PUBLIC_URL={self.ORIGINE_LOCALE}\n")
+        monkeypatch.setattr(admin_module, "ENV_FILE", env)
+        r = self._post_langue(client, csrf_headers, "https://pacs.localhost:31337",
+                              **{"x-forwarded-host": "pacs.localhost:30443"})
+        assert r.status_code == 403
+        assert "csrf.origin" in r.text
+
     def test_internal_verify_bypass_csrf(self, client, fake_redis):
         """/api/internal/* is not /api/admin/* and bypasses the gate."""
         r = client.get("/api/internal/verify-cf", headers={
@@ -666,7 +703,7 @@ class TestFileLock:
                 "changes": {"Name": "should not succeed"},
             }, headers=csrf_headers)
             assert r.status_code == 423
-            assert "verrouille" in r.text.lower()
+            assert "locked" in r.text.lower()
         finally:
             holder.join()
 
@@ -701,7 +738,7 @@ class TestAutoRollback:
             }, headers=csrf_headers)
 
             assert r.status_code == 502
-            assert "retour arriere" in r.text.lower()
+            assert "rolled back" in r.text.lower()
             # The mock was indeed called twice (initial + rollback)
             assert reset_route.call_count == 2
 
@@ -800,7 +837,7 @@ class TestSetupLockout:
             "password": "second-admin-12345",
         })
         assert r2.status_code == 409
-        assert "existe deja" in r2.text.lower()
+        assert "already exists" in r2.text.lower()
 
     def test_finalize_clears_lock_next_setup_impossible_anyway(
         self, client, tmp_paths, fake_redis, redis_sync,
@@ -877,8 +914,8 @@ class TestCorruptConfig:
 
         r = client.get("/api/admin/users")
         assert r.status_code == 500
-        assert "corrompu" in r.text.lower()
-        assert "sauvegarde" in r.text.lower()
+        assert "corrupt" in r.text.lower()
+        assert "backup" in r.text.lower()
 
     def test_corrupt_orthanc_json_returns_readable_500(
         self, client, tmp_paths, fake_redis, csrf_headers,
@@ -888,8 +925,8 @@ class TestCorruptConfig:
 
         r = client.get("/api/admin/orthanc/config")
         assert r.status_code == 500
-        assert "corrompu" in r.text.lower()
-        assert "sauvegarde" in r.text.lower()
+        assert "corrupt" in r.text.lower()
+        assert "backup" in r.text.lower()
 
 
 # ============================================================================
@@ -1478,7 +1515,7 @@ class TestLastAdminProtected:
         r = client.delete("/api/admin/users/admin.principal", headers=csrf_headers)
 
         assert r.status_code == 400, r.text
-        assert "dernier administrateur actif" in r.json()["detail"]
+        assert "last active administrator" in r.json()["detail"]
         # And the account is still there, untouched.
         remaining = yaml.safe_load(tmp_paths["authelia"].read_text())
         assert "admin.principal" in remaining["users"]
@@ -1637,7 +1674,7 @@ class TestRestartOrthanc:
             r = client.post("/api/admin/orthanc/restart", headers=csrf_headers)
 
         assert r.status_code == 504
-        assert "aucune sauvegarde" in r.json()["detail"]
+        assert "no backup" in r.json()["detail"]
 
     def test_configuration_restored_and_orthanc_restarts(
         self, client, tmp_paths, fake_redis, csrf_headers, _wired, redis_sync,
@@ -1822,7 +1859,7 @@ class TestUserUpdate:
                          json={"groups": ["doctor"]}, headers=csrf_headers)
 
         assert r.status_code == 400, r.text
-        assert "administrateur actif" in r.json()["detail"]
+        assert "active administrator" in r.json()["detail"]
         # And nothing was written.
         record = yaml.safe_load(tmp_paths["authelia"].read_text())["users"]["j.dupont"]
         assert "admins" in record["groups"]
@@ -1900,7 +1937,7 @@ class TestManualBackup:
         r = client.post("/api/admin/backups", headers=csrf_headers)
         assert r.status_code == 200, r.text
         assert r.json()["created"]
-        assert any("absent" in s for s in r.json()["skipped"])
+        assert any("missing" in s for s in r.json()["skipped"])
 
 
 class TestPublicUrl:
@@ -2041,7 +2078,7 @@ session:
                         json={"public_url": "https://nouveau.example.org"},
                         headers=csrf_headers)
         assert r.status_code == 500
-        assert "a la main" in r.json()["detail"]
+        assert "by hand" in r.json()["detail"]
         assert path.read_text(encoding="utf-8") == \
             "session:\n  cookies:\n    - domain: autre.chose\n"
 
@@ -2055,3 +2092,72 @@ session:
         r = client.get("/api/admin/network")
         assert r.status_code == 200
         assert r.json()["editable"] is False
+
+
+# ============================================================================
+# One interface language for the whole installation
+# ============================================================================
+
+class TestLanguage:
+    """Chosen in the wizard or the panel, followed by every page and message.
+
+    Offered languages are the translation files present: nothing here names
+    « fr » or « en » as the only possibilities.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _source_templates(self, monkeypatch):
+        # The source tree, not the /app/templates of the image running the tests,
+        # which holds the previous version.
+        sources = Path(admin_module.__file__).resolve().parent
+        monkeypatch.setattr(admin_module, "TEMPLATES_DIR", sources / "templates")
+
+    @staticmethod
+    def _set_language(tmp_paths, code):
+        tmp_paths["settings"].parent.mkdir(parents=True, exist_ok=True)
+        tmp_paths["settings"].write_text(json.dumps({"langue": code}))
+        admin_module._settings_cache["key"] = None
+
+    @pytest.mark.parametrize("langue, onglet", [("fr", "Utilisateurs"), ("en", "Users")])
+    def test_admin_page_renders_in_the_installation_language(
+        self, client, tmp_paths, fake_redis, redis_sync, valid_authelia_yml, langue, onglet,
+    ):
+        redis_sync.set("orthanc_authelia:setup_completed", "1")
+        self._set_language(tmp_paths, langue)
+
+        r = client.get("/auth/admin")
+        assert r.status_code == 200
+        assert f'<html lang="{langue}">' in r.text
+        assert f"</i> {onglet}" in r.text
+        assert "[[" not in r.text, "untranslated token left in the page"
+        assert "{admin_i18n}" not in r.text and "{admin_langues}" not in r.text
+
+    def test_language_is_saved_then_followed_by_api_messages(
+        self, client, tmp_paths, fake_redis, csrf_headers, valid_authelia_yml,
+    ):
+        r = client.delete("/api/admin/users/inconnu@exemple.fr", headers=csrf_headers)
+        assert r.json()["detail"] == "Unknown account."
+
+        r = client.post("/api/admin/language", json={"langue": "fr"}, headers=csrf_headers)
+        assert r.status_code == 200, r.text
+        assert json.loads(tmp_paths["settings"].read_text())["langue"] == "fr"
+
+        r = client.get("/api/admin/language")
+        assert r.json()["langue"] == "fr"
+        assert {"fr", "en"} <= {l["code"] for l in r.json()["disponibles"]}
+
+        r = client.delete("/api/admin/users/inconnu@exemple.fr", headers=csrf_headers)
+        assert r.json()["detail"] == "Compte inconnu."
+
+    def test_a_language_without_a_file_is_refused(
+        self, client, tmp_paths, fake_redis, csrf_headers,
+    ):
+        r = client.post("/api/admin/language", json={"langue": "xx"}, headers=csrf_headers)
+        assert r.status_code == 422
+        assert not tmp_paths["settings"].exists()
+
+    def test_setup_page_offers_every_available_language(self, client, tmp_paths, fake_redis):
+        r = client.get("/auth/setup")
+        assert r.status_code == 200
+        assert '"code": "fr"' in r.text and '"code": "en"' in r.text
+        assert "{setup_langues}" not in r.text and "{setup_langue}" not in r.text
