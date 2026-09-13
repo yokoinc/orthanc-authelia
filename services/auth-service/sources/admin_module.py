@@ -136,12 +136,12 @@ logger = logging.getLogger("auth-service.admin")
 
 
 def langue_courante() -> str:
-    """Langue de l'interface pour toute l'installation.
+    """Interface language for the whole installation.
 
-    Ordre : le reglage enregistre (assistant, puis selecteur du panneau), la
-    variable LANGUAGE du .env (valeur initiale posee par bootstrap.sh), puis
-    l'anglais. Une langue n'est retenue que si son fichier existe : un reglage
-    pointant sur un fichier retire retombe sur la suite au lieu de casser.
+    Order: the saved setting (wizard, then the panel's selector), the LANGUAGE
+    variable from .env (initial value set by bootstrap.sh), then English. A
+    language is only kept if its file exists: a setting pointing at a removed
+    file falls through to the next option instead of breaking.
     """
     disponibles = i18n.langues_disponibles()
     for candidat in (_read_settings().get("langue"), os.getenv("LANGUAGE", "")):
@@ -154,10 +154,10 @@ def langue_courante() -> str:
 
 
 def _msg(cle: str, **variables: Any) -> str:
-    """Message destine a l'operateur, dans la langue de l'installation.
+    """Message meant for the operator, in the installation's language.
 
-    Section « api » des catalogues. Utilise pour tout ce qui atteint l'ecran :
-    detail des HTTPException, ValueError remontees en 400, avertissements.
+    « api » section of the catalogues. Used for everything that reaches the
+    screen: HTTPException details, ValueErrors surfacing as 400, warnings.
     """
     return i18n.texte("api", cle, langue_courante(), **variables)
 
@@ -175,7 +175,7 @@ AUDIT_STREAM = "admin:audit"
 CSRF_COOKIE = "orthanc_admin_csrf"
 
 TEMPLATES_DIR = Path(os.getenv("ADMIN_TEMPLATES_DIR", "/app/templates"))
-# Authelia, pour le controle de sante de l'onglet Sante.
+# Authelia, for the Health tab's check.
 AUTHELIA_URL = os.getenv("AUTHELIA_URL", "http://authelia:9091").rstrip("/")
 
 ASSET_VERSION = os.getenv("ASSET_VERSION", str(int(time.time())))
@@ -183,9 +183,9 @@ IMAGE_VERSION = os.getenv("IMAGE_VERSION", "dev")
 _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
 
-# [[cle]] dans un gabarit -> texte de la section de catalogue indiquee, echappe
-# pour HTML (contenu comme attribut). Des crochets plutot que les {accolades} de
-# _render : les gabarits contiennent du CSS et du JavaScript, pleins d'accolades.
+# [[key]] in a template -> text from the given catalogue section, escaped for
+# HTML (content as well as attribute). Brackets rather than _render's {braces}:
+# the templates contain CSS and JavaScript, full of braces.
 _JETON_I18N_RE = re.compile(r"\[\[([A-Za-z0-9_.]+)\]\]")
 
 
@@ -620,13 +620,13 @@ def _acceptable_origins(request: Request) -> set[str]:
         if host:
             origins.add(f"https://{host}")
             origins.add(f"http://{host}")
-    # L'adresse publique declaree, port compris. Sans elle, une installation
-    # locale sur 30443 dont le nginx ne transmet pas X-Forwarded-Host avec le
-    # port (configuration anterieure) refusait toute ecriture du panneau : Host
-    # arrive sans port, l'origine du navigateur en porte un.
+    # The declared public address, port included. Without it, a local
+    # installation on 30443 whose nginx does not pass X-Forwarded-Host with the
+    # port (older configuration) refused every panel write: Host arrives
+    # without a port, the browser's origin carries one.
     try:
         public_url = _read_env_var("PUBLIC_URL").rstrip("/")
-    except OSError:  # .env illisible : on s'en tient aux en-tetes
+    except OSError:  # unreadable .env: rely on the headers alone
         public_url = ""
     if public_url.startswith(("https://", "http://")):
         origins.add(public_url)
@@ -919,27 +919,26 @@ def _write_authelia(data: dict) -> None:
 _USERNAME_RE = re.compile(r"^[a-zA-Z0-9._%+-]{3,64}(@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})?$")
 
 
-# Les seuls groupes qui donnent quelque chose. Ils doivent correspondre, au
-# caractere pres, aux `subject: "group:..."` de la configuration Authelia, a la
-# carte $groups de nginx et aux permissions d'auth_service.get_user_profile.
+# The only groups that grant anything. They must match, character for
+# character, the `subject: "group:..."` entries of the Authelia configuration,
+# nginx's $groups map and the permissions in auth_service.get_user_profile.
 #
-# Un groupe hors de cette liste ne provoque aucune erreur nulle part : le
-# compte se cree, la connexion reussit, et l'utilisateur recolte un 403 sur
-# tout, sans que rien n'explique pourquoi. C'est arrive le 2026-08-27 -- le
-# panneau attribuait par defaut "doctors" au pluriel quand Authelia n'accorde
-# l'acces qu'a "doctor". Un s.
+# A group outside this list raises no error anywhere: the account is created,
+# sign-in succeeds, and the user gets a 403 on everything, with nothing to
+# explain why. It happened on 2026-08-27 -- the panel assigned "doctors" in the
+# plural by default while Authelia only grants access to "doctor". One s.
 GROUPES_CONNUS = frozenset({ADMIN_GROUP, "doctor", "external"})
 
 
 def _verifier_groupes(groupes: list[str]) -> None:
-    """Refuse une liste vide, ou un groupe qu'aucune regle ne reconnait.
+    """Refuse an empty list, or a group no rule recognises.
 
-    Le groupe est OBLIGATOIRE : c'est lui, et lui seul, qui determine ce qu'un
-    compte peut faire -- les regles d'Authelia s'appuient dessus, la carte
-    $groups de nginx en derive le jeton envoye a Orthanc, et
-    get_user_profile en tire les permissions. Sans groupe, le compte se cree,
-    la connexion reussit, et tout repond 403. Un compte muet plutot qu'une
-    erreur : c'est le pire des deux mondes.
+    The group is MANDATORY: it alone decides what an account can do --
+    Authelia's rules rely on it, nginx's $groups map derives the token sent to
+    Orthanc from it, and get_user_profile draws the permissions from it.
+    Without a group, the account is created, sign-in succeeds, and everything
+    answers 403. A silent account rather than an error: the worst of both
+    worlds.
     """
     if not groupes:
         raise ValueError(
@@ -950,11 +949,11 @@ def _verifier_groupes(groupes: list[str]) -> None:
         raise ValueError(
             _msg("group_unknown", unknown=', '.join(inconnus), accepted=', '.join(sorted(GROUPES_CONNUS)))
         )
-    # Un seul groupe. Ce ne sont pas des droits qui s'additionnent mais trois
-    # roles exclusifs, et rien en aval ne sait cumuler : les regles d'Authelia
-    # s'arretent a la PREMIERE qui correspond, et la carte $groups de nginx
-    # choisit un seul jeton. « admin + external » ne donne donc pas un acces
-    # restreint, il donne admin -- l'inverse de ce que l'operateur croit cocher.
+    # A single group. These are not rights that add up but three exclusive
+    # roles, and nothing downstream can combine them: Authelia's rules stop at
+    # the FIRST one that matches, and nginx's $groups map picks a single token.
+    # "admin + external" therefore does not give restricted access, it gives
+    # admin -- the opposite of what the operator believes they are ticking.
     if len(set(groupes)) > 1:
         raise ValueError(
             _msg("group_single", received=', '.join(groupes))
@@ -995,9 +994,9 @@ class UserUpdatePayload(BaseModel):
 
     @model_validator(mode="after")
     def _verifier(self):
-        # None = "ne pas toucher". Une liste FOURNIE, elle, doit etre valide :
-        # vider les groupes d'un compte existant reviendrait a le desactiver
-        # sans le dire, et le proprietaire du compte ne verrait qu'un 403.
+        # None = "leave untouched". A list that IS provided must be valid:
+        # emptying an existing account's groups would amount to disabling it
+        # without saying so, and the account's owner would only see a 403.
         if self.groups is not None:
             _verifier_groupes(self.groups)
         return self
@@ -1059,12 +1058,12 @@ ORTHANC_EDITABLE_PATHS = {
 }
 
 
-# A quoi sert chaque reglage, en une phrase. L'onglet Orthanc affichait le nom
-# brut de la cle et rien d'autre : "DicomAlwaysAllowStore" ou "StableAge" ne
-# disent rien a qui n'a pas lu la documentation d'Orthanc, et un PACS se regle
-# rarement par un specialiste d'Orthanc. Sert d'infobulle sur le "?" a cote de
-# chaque champ.
-# Textes : section « api », cles orthanc_help.<nom>, dans translations/*.json.
+# What each setting is for, in one sentence. The Orthanc tab used to show the
+# raw key name and nothing else: "DicomAlwaysAllowStore" or "StableAge" mean
+# nothing to someone who has not read the Orthanc documentation, and a PACS is
+# rarely configured by an Orthanc specialist. Shown as the tooltip of the "?"
+# next to each field. Texts: « api » section, orthanc_help.<name> keys, in
+# translations/*.json.
 ORTHANC_AIDE = (
     "Name",
     "DicomAet",
@@ -1384,25 +1383,25 @@ def _cf_enforced() -> bool:
 router = APIRouter()
 
 
-# Compte cree par bootstrap.sh uniquement parce qu'Authelia refuse de demarrer
-# sur une base sans utilisateur. authelia-users.yml.example le declare desactive
-# et sans groupe ; bootstrap.sh annonce que la finalisation le supprime -- ce
-# qu'elle ne faisait pas : il restait dans la liste des comptes du panneau.
+# Account created by bootstrap.sh only because Authelia refuses to start on a
+# database without users. authelia-users.yml.example declares it disabled and
+# without a group; bootstrap.sh announces that finalisation removes it -- which
+# it did not do: it stayed in the panel's account list.
 COMPTE_AMORCAGE = "bootstrap@localhost"
 
 
 def _json_pour_script(valeur: Any) -> str:
-    """JSON injecte dans un <script> : « </ » fermerait la balise avant la fin."""
+    """JSON injected into a <script>: "</" would close the tag before the end."""
     return json.dumps(valeur, ensure_ascii=False).replace("</", "<\\/")
 
 
 def _choix_langues() -> list[dict[str, str]]:
-    """Ce que proposent les selecteurs : un fichier de langue = une entree."""
+    """What the selectors offer: one language file = one entry."""
     return [{"code": c, "name": n} for c, n in i18n.langues_disponibles().items()]
 
 
 def _setup_translations() -> dict[str, dict[str, str]]:
-    """Section « setup » de chaque langue disponible, pour l'assistant."""
+    """« setup » section of every available language, for the wizard."""
     return {code: i18n.section("setup", code) for code in i18n.langues_disponibles()}
 
 
@@ -1454,11 +1453,11 @@ async def setup_create_admin(payload: UserCreatePayload):
             409,
             _msg("setup_admin_exists"),
         )
-    # Le tout premier compte est l'administrateur, point. On REMPLACE la liste
-    # au lieu d'y ajouter le groupe : un append aurait produit « admin +
-    # doctor », un cumul que le reste de la chaine ne sait pas traiter (Authelia
-    # s'arrete a la premiere regle qui correspond) et que _verifier_groupes
-    # refuse desormais.
+    # The very first account is the administrator, full stop. The list is
+    # REPLACED instead of having the group appended: an append would have
+    # produced "admin + doctor", a combination the rest of the chain cannot
+    # handle (Authelia stops at the first matching rule) and that
+    # _verifier_groupes now refuses.
     payload.groups = [ADMIN_GROUP]
     data = _load_authelia()
     if payload.username in data.get("users", {}):
@@ -1481,7 +1480,7 @@ async def setup_create_admin(payload: UserCreatePayload):
 
 
 def _verifier_langue(valeur: str) -> str:
-    """Code normalise d'une langue dont le fichier existe, sinon ValueError."""
+    """Normalised code of a language whose file exists, otherwise ValueError."""
     code = i18n.normaliser(valeur)
     disponibles = i18n.langues_disponibles()
     if code not in disponibles:
@@ -1491,10 +1490,10 @@ def _verifier_langue(valeur: str) -> str:
 
 
 class SetupFinalizePayload(BaseModel):
-    # Langue choisie dans l'assistant, enregistree pour le reste de
-    # l'installation. Facultative : un appel sans corps reste valable. Validee
-    # contre les fichiers presents, pas contre une liste : une langue ajoutee
-    # par depot d'un fichier est acceptee sans toucher au code.
+    # Language chosen in the wizard, saved for the rest of the installation.
+    # Optional: a call without a body remains valid. Validated against the
+    # files present, not against a list: a language added by dropping in a file
+    # is accepted without touching the code.
     langue: str | None = Field(default=None, max_length=20)
 
     @model_validator(mode="after")
@@ -1523,18 +1522,18 @@ async def setup_finalize(payload: SetupFinalizePayload | None = None):
     if not admins:
         raise HTTPException(400, _msg("setup_create_admin_first"))
 
-    # Retrait du compte d'amorcage, seulement s'il est reste inerte : un compte
-    # de ce nom qu'on aurait active ou mis dans un groupe n'est plus le sien.
-    # Avant le drapeau, pour qu'un echec d'ecriture laisse l'assistant ouvert et
-    # la finalisation rejouable.
+    # Removal of the bootstrap account, only if it stayed inert: an account of
+    # that name that was enabled or put into a group is no longer the
+    # placeholder. Before the flag, so that a write failure leaves the wizard
+    # open and the finalisation replayable.
     amorce = (data.get("users") or {}).get(COMPTE_AMORCAGE)
     if amorce is not None and amorce.get("disabled") and not amorce.get("groups"):
         del data["users"][COMPTE_AMORCAGE]
         _write_authelia(data)
 
     if payload and payload.langue:
-        # Un reglage d'affichage ne doit pas bloquer l'installation : un dossier
-        # de reglages non monte en ecriture est journalise, pas fatal.
+        # A display setting must not block the installation: a settings
+        # directory not mounted read-write is logged, not fatal.
         try:
             _write_setting("langue", payload.langue)
         except HTTPException as e:
@@ -1572,14 +1571,14 @@ async def list_users(admin: AdminUser = Depends(require_admin)):
 async def add_user(payload: UserCreatePayload, admin: AdminUser = Depends(require_admin)):
     data = _load_authelia()
     if payload.username in data.get("users", {}):
-        # L'adresse EST l'identifiant : c'est la cle qu'Authelia cherche dans
-        # users_database.yml. Le message doit le dire, sinon l'operateur voit un
-        # refus sur un formulaire ou il n'a jamais saisi de « nom d'utilisateur ».
-        # Et il doit mentionner le compte desactive : celui-ci occupe toujours
-        # l'adresse tout en n'apparaissant pas comme un compte vivant.
+        # The address IS the login: it is the key Authelia looks up in
+        # users_database.yml. The message has to say so, otherwise the operator
+        # sees a refusal on a form where they never typed a "username". And it
+        # has to mention the disabled account: it still occupies the address
+        # while not appearing as a live account.
         existant = data["users"][payload.username]
-        # Deux messages entiers plutot qu'un etat insere dans une phrase : l'accord
-        # et l'ordre des mots changent d'une langue a l'autre.
+        # Two whole messages rather than a state inserted into a sentence:
+        # agreement and word order change from one language to another.
         raise HTTPException(
             409,
             _msg("address_in_use_disabled" if existant.get("disabled") else "address_in_use_active",
@@ -1607,15 +1606,15 @@ async def change_password(
     if username not in data.get("users", {}):
         raise HTTPException(404, _msg("account_unknown"))
 
-    # Douze caracteres sont imposes par PasswordChangePayload. On y ajoute la
-    # seule regle qui attrape une vraie erreur plutot que d'ennuyer : le mot de
-    # passe egal a l'adresse du compte. C'est la faute classique quand on cree
-    # un acces dans l'urgence, et aucune longueur minimale ne l'empeche --
-    # « prenom.nom@exemple.org » fait bien plus de douze caracteres.
+    # Twelve characters are enforced by PasswordChangePayload. The only rule
+    # added is the one that catches a real mistake rather than annoying people:
+    # a password equal to the account's address. It is the classic slip when
+    # access is created in a hurry, and no minimum length prevents it --
+    # "firstname.lastname@example.org" is well over twelve characters.
     #
-    # Rien de plus. Cette installation impose deja une longueur serieuse ; y
-    # empiler des regles de composition (majuscule, chiffre, symbole) produit
-    # des mots de passe plus courts, plus previsibles et notes sur un papier.
+    # Nothing more. This installation already enforces a serious length; piling
+    # composition rules on top (uppercase, digit, symbol) produces shorter,
+    # more predictable passwords written down on paper.
     if payload.new_password.strip().lower() == username.strip().lower():
         raise HTTPException(
             400,
@@ -1655,13 +1654,12 @@ async def update_user(
     if payload.displayname is not None:
         info["displayname"] = payload.displayname
         modified.append("displayname")
-    # Changer l'adresse, c'est RENOMMER le compte. L'adresse est la cle sous
-    # laquelle Authelia range le compte dans users_database.yml, et c'est donc
-    # elle qu'on saisit pour se connecter -- le champ `email:` n'en est qu'une
-    # copie. Le code ne mettait a jour que cette copie : l'operateur voyait la
-    # nouvelle adresse dans la liste, et la personne continuait a devoir se
-    # connecter avec l'ancienne. Un ecart muet, decouvert seulement au prochain
-    # essai de connexion.
+    # Changing the address means RENAMING the account. The address is the key
+    # under which Authelia stores the account in users_database.yml, and so it
+    # is what people type to sign in -- the `email:` field is only a copy of
+    # it. The code only updated that copy: the operator saw the new address in
+    # the list, and the person still had to sign in with the old one. A silent
+    # mismatch, discovered only at the next sign-in attempt.
     nouveau_nom = username
     if payload.email is not None and str(payload.email) != username:
         nouveau_nom = str(payload.email)
@@ -1684,9 +1682,9 @@ async def update_user(
     if not modified:
         raise HTTPException(400, _msg("nothing_to_change"))
 
-    # Le renommage se fait apres coup, pour que les controles ci-dessus aient
-    # travaille sur l'entree encore en place. Le mot de passe suit l'entree :
-    # il vit dans info, on ne le retouche pas.
+    # The rename happens afterwards, so that the checks above worked on the
+    # entry still in place. The password follows the entry: it lives in info,
+    # it is not touched.
     if nouveau_nom != username:
         data["users"][nouveau_nom] = data["users"].pop(username)
 
@@ -1701,8 +1699,8 @@ async def update_user(
         "authelia.user.updated", admin.username, target=username,
         fields=",".join(modified),
     )
-    # renomme : signale a l'interface qu'il faut prevenir l'operateur --
-    # la personne devra se connecter avec la nouvelle adresse.
+    # renomme: tells the interface to warn the operator -- the person will have
+    # to sign in with the new address.
     return {"ok": True, "modified": modified, "renomme": nouveau_nom if nouveau_nom != username else None}
 
 
@@ -1732,26 +1730,25 @@ async def delete_user(username: str, admin: AdminUser = Depends(require_admin)):
     return {"ok": True}
 
 
-# Valeurs par defaut d'Orthanc, telles que LUI les declare.
+# Orthanc's default values, as IT declares them.
 #
-# Un champ vide dans le panneau ne disait pas ce qui s'applique reellement.
-# « non defini » est exact mais inutile : l'operateur veut savoir ce que fait
-# le serveur, pas ce que le fichier ne dit pas.
+# An empty field in the panel did not say what really applies. "not set" is
+# accurate but useless: the operator wants to know what the server does, not
+# what the file leaves unsaid.
 #
-# Ces valeurs ne sont PAS recopiees d'une documentation : elles sont extraites
-# de la configuration de reference qu'Orthanc emet lui-meme, donc elles
-# correspondent a la version reellement installee. Pour les regenerer apres une
-# montee de version :
+# These values are NOT copied from documentation: they are extracted from the
+# reference configuration Orthanc emits itself, so they match the version
+# actually installed. To regenerate them after an upgrade:
 #
 #     docker exec orthanc-server Orthanc --config=/tmp/defaut.json
 #     docker cp orthanc-server:/tmp/defaut.json .
 #
-# puis relever les cles de ORTHANC_EDITABLE_PATHS dans ce fichier.
-# Genere le 2026-08-29 depuis orthancteam/orthanc:26.6.1.
+# then pick the ORTHANC_EDITABLE_PATHS keys out of that file. Generated on
+# 2026-08-29 from orthancteam/orthanc:26.6.1.
 #
-# Les entrees DicomWeb.* valent None : leurs defauts appartiennent au greffon
-# DICOMweb, absent de la configuration de reference du coeur. On prefere ne rien
-# afficher plutot que d'annoncer une valeur qu'on n'a pas mesuree.
+# The DicomWeb.* entries are None: their defaults belong to the DICOMweb
+# plugin, absent from the core's reference configuration. Better to show
+# nothing than to announce a value that was not measured.
 ORTHANC_DEFAUTS = {
     "AcceptedTransferSyntaxes": ["1.2.840.10008.1.*"],
     "ConcurrentJobs": 2,
@@ -1816,10 +1813,10 @@ async def read_orthanc_config(admin: AdminUser = Depends(require_admin)):
                 break
             node = node[k]
         result[dotted] = node
-    # Le type doit venir d'ici, pas etre devine cote page a partir de la valeur.
-    # Un reglage absent d'orthanc.json arrive a null, et `typeof null` ne dit
-    # rien : la page affichait alors DicomScpTimeout et DicomThreadsCount, qui
-    # sont des entiers, sous forme de menu true/false.
+    # The type must come from here, not be guessed page-side from the value. A
+    # setting absent from orthanc.json arrives as null, and `typeof null` says
+    # nothing: the page then showed DicomScpTimeout and DicomThreadsCount,
+    # which are integers, as a true/false menu.
     types = {k: t.__name__ for k, t in ORTHANC_EDITABLE_PATHS.items()}
     return {"editable": result, "aide": {k: _msg(f"orthanc_help.{k}") for k in ORTHANC_AIDE}, "types": types,
             "defauts": ORTHANC_DEFAUTS}
@@ -2365,18 +2362,18 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
     except (json.JSONDecodeError, OSError) as e:
         checks["orthanc_json"] = {"ok": False, "detail": _msg("health_read_error", error=e)}
 
-    # Authelia joignable.
+    # Authelia reachable.
     #
-    # Il manquait, et c'est le composant qui est tombe DEUX FOIS le 2026-08-29 :
-    # une cle de configuration mal placee, et il refusait de demarrer. Pendant
-    # ce temps l'onglet Sante affichait tout au vert -- Redis repondait, les
-    # fichiers etaient lisibles, Orthanc tournait -- alors que plus personne ne
-    # pouvait se connecter. Un tableau de bord qui ignore la porte d'entree ne
-    # sert a rien le jour ou c'est elle qui cede.
+    # It was missing, and it is the component that went down TWICE on
+    # 2026-08-29: a misplaced configuration key, and it refused to start.
+    # Meanwhile the Health tab showed everything green -- Redis answered, the
+    # files were readable, Orthanc was running -- while nobody could sign in
+    # any more. A dashboard that ignores the front door is useless the day that
+    # door is what gives way.
     #
-    # /api/health est le point d'entree non authentifie d'Authelia ; il rend
-    # {"status":"OK"}. Surtout pas /api/state, qui exige une session et
-    # repondrait 403 sur une pile pourtant saine.
+    # /api/health is Authelia's unauthenticated endpoint; it returns
+    # {"status":"OK"}. Certainly not /api/state, which requires a session and
+    # would answer 403 on a perfectly healthy stack.
     try:
         async with httpx.AsyncClient(timeout=3) as client:
             r = await client.get(f"{AUTHELIA_URL}/api/health")
@@ -2403,7 +2400,7 @@ async def admin_health(admin: AdminUser = Depends(require_admin)):
 # Authelia durations: a sequence of value+unit, e.g. "15m", "1h", "1h30m".
 _DURATION_RE = re.compile(r"^(\d+[smhdwMy])+$")
 
-# Textes : section « api », cles session_label.<nom>, dans translations/*.json.
+# Texts: « api » section, session_label.<name> keys, in translations/*.json.
 SESSION_KEYS = (
     "expiration",
     "inactivity",
@@ -2713,15 +2710,15 @@ async def restore_backup(
     admin: AdminUser = Depends(require_admin),
 ):
     """Restore a backup from /host/backups/ onto its original file."""
-    # Le nom vient du client. Le test de _backup_target ci-dessous impose deja
-    # un prefixe connu, ce qui ecarte « ../../etc/passwd.bak.1 » -- mais pas
-    # « orthanc.json.bak.x/../../../tmp/quelquechose », qui commence bien par le
-    # bon prefixe et ressort pourtant du dossier des sauvegardes.
+    # The name comes from the client. The _backup_target test below already
+    # enforces a known prefix, which rules out "../../etc/passwd.bak.1" -- but
+    # not "orthanc.json.bak.x/../../../tmp/something", which does start with
+    # the right prefix and yet escapes the backups directory.
     #
-    # La portee reelle est faible : il faut deja etre administrateur, et un
-    # administrateur peut de toute facon ecrire orthanc.json depuis le panneau.
-    # Mais une route qui restaure un fichier doit rester enfermee dans son
-    # dossier, sans dependre de la forme d'un nom.
+    # The real impact is small: one must already be an administrator, and an
+    # administrator can write orthanc.json from the panel anyway. But a route
+    # that restores a file must stay confined to its directory, without
+    # depending on the shape of a name.
     src = (BACKUPS_DIR / backup_name).resolve()
     if (src.parent != BACKUPS_DIR.resolve()
             or not src.is_file()
