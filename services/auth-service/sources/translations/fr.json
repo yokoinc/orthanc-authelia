@@ -366,6 +366,7 @@
     "cf_enforce": "Exiger l'assertion signée sur /api-upload/",
     "cf_enforce_note": "Décoché, l'import ne repose plus que sur le filtrage de Cloudflare : aucune vérification n'est faite ici. Toute requête qui atteindrait le serveur autrement serait acceptée.",
     "cf_not_enforced": "La vérification n'est pas active : les dépôts ne dépendent que du filtrage Cloudflare, sans contrôle à l'origine.",
+    "cf_not_configured": "Cloudflare Access n'est pas configuré : les dépôts automatiques (/api-upload/, poste d'import Windows) sont refusés. Rien à faire si vous n'utilisez pas Cloudflare ; sinon, renseignez le domaine d'équipe et l'audience ci-dessous.",
     "cf_aud_status": "Application (aud)",
     "cf_origin_check": "Vérification à l'origine",
     "cf_nginx_enforced": "Appliquée par nginx sur /api-upload/",

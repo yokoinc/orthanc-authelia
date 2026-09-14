@@ -366,6 +366,7 @@
     "cf_enforce": "Require the signed assertion on /api-upload/",
     "cf_enforce_note": "Unchecked, uploads rely only on Cloudflare's filtering: no check is made here. Any request reaching the server another way would be accepted.",
     "cf_not_enforced": "Verification is not active: uploads depend only on Cloudflare's filtering, with no check at the origin.",
+    "cf_not_configured": "Cloudflare Access is not configured: programmatic uploads (/api-upload/, Windows import workstation) are refused. Nothing to do if you do not use Cloudflare; otherwise fill in the team domain and the audience below.",
     "cf_aud_status": "Application (aud)",
     "cf_origin_check": "Origin verification",
     "cf_nginx_enforced": "Enforced by nginx on /api-upload/",

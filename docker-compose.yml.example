@@ -161,7 +161,7 @@ services:
   # =============================================================================
   
   auth-service:
-    image: registry.yokoinc.ovh/orthanc-auth-service:1.2.0
+    image: registry.yokoinc.ovh/orthanc-auth-service:1.2.1
     container_name: orthanc-auth-service
     restart: unless-stopped
     # /health already exists in the service; without a probe, nobody checked
@@ -217,6 +217,12 @@ services:
       - ORTHANC_ADMIN_USER=${ORTHANC_ADMIN_USER}
       - ORTHANC_ADMIN_PASS=${ORTHANC_ADMIN_PASS}
 
+      # nginx ALWAYS gates /api-upload/ through /_verify-cf (nginx.ssl.conf).
+      # This declares it to the panel, which cannot read nginx's configuration.
+      # It only lived in the original installation's override: a fresh install
+      # showed "uploads depend only on Cloudflare" while they were refused.
+      - CF_ACCESS_ENFORCED=true
+
       # Restarting Orthanc from the panel. Leave DOCKER_PROXY_URL empty to
       # disable the feature: the panel then says so instead of offering a
       # button that cannot work.
@@ -228,8 +234,8 @@ services:
       - AUTH_PASSWORD=${AUTH_PASSWORD}
       - REDIS_HOST=redis
       # Semantic version shown in the token manager footer. Keep it in sync
-      # with the image tag above (1.2.0) on every bump.
-      - IMAGE_VERSION=1.2.0
+      # with the image tag above (1.2.1) on every bump.
+      - IMAGE_VERSION=1.2.1
       # Optional overrides (uncomment in .env if needed)
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - DEFAULT_TOKEN_MAX_USES=${DEFAULT_TOKEN_MAX_USES:-50}

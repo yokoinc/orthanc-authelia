@@ -640,10 +640,23 @@ async function loadCF() {
         const yes = `<span style="color:var(--oe2-success)">${echapHtml(t('yes'))}</span>`;
         const no = `<span style="color:var(--oe2-danger)">${echapHtml(t('no'))}</span>`;
         const nonConfigure = echapHtml(t('not_configured'));
-        const warn = d.configured && d.enforced ? '' : `
+        // Two different situations, two different messages. Without a team
+        // domain and audience, nginx still gates /api-upload/ and the check
+        // answers 503: uploads are REFUSED, not open. Announcing "uploads depend
+        // only on Cloudflare" there was false, and alarming on every fresh
+        // install that does not use Cloudflare at all.
+        let warn = '';
+        if (!d.configured) {
+            warn = `
+            <div class="msg msg--info" style="display:block;margin-bottom:12px">
+                ${echapHtml(t('cf_not_configured'))}
+            </div>`;
+        } else if (!d.enforced) {
+            warn = `
             <div class="msg msg--err" style="display:block;margin-bottom:12px">
                 ${echapHtml(t('cf_not_enforced'))}
             </div>`;
+        }
         el.innerHTML = warn + `
             ${echapHtml(t('cf_team_domain'))} : <code>${d.team_domain ? echapHtml(d.team_domain) : nonConfigure}</code><br>
             ${echapHtml(t('cf_aud_status'))} : <code>${d.aud_masked ? echapHtml(d.aud_masked) : nonConfigure}</code><br>
