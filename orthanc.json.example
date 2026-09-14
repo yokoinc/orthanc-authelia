@@ -10,8 +10,20 @@
   "DicomPort": 4242,
   "DicomServerEnabled": true,
   "DicomAet": "ORTHANC",
-  "DicomCheckCalledAet": false,
-  "DicomCheckModalityHost": false,
+  // DICOM listener: closed by default. Only the modalities declared in the
+  // panel (Equipment tab) may store images, and only from their declared IP
+  // address. Orthanc's own defaults let ANY machine that reaches the DICOM
+  // port push images into the PACS. The port is not published by
+  // docker-compose.yml, so nothing outside Docker reaches it until you publish
+  // it -- these settings are what protects the PACS on that day.
+  "DicomCheckCalledAet": true,
+  "DicomCheckModalityHost": true,
+  "DicomAlwaysAllowEcho": true,
+  "DicomAlwaysAllowStore": false,
+  "DicomAlwaysAllowFind": false,
+  "DicomAlwaysAllowMove": false,
+  // Required: nginx and the panel reach Orthanc from their own containers.
+  // Port 8042 is not published; the only way in is nginx, behind Authelia.
   "RemoteAccessAllowed": true,
   "AuthenticationEnabled": false,
 

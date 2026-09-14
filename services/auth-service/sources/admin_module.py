@@ -892,13 +892,20 @@ def _validate_authelia(data: dict) -> None:
             raise ValueError(_msg("password_not_argon2", user=name))
 
 
-def _write_authelia(data: dict) -> None:
-    """Backup + validate + atomic write. Guarded by a FileLock."""
+def _write_authelia(data: dict, backup: bool = True) -> None:
+    """Backup + validate + atomic write. Guarded by a FileLock.
+
+    backup=False is for the setup wizard only. Its two writes would each leave
+    a copy of the placeholder state: one holding nothing but the disabled
+    bootstrap account, one with it next to the first admin. Neither is worth
+    restoring -- the first would lock everyone out -- and both showed
+    bootstrap@localhost in the Backups tab after the wizard had removed it.
+    """
     lock = FileLock(str(AUTHELIA_YML) + ".lock", timeout=5)
     try:
         with lock:
             _validate_authelia(data)
-            if AUTHELIA_YML.exists():
+            if backup and AUTHELIA_YML.exists():
                 _backup(AUTHELIA_YML)
             serialized = yaml.safe_dump(
                 data, default_flow_style=False, sort_keys=False, allow_unicode=True,
@@ -1472,7 +1479,7 @@ async def setup_create_admin(payload: UserCreatePayload):
         "password": _hasher.hash(payload.password),
         "groups": payload.groups,
     }
-    _write_authelia(data)
+    _write_authelia(data, backup=False)
     # Close the window: only one finalize is acceptable from now on
     await _r().set(SETUP_FIRST_ADMIN_KEY, "1")
     await _audit("setup.admin.created", actor="wizard", target=payload.username)
@@ -1529,7 +1536,7 @@ async def setup_finalize(payload: SetupFinalizePayload | None = None):
     amorce = (data.get("users") or {}).get(COMPTE_AMORCAGE)
     if amorce is not None and amorce.get("disabled") and not amorce.get("groups"):
         del data["users"][COMPTE_AMORCAGE]
-        _write_authelia(data)
+        _write_authelia(data, backup=False)
 
     if payload and payload.langue:
         # A display setting must not block the installation: a settings

@@ -300,6 +300,10 @@ class TestSetupWizard:
         assert admin_module.COMPTE_AMORCAGE not in users
         assert "j.dupont@exemple.fr" in users
         assert json.loads(tmp_paths["settings"].read_text())["langue"] == "en"
+        # No backup of the placeholder state: it showed bootstrap@localhost in
+        # the Backups tab after the wizard had removed the account (2026-09-14).
+        leftovers = list(tmp_paths["backups"].glob(tmp_paths["authelia"].name + ".bak.*"))
+        assert leftovers == [], leftovers
 
     def test_finalize_keeps_a_bootstrap_account_that_was_put_to_use(
         self, client, tmp_paths, fake_redis, redis_sync,
