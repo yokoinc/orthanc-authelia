@@ -8,10 +8,38 @@
 const urlParams = new URLSearchParams(window.location.search);
 const shareToken = urlParams.get('token');
 
+// Display language, resolved the way OHIF's i18next detector does it: ?lng=,
+// then the i18next cookie, then localStorage, then the browser. Only the two
+// letter code matters here.
+function ohifLanguage() {
+  let lang = new URLSearchParams(window.location.search).get('lng') || '';
+  if (!lang) {
+    const cookie = document.cookie.match(/(?:^|;\s*)i18next=([^;]+)/);
+    lang = cookie ? decodeURIComponent(cookie[1]) : '';
+  }
+  if (!lang) {
+    try { lang = window.localStorage.getItem('i18nextLng') || ''; } catch (e) { lang = ''; }
+  }
+  if (!lang) {
+    lang = (navigator.languages && navigator.languages[0]) || navigator.language || '';
+  }
+  return lang.slice(0, 2).toLowerCase();
+}
+
+// Study list column labels, per language, in StudyList.defaultColumns order
+// (0 patient, 1 mrn, 2 studyDateTime, 3 modalities, 4 description,
+// 5 accession, 6 instances). English needs no entry: it is what
+// @ohif/ui-next ships. To add a language, add a line.
+const STUDY_LIST_LABELS = {
+  fr: ['Nom du patient', 'Num\u00e9ro DSN', 'Date de l\u2019\u00e9tude', 'Modalit\u00e9',
+       'Description', 'Num\u00e9ro d\u2019acc\u00e8s', 'Instances'],
+};
+const studyListLabels = STUDY_LIST_LABELS[ohifLanguage()];
+
 window.config = {
 
   // =============================================================================
-  // FRENCH LABELS OF THE STUDY LIST (needed since OHIF 3.13)
+  // TRANSLATED LABELS OF THE STUDY LIST (needed since OHIF 3.13)
   // =============================================================================
   // The study list was rewritten in 3.13: it now comes from @ohif/ui-next,
   // whose components carry hard-coded labels, without any call to t(). The
@@ -28,19 +56,18 @@ window.config = {
   //   0 patient  1 mrn  2 studyDateTime  3 modalities
   //   4 description  5 accession  6 instances  7 actions
   //
+  // The labels themselves live in STUDY_LIST_LABELS, above window.config,
+  // and follow the language OHIF displays in.
+  //
   // Accents written as \uXXXX on purpose: this file is served without a
   // charset header, a raw accent would come out as mojibake in some browsers.
-  customizationService: {
-    'workList.columns': {
-      '0': { meta: { label: { $set: 'Nom du patient' } } },
-      '1': { meta: { label: { $set: 'Num\u00e9ro DSN' } } },
-      '2': { meta: { label: { $set: 'Date de l\u2019\u00e9tude' } } },
-      '3': { meta: { label: { $set: 'Modalit\u00e9' } } },
-      '4': { meta: { label: { $set: 'Description' } } },
-      '5': { meta: { label: { $set: 'Num\u00e9ro d\u2019acc\u00e8s' } } },
-      '6': { meta: { label: { $set: 'Instances' } } },
+  ...(studyListLabels ? {
+    customizationService: {
+      'workList.columns': Object.fromEntries(
+        studyListLabels.map((label, i) => [String(i), { meta: { label: { $set: label } } }])
+      ),
     },
-  },
+  } : {}),
   // =============================================================================
   // ROUTING & UI CONFIGURATION
   // =============================================================================
