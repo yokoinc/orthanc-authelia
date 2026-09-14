@@ -251,7 +251,7 @@ ASSET_VERSION = os.getenv("ASSET_VERSION", str(int(time.time())))
 IMAGE_VERSION = os.getenv("IMAGE_VERSION", "dev")
 
 def _langue() -> str:
-    """The installation's language, read on every call.
+    """The request's language (browser or panel choice, else the installation's).
 
     It used to be frozen at startup from LANGUAGE: changing language meant
     recreating the container, and the share page ignored the setting that the
@@ -354,6 +354,9 @@ try:
     app.include_router(admin_module.router)
     app.middleware("http")(admin_module.setup_gate)
     app.middleware("http")(admin_module.csrf_gate)
+    # Registered last, so it wraps the two gates above: their messages too are
+    # in the request's language.
+    app.middleware("http")(admin_module.langue_gate)
     logging.info("admin_module loaded — /auth/setup and /auth/admin routes active")
 except ImportError as e:
     logging.warning(f"admin_module not loaded: {e} — admin routes will not be available")

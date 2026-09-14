@@ -33,6 +33,13 @@
 
   "MaximumStorageSize": 0,
   "MaximumPatientCount": 0,
+  // If a size or patient limit is ever set, REFUSE new studies once it is
+  // reached. Orthanc's default, "Recycle", silently deletes the oldest patients
+  // to make room -- in a PACS, that is losing records without a word.
+  "MaximumStorageMode": "Reject",
+  // Patient names stay out of the logs. Already Orthanc's default, written
+  // down so that a change of default upstream cannot turn it off.
+  "DeidentifyLogs": true,
   "StorageCompression": false,
 
   // =============================================================================

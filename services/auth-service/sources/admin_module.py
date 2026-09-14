@@ -135,13 +135,58 @@ SETTINGS_FILE = Path(
 logger = logging.getLogger("auth-service.admin")
 
 
-def langue_courante() -> str:
-    """Interface language for the whole installation.
+# Language chosen in the panel's selector, for this browser only. Also written
+# by the panel as "i18next", the cookie OHIF's language detector reads, so the
+# viewer follows the same choice.
+COOKIE_LANGUE = "orthanc_lang"
 
-    Order: the saved setting (wizard, then the panel's selector), the LANGUAGE
-    variable from .env (initial value set by bootstrap.sh), then English. A
-    language is only kept if its file exists: a setting pointing at a removed
-    file falls through to the next option instead of breaking.
+
+def langue_courante() -> str:
+    """Language of the request being served.
+
+    Each person gets the interface in their own language: the one picked in the
+    panel's selector (cookie), otherwise the browser's, otherwise the
+    installation's default. It used to be one language for everybody, set in
+    the wizard -- a French-speaking practice with one English-speaking
+    colleague had to choose who reads a foreign language.
+    """
+    code = i18n.langue_requete()
+    if code and code in i18n.langues_disponibles():
+        return code
+    return langue_installation()
+
+
+async def langue_gate(request: Request, call_next):
+    """Resolve the request's language once, before any message is produced.
+
+    Vary tells caches that the same URL answers differently per language, so
+    that one person's page is never served to another in the wrong language.
+    """
+    disponibles = i18n.langues_disponibles()
+    code = i18n.normaliser(request.cookies.get(COOKIE_LANGUE, ""))
+    if code not in disponibles:
+        code = i18n.depuis_accept_language(request.headers.get("accept-language"), disponibles)
+    jeton = i18n.definir_langue_requete(code)
+    try:
+        response = await call_next(request)
+    finally:
+        i18n.oublier_langue_requete(jeton)
+    vary = [v.strip() for v in response.headers.get("vary", "").split(",") if v.strip()]
+    for v in ("Accept-Language", "Cookie"):
+        if v.lower() not in {x.lower() for x in vary}:
+            vary.append(v)
+    response.headers["Vary"] = ", ".join(vary)
+    return response
+
+
+def langue_installation() -> str:
+    """The installation's default language, for browsers without a translation.
+
+    Order: the saved setting (the wizard records the language it was completed
+    in), the LANGUAGE variable from .env (initial value set by bootstrap.sh),
+    then English. A language is only kept if its file exists: a setting
+    pointing at a removed file falls through to the next option instead of
+    breaking.
     """
     disponibles = i18n.langues_disponibles()
     for candidat in (_read_settings().get("langue"), os.getenv("LANGUAGE", "")):
@@ -1419,7 +1464,7 @@ async def setup_page():
         "setup.html",
         setup_i18n=_json_pour_script(_setup_translations()),
         setup_langues=_json_pour_script(_choix_langues()),
-        setup_langue=_json_pour_script(langue_courante()),
+        setup_langue=_json_pour_script(langue_installation()),
     ))
 
 
@@ -2318,12 +2363,16 @@ async def verify_cf(
 @router.get("/api/admin/language")
 async def get_language(admin: AdminUser = Depends(require_admin)):
     """Interface language in force, and what the selector offers."""
-    return {"langue": langue_courante(), "disponibles": _choix_langues()}
+    return {
+        "langue": langue_installation(),
+        "courante": langue_courante(),
+        "disponibles": _choix_langues(),
+    }
 
 
 @router.post("/api/admin/language")
 async def set_language(payload: LanguePayload, admin: AdminUser = Depends(require_admin)):
-    """One language for the whole installation: wizard, panel, shares, OE2 menu.
+    """The installation's default language, for browsers without a translation.
 
     Offered languages are the translation files present, so a language added by
     dropping a file becomes selectable without touching this code.

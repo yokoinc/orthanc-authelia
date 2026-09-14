@@ -255,7 +255,7 @@
   "admin": {
     "page_title": "Orthanc administration",
     "title": "Administration",
-    "language_label": "Interface language",
+    "language_label": "Language (this browser)",
     "nav_back": "Back to Orthanc Explorer",
     "nav_shares": "Shares",
     "nav_admin": "Administration",

@@ -28,6 +28,21 @@ def _catalogue(code: str) -> dict:
     return json.loads((TRADUCTIONS / f"{code}.json").read_text(encoding="utf-8"))
 
 
+@pytest.mark.parametrize("entete, attendu", [
+    ("fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7", "fr"),
+    ("en-GB", "en"),
+    ("de-DE,de;q=0.9", ""),
+    ("de;q=1, en;q=0.4, fr;q=0.5", "fr"),
+    ("fr;q=0, en", "en"),
+    ("*", ""),
+    ("", ""),
+    (None, ""),
+    ("fr;q=abc, en", "en"),
+])
+def test_accept_language(entete, attendu):
+    assert i18n.depuis_accept_language(entete, {"fr": "Français", "en": "English"}) == attendu
+
+
 def _langues() -> list[str]:
     return sorted(p.stem for p in TRADUCTIONS.glob("*.json"))
 

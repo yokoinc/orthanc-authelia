@@ -17,6 +17,7 @@ tests/test_i18n.py).
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -84,6 +85,53 @@ def normaliser(valeur: str | None) -> str:
     if not valeur:
         return ""
     return re.split(r"[_.:@-]", str(valeur).strip().lower(), maxsplit=1)[0]
+
+
+def depuis_accept_language(entete: str | None, disponibles) -> str:
+    """First language of an Accept-Language header that has a file, "" otherwise.
+
+    "fr-FR,fr;q=0.9,en;q=0.8" -> "fr". Entries are taken by decreasing q, then
+    in the order written; q=0 means "not this one". A browser asking only for
+    languages without a file gets "": the caller falls back on the
+    installation's default.
+    """
+    choix = []
+    for rang, morceau in enumerate((entete or "").split(",")):
+        parties = morceau.strip().split(";")
+        code = normaliser(parties[0])
+        if not code or code == "*":
+            continue
+        q = 1.0
+        for p in parties[1:]:
+            p = p.strip()
+            if p.startswith("q="):
+                try:
+                    q = float(p[2:])
+                except ValueError:
+                    q = 0.0
+        if q > 0:
+            choix.append((-q, rang, code))
+    for _, _, code in sorted(choix):
+        if code in disponibles:
+            return code
+    return ""
+
+
+# Language of the request being served, set by admin_module.langue_gate. A
+# context variable and not a global: requests run concurrently, each keeps its own.
+_langue_requete: contextvars.ContextVar[str] = contextvars.ContextVar("langue_requete", default="")
+
+
+def definir_langue_requete(code: str) -> contextvars.Token:
+    return _langue_requete.set(code)
+
+
+def oublier_langue_requete(jeton: contextvars.Token) -> None:
+    _langue_requete.reset(jeton)
+
+
+def langue_requete() -> str:
+    return _langue_requete.get()
 
 
 def section(nom: str, langue: str) -> dict[str, str]:

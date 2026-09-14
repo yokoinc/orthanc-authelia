@@ -119,8 +119,10 @@ function ligneErreur(colspan, e) {
 }
 
 // ============ Language ============
-// One language for the installation: save it then reload, so that the texts
-// rendered by the server follow as well.
+// Language of THIS browser, remembered in a cookie the server reads (it
+// otherwise follows the browser's language, then the installation default).
+// The same choice goes into "i18next", which OHIF reads, so the viewer follows.
+// Reload so that the texts rendered by the server follow as well.
 function initLangue() {
     const select = document.getElementById('langue-select');
     if (!select) return;
@@ -131,14 +133,12 @@ function initLangue() {
         o.selected = l.code === LANGUE;
         select.appendChild(o);
     });
-    select.addEventListener('change', async () => {
-        try {
-            await api('/api/admin/language', { method: 'POST', body: { langue: select.value } });
-            window.location.reload();
-        } catch (e) {
-            showMsg(e.message, false);
-            select.value = LANGUE;
-        }
+    select.addEventListener('change', () => {
+        const valeur = encodeURIComponent(select.value);
+        const attributs = '; path=/; max-age=31536000; SameSite=Lax; Secure';
+        document.cookie = `orthanc_lang=${valeur}${attributs}`;
+        document.cookie = `i18next=${valeur}${attributs}`;
+        window.location.reload();
     });
 }
 

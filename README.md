@@ -42,7 +42,7 @@ is unreachable — see [Rescue paths](#rescue-paths).
 | Docker socket proxy | `tecnativa/docker-socket-proxy` | `0.1.2` |
 | OHIF Viewer | `registry.yokoinc.ovh/orthanc-ohif` | `3.13.4-2` |
 | Nginx | `registry.yokoinc.ovh/orthanc-nginx` | `1.1.2` |
-| Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.2.2` |
+| Auth-Service | `registry.yokoinc.ovh/orthanc-auth-service` | `1.2.3` |
 
 These are the versions pinned in `docker-compose.yml.example`. Keep this table
 and that file in sync when bumping an image.
@@ -157,16 +157,16 @@ rm -rf .env docker-compose.yml data/admin-backups \
 
 ## Interface language
 
-One language for the whole installation: setup wizard, administration panel,
-share pages, the menu entries added to Orthanc Explorer 2, and the messages the
-server sends back.
+Each person gets the interface in their own browser's language, when a
+translation exists: setup wizard, administration panel, share pages, the menu
+entries added to Orthanc Explorer 2, and the messages the server sends back.
 
-- `bootstrap.sh` sets an initial value, `LANGUAGE` in `.env`, from the system
-  locale.
-- The **setup wizard** opens in the browser's language when it is available,
-  offers the others, and records the choice.
-- The **administration panel** has a language selector in its header. The
-  change applies at once, no restart.
+- The **administration panel** has a language selector in its header. It
+  applies to that browser only, and OHIF follows the same choice.
+- A browser whose language has no translation gets the **installation
+  default**: the language the setup wizard was completed in, otherwise
+  `LANGUAGE` in `.env` (set by `bootstrap.sh` from the system locale),
+  otherwise English.
 
 English and French ship with the project. Orthanc Explorer 2 and OHIF keep
 their own language settings.
@@ -203,7 +203,7 @@ Check it before opening a pull request:
 
 ```bash
 docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo/services/auth-service/sources \
-  registry.yokoinc.ovh/orthanc-auth-service:1.2.2 \
+  registry.yokoinc.ovh/orthanc-auth-service:1.2.3 \
   -c 'pip install -q -r requirements-dev.txt && python -m pytest tests/test_i18n.py -q'
 ```
 

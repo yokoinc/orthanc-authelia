@@ -89,6 +89,7 @@ def app(admin_user):
     app.include_router(admin_module.router)
     app.middleware("http")(admin_module.setup_gate)
     app.middleware("http")(admin_module.csrf_gate)
+    app.middleware("http")(admin_module.langue_gate)
     # Dependency override: no real Authelia auth in tests
     app.dependency_overrides[admin_module.require_admin] = lambda: admin_user
     return app
@@ -2151,6 +2152,48 @@ class TestLanguage:
 
         r = client.delete("/api/admin/users/inconnu@exemple.fr", headers=csrf_headers)
         assert r.json()["detail"] == "Compte inconnu."
+
+    @pytest.mark.parametrize("accept, cookie, attendu", [
+        ("fr-FR,fr;q=0.9,en;q=0.8", None, "Compte inconnu."),
+        ("de-DE,de;q=0.9", None, "Unknown account."),
+        ("de;q=1, fr;q=0.5", None, "Compte inconnu."),
+        ("fr;q=0, en", None, "Unknown account."),
+        ("fr", "en", "Unknown account."),
+        ("en", "fr", "Compte inconnu."),
+        ("en", "xx", "Unknown account."),
+    ])
+    def test_each_browser_gets_its_own_language(
+        self, client, tmp_paths, fake_redis, csrf_headers, valid_authelia_yml, accept, cookie, attendu,
+    ):
+        """Panel choice (cookie), then the browser, then the installation (en here)."""
+        if cookie:
+            # Through the client's jar: a Cookie header would replace the CSRF cookie.
+            client.cookies.set(admin_module.COOKIE_LANGUE, cookie)
+        r = client.delete("/api/admin/users/inconnu@exemple.fr",
+                          headers={**csrf_headers, "Accept-Language": accept})
+        assert r.json()["detail"] == attendu
+        assert "Accept-Language" in r.headers.get("vary", "")
+
+    def test_installation_default_applies_when_the_browser_has_no_translation(
+        self, client, tmp_paths, fake_redis, csrf_headers, valid_authelia_yml,
+    ):
+        self._set_language(tmp_paths, "fr")
+        r = client.delete("/api/admin/users/inconnu@exemple.fr",
+                          headers={**csrf_headers, "Accept-Language": "de"})
+        assert r.json()["detail"] == "Compte inconnu."
+        r = client.delete("/api/admin/users/inconnu@exemple.fr",
+                          headers={**csrf_headers, "Accept-Language": "en-GB"})
+        assert r.json()["detail"] == "Unknown account."
+
+    def test_admin_page_follows_the_browser(
+        self, client, tmp_paths, fake_redis, redis_sync, valid_authelia_yml,
+    ):
+        redis_sync.set("orthanc_authelia:setup_completed", "1")
+        self._set_language(tmp_paths, "en")
+        r = client.get("/auth/admin", headers={"Accept-Language": "fr-FR"})
+        assert r.status_code == 200
+        assert '<html lang="fr">' in r.text
+        assert "</i> Utilisateurs" in r.text
 
     def test_a_language_without_a_file_is_refused(
         self, client, tmp_paths, fake_redis, csrf_headers,
