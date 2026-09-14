@@ -70,33 +70,65 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# .env mount: detecting detachment
+# File mounts: detecting detachment
 # ---------------------------------------------------------------------------
-# .env is mounted INTO auth-service as a FILE mount (not a directory:
-# mounting the root would give a web-facing service write access to
-# docker-compose.yml and to the scripts). A file mount follows the INODE,
-# not the path.
+# Several files are mounted into containers as FILE mounts: .env into
+# auth-service (not a directory: mounting the root would give a web-facing
+# service write access to docker-compose.yml and to the scripts), the nginx
+# template, OHIF's app-config.js, orthanc.json. A file mount follows the
+# INODE, not the path.
 #
-# Consequence: any tool that writes by atomic replacement -- `sed -i`, most
-# editors -- creates a new file and renames it over the old one. The inode
-# changes, the container stays attached to the old one, now orphaned. It then
-# reads a frozen version indefinitely, and its own writes go nowhere WHILE
-# BELIEVING THEY SUCCEED.
+# Consequence: any tool that writes by atomic replacement -- `sed -i`, git,
+# most editors -- creates a new file and renames it over the old one. The
+# inode changes, the container stays attached to the old one, now orphaned. It
+# then reads a frozen version indefinitely, and its own writes go nowhere
+# WHILE BELIEVING THEY SUCCEED.
 #
-# Found on 2026-08-27: after the secrets rotation (done with `sed -i`), the
-# panel was still reading the old values, the ones that had leaked. Nothing
-# reported it.
+# Found on 2026-08-27 for .env: after the secrets rotation (done with
+# `sed -i`), the panel was still reading the old values, the ones that had
+# leaked. Found again on 2026-09-14 for app-config.js and the nginx template:
+# OHIF had been serving its 29 August configuration for two weeks, and a
+# restarted nginx would have rendered a stale template. Only .env was checked.
 #
-# `sed -i` cannot be forbidden to everyone. It can be detected.
-if [ -f .env ] && docker ps --format '{{.Names}}' | grep -q '^orthanc-auth-service$'; then
-    INODE_HOTE=$(stat -c %i .env 2>/dev/null || echo "?")
-    INODE_CONTENEUR=$(docker exec orthanc-auth-service stat -c %i /host/env/.env 2>/dev/null || echo "?")
-    if [ "$INODE_HOTE" != "?" ] && [ "$INODE_CONTENEUR" != "?" ] \
-       && [ "$INODE_HOTE" != "$INODE_CONTENEUR" ]; then
-        echo "== .env detached from the container (inode $INODE_CONTENEUR vs $INODE_HOTE) =="
-        echo "   The panel was reading a ghost file. Recreating auth-service."
-        docker-compose up -d --force-recreate --no-deps --no-build auth-service >/dev/null
-        sleep 4
+# `sed -i` cannot be forbidden to everyone. It can be detected -- on every
+# file mount of every running container of the stack.
+#
+# Prints "container service destination host-inode container-inode" per
+# detached mount. The prefix is a parameter so the check can be tested on a
+# throwaway container.
+detached_mounts() {
+    prefix=$1
+    for c in $(docker ps --format '{{.Names}}' | grep "^$prefix"); do
+        service=$(docker inspect "$c" --format '{{index .Config.Labels "com.docker.compose.service"}}' 2>/dev/null)
+        docker inspect "$c" --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}|{{.Destination}}{{println}}{{end}}{{end}}' 2>/dev/null |
+        while IFS='|' read -r source dest; do
+            [ -f "$source" ] || continue
+            host_inode=$(stat -c %i "$source" 2>/dev/null || echo "?")
+            cont_inode=$(docker exec "$c" stat -c %i "$dest" 2>/dev/null || echo "?")
+            if [ "$host_inode" != "?" ] && [ "$cont_inode" != "?" ] && [ "$host_inode" != "$cont_inode" ]; then
+                echo "$c ${service:-?} $dest $host_inode $cont_inode"
+            fi
+        done
+    done
+}
+
+DETACHED=$(detached_mounts orthanc-)
+if [ -n "$DETACHED" ]; then
+    echo "== File mount(s) detached from their container =="
+    echo "$DETACHED" | while read -r c service dest host_inode cont_inode; do
+        echo "   $c: $dest (inode $cont_inode, file on disk is now $host_inode)"
+    done
+    echo "   The container was reading a ghost file. Recreating:"
+    for service in $(echo "$DETACHED" | awk '$2 != "?" {print $2}' | sort -u); do
+        echo "   - $service"
+        docker-compose up -d --force-recreate --no-deps --no-build "$service" >/dev/null
+    done
+    sleep 4
+    STILL=$(detached_mounts orthanc-)
+    if [ -n "$STILL" ]; then
+        echo "   STILL DETACHED after recreation:"
+        echo "$STILL" | sed 's/^/     /'
+        MOUNT_FAILURES=1
     fi
 fi
 
@@ -116,7 +148,7 @@ docker ps --filter name=orthanc- --format '   {{.Names}} | {{.Status}}'
 # tab, it covers .env and the eleven occurrences in configuration.yml), so this
 # value moves without warning.
 DOMAINE=$(grep -E '^DOMAIN=' .env 2>/dev/null | cut -d= -f2- | tr -d '\r')
-ECHECS=0
+ECHECS=${MOUNT_FAILURES:-0}
 
 if [ -z "$DOMAINE" ]; then
     echo "   DOMAIN not found in .env -- route check skipped."
