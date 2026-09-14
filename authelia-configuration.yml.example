@@ -279,6 +279,25 @@ storage:
 #     jwt_secret: ${AUTHELIA_SESSION_SECRET}  # Session secret from .env
 
 # =============================================================================
+# CLOCK CHECK (NTP)
+# =============================================================================
+# At startup Authelia compares the machine clock with an NTP server. By
+# default a gap above 3 seconds is FATAL: Authelia exits, restarts, exits
+# again, and every page answers 500 -- sign-in included. A machine that
+# cannot reach NTP (no outbound UDP 123) fails the same way.
+#
+# Clock drift is ordinary: a WSL or Docker Desktop VM loses time after the
+# host sleeps, a VM restored from a snapshot starts in the past. Found on
+# 2026-09-14 on a fresh install under WSL Ubuntu: "the system clock is not
+# synchronized accurately enough with the configured NTP server", in a loop.
+#
+# disable_failure keeps the check and logs the error, without refusing to
+# start. This installation uses no one-time codes (TOTP), the only feature
+# that really needs an exact clock.
+ntp:
+  disable_failure: true
+
+# =============================================================================
 # NOTIFICATION SYSTEM
 # =============================================================================
 # File-based notifications for password resets and security alerts
