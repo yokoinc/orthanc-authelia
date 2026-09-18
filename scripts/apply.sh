@@ -60,13 +60,22 @@ if docker ps --format '{{.Names}}' | grep -qx orthanc-authelia; then
     echo "   configuration valid"
 fi
 
+# `docker compose` (v2, a docker plugin) on current installs; the standalone
+# `docker-compose` where only that exists (older DSM). The script used to call
+# docker-compose only, which a recent Docker Desktop or WSL does not ship.
+if docker compose version >/dev/null 2>&1; then
+    compose() { docker compose "$@"; }
+else
+    compose() { docker-compose "$@"; }
+fi
+
 echo "== Applying changes =="
 if [ $# -gt 0 ]; then
     echo "   target services: $*"
-    docker-compose up -d --no-deps --no-build "$@"
+    compose up -d --no-deps --no-build "$@"
 else
     echo "   all services"
-    docker-compose up -d --no-build
+    compose up -d --no-build
 fi
 
 # ---------------------------------------------------------------------------
@@ -121,7 +130,7 @@ if [ -n "$DETACHED" ]; then
     echo "   The container was reading a ghost file. Recreating:"
     for service in $(echo "$DETACHED" | awk '$2 != "?" {print $2}' | sort -u); do
         echo "   - $service"
-        docker-compose up -d --force-recreate --no-deps --no-build "$service" >/dev/null
+        compose up -d --force-recreate --no-deps --no-build "$service" >/dev/null
     done
     sleep 4
     STILL=$(detached_mounts orthanc-)

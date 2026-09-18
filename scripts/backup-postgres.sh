@@ -45,12 +45,82 @@ set -eu
 # line, the scheduled task would have failed every night on "docker: command
 # not found", with nobody looking. Checked on 2026-09-13, before the very first
 # scheduling.
-PATH=/usr/local/bin:$PATH
+export PATH=/usr/local/bin:$PATH
 
-CONTENEUR="${PG_CONTAINER:-postgres-database-15}"
-BASE="${PG_DATABASE:-orthanc}"
-UTILISATEUR="${PG_USER:-cuffel.gregory}"   # see the PostgreSQL block of orthanc.json, not the compose's POSTGRES_*
-BACKUP_DIR="${BACKUP_DIR:-/volume2/docker/orthanc-authelia/data/postgres-backups}"
+# Which database to dump is read where Orthanc reads it: the PostgreSQL block
+# of orthanc.json (Host, Database, Username). These values used to be written
+# here for one installation -- container postgres-database-15, user
+# cuffel.gregory, a /volume2 path -- so on any other machine the nightly dump
+# failed, or dumped nothing. PG_CONTAINER, PG_DATABASE, PG_USER and BACKUP_DIR
+# still override each value.
+RACINE="$(cd "$(dirname "$0")/.." && pwd)"
+ORTHANC_JSON="${ORTHANC_JSON:-$RACINE/services/orthanc/config/orthanc.json}"
+
+# One field of the PostgreSQL block. orthanc.json allows // comments on their
+# own line: drop those, then read the block without a JSON parser (DSM has
+# none by default).
+pg_field() {
+    sed -E 's#^[[:space:]]*//.*##' "$ORTHANC_JSON" 2>/dev/null | tr -d '\n' \
+        | grep -oE '"PostgreSQL"[[:space:]]*:[[:space:]]*\{[^}]*\}' \
+        | grep -oE "\"$1\"[[:space:]]*:[[:space:]]*\"[^\"]*\"" \
+        | sed -E 's/.*:[[:space:]]*"([^"]*)"/\1/'
+}
+
+# The container behind a host name, resolved the way Orthanc resolves it: only
+# on the Docker networks the Orthanc container is attached to, by container
+# name or network alias ("database" on the reference installation, "postgres"
+# on a fresh one). Searching every container is wrong: on the reference NAS,
+# Immich's own database also answers to "database", on another network.
+ORTHANC_CONTAINER="${ORTHANC_CONTAINER:-orthanc-server}"
+container_for_host() {
+    for net in $(docker inspect "$ORTHANC_CONTAINER" \
+            --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null); do
+        for c in $(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null); do
+            names="$c $(docker inspect "$c" --format \
+                "{{with index .NetworkSettings.Networks \"$net\"}}{{range .Aliases}}{{.}} {{end}}{{end}}" 2>/dev/null)"
+            for n in $names; do
+                if [ "$n" = "$1" ]; then echo "$c"; break; fi
+            done
+        done
+    done | sort -u
+}
+
+PG_HOST="$(pg_field Host)"
+BASE="${PG_DATABASE:-$(pg_field Database)}"
+UTILISATEUR="${PG_USER:-$(pg_field Username)}"
+BACKUP_DIR="${BACKUP_DIR:-$RACINE/data/postgres-backups}"
+if [ -n "${PG_CONTAINER:-}" ]; then
+    CONTENEUR="$PG_CONTAINER"
+else
+    CONTENEUR="$(container_for_host "$PG_HOST")"
+fi
+
+if [ -z "$BASE" ] || [ -z "$UTILISATEUR" ]; then
+    echo "ERROR: no PostgreSQL Database/Username in $ORTHANC_JSON (set PG_DATABASE / PG_USER)." >&2
+    exit 1
+fi
+case "$CONTENEUR" in
+    "")  echo "ERROR: no running container answers to \"$PG_HOST\" (Host in orthanc.json). Set PG_CONTAINER." >&2
+         exit 1 ;;
+    *" "*|*"
+"*)  echo "ERROR: several containers answer to \"$PG_HOST\": $(echo $CONTENEUR). Set PG_CONTAINER." >&2
+         exit 1 ;;
+esac
+
+# --check: show what would be dumped, and prove the database answers, without
+# dumping anything. To run after an installation or a change of database.
+if [ "${1:-}" = "--check" ]; then
+    echo "orthanc.json : $ORTHANC_JSON (Host: ${PG_HOST:-?})"
+    echo "container    : $CONTENEUR"
+    echo "database     : $BASE (user $UTILISATEUR)"
+    echo "backups in   : $BACKUP_DIR (keeping ${BACKUP_KEEP:-3})"
+    if docker exec "$CONTENEUR" psql -U "$UTILISATEUR" -d "$BASE" -tAc 'SELECT 1' >/dev/null 2>&1; then
+        echo "connection   : OK"
+        exit 0
+    fi
+    echo "connection   : FAILED (docker exec $CONTENEUR psql -U $UTILISATEUR -d $BASE)" >&2
+    exit 1
+fi
 # Three, not seven.
 #
 # Measured on this installation on 2026-08-29: the dump is ~28 GB for a 27 GB
