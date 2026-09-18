@@ -396,6 +396,41 @@ services:
       orthanc-network:
         ipv4_address: 192.168.80.17
 
+  # =============================================================================
+  # CLOUDFLARE TUNNEL (optional)
+  # =============================================================================
+  # Publishes the PACS on the Internet without opening any port on the router:
+  # cloudflared dials out to Cloudflare, which serves the public HTTPS
+  # certificate and renews it. Only started with the "tunnel" profile:
+  # bootstrap.sh writes COMPOSE_PROFILES=tunnel into .env when it is given a
+  # tunnel token. Without a token, nothing here runs.
+  #
+  # Public hostname, in the Cloudflare dashboard (Zero Trust -> Networks ->
+  # Tunnels -> the tunnel -> Public hostname):
+  #   Service          HTTPS  nginx:443
+  #   No TLS Verify    on   -- nginx's certificate is self-signed, and this hop
+  #                           never leaves the Docker network
+  #   HTTP Host Header the public hostname
+  #   HTTP2 connection on
+  # See docs/CLOUDFLARE_TUNNEL.md.
+  #
+  # Inside the network rather than network_mode: host, with a fixed address in
+  # the declared subnet: nginx only trusts CF-Connecting-IP (the visitor's real
+  # address, which the rate limits count on) from that subnet.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.1
+    container_name: orthanc-cloudflared
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - nginx
+    networks:
+      orthanc-network:
+        ipv4_address: 192.168.80.19
+
 # =============================================================================
 # PERSISTENT STORAGE
 # =============================================================================

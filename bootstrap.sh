@@ -220,11 +220,33 @@ else
     PUBLIC_URL_SAISIE=""
     if [[ -t 0 ]]; then
         printf "\n  Public address of this installation, including the port if it is not 443.\n"
+        printf "  Behind a Cloudflare tunnel: https://pacs.example.org (no port).\n"
         printf "  Press Enter to accept the local default.\n"
         printf "  [%s] > " "$PUBLIC_URL_DEFAUT"
         read -r PUBLIC_URL_SAISIE || true
     fi
     PUBLIC_URL_VALUE=${PUBLIC_URL_SAISIE:-$PUBLIC_URL_DEFAUT}
+
+    # Optional Cloudflare tunnel: publishes the PACS without opening a port on
+    # the router. The token may also come from the environment, for an
+    # unattended run. Read without echo: it is a secret.
+    TUNNEL_TOKEN_VALUE=${CLOUDFLARE_TUNNEL_TOKEN:-}
+    if [[ -z $TUNNEL_TOKEN_VALUE && -t 0 ]]; then
+        printf "\n  Cloudflare tunnel token, to publish the PACS without opening a port\n"
+        printf "  (Zero Trust -> Networks -> Tunnels -> Create -> Docker: the string\n"
+        printf "  after --token). Press Enter to skip.\n"
+        printf "  > "
+        read -rs TUNNEL_TOKEN_VALUE || true
+        printf "\n"
+    fi
+    TUNNEL_TOKEN_VALUE=$(printf '%s' "$TUNNEL_TOKEN_VALUE" | tr -d '[:space:]')
+    if [[ -n $TUNNEL_TOKEN_VALUE && ! $TUNNEL_TOKEN_VALUE =~ ^[A-Za-z0-9_.=+/-]+$ ]]; then
+        err "The tunnel token contains unexpected characters: paste only the"
+        err "string that follows --token in the command Cloudflare shows."
+        exit 1
+    fi
+    TUNNEL_PROFILE_VALUE=""
+    [[ -n $TUNNEL_TOKEN_VALUE ]] && TUNNEL_PROFILE_VALUE="tunnel"
 
     # A host name without a dot makes the browser reject the cookie (RFC 6265):
     # Authelia authenticates, sets its cookie, and the next request goes out
@@ -264,10 +286,20 @@ else
         -e "s|^UPLOAD_PASSWORD=.*|UPLOAD_PASSWORD=${UPLOAD_PASS_VALUE}|" \
         -e "s|^ORTHANC_ADMIN_PASS=.*|ORTHANC_ADMIN_PASS=$ORTHANC_PASS|" \
         -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG_PASS|" \
+        -e "s|^CLOUDFLARE_TUNNEL_TOKEN=.*|CLOUDFLARE_TUNNEL_TOKEN=${TUNNEL_TOKEN_VALUE}|" \
+        -e "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=${TUNNEL_PROFILE_VALUE}|" \
         .env.example > .env
 
     ok ".env generated: 6 random secrets (Authelia x3, Orthanc service, DICOM import, PostgreSQL), nothing to type"
     ok "Interface language: ${LANGUAGE_VALUE} (from the system locale; can be changed in the setup wizard and the admin panel)"
+    if [[ -n $TUNNEL_TOKEN_VALUE ]]; then
+        ok "Cloudflare tunnel enabled: in the dashboard, point ${DOMAIN_SAISI} to"
+        ok "  HTTPS nginx:443, No TLS Verify on (see docs/CLOUDFLARE_TUNNEL.md)"
+        if [[ $PUBLIC_URL_VALUE == *localhost* ]]; then
+            warn "The public address is still ${PUBLIC_URL_VALUE}: set the tunnel's"
+            warn "hostname in the admin panel, network tab, or sign-in will fail."
+        fi
+    fi
 fi
 
 # ---------------------------------------------------------------------------
