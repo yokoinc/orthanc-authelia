@@ -69,7 +69,7 @@ fi
 
 step "browser run (wizard, sign-in, panel, DICOM, OHIF, OE2)"
 docker run --rm --network host -e GITHUB_ACTIONS -v "$PWD/tests/e2e:/e2e:ro" "$PLAYWRIGHT_IMAGE" \
-    sh -c 'pip install -q --disable-pip-version-check pydicom==3.0.1 && python /e2e/browser.py'
+    sh -c 'pip install -q --disable-pip-version-check --root-user-action=ignore playwright==1.49.1 pydicom==3.0.1 && python /e2e/browser.py'
 
 step "nightly backup script"
 sh scripts/backup-postgres.sh --check
