@@ -22,7 +22,27 @@ cd "$(dirname "$0")/../.."
 
 PLAYWRIGHT_IMAGE=mcr.microsoft.com/playwright/python:v1.49.1-noble
 
-step() { printf '\n==== %s ====\n' "$1"; }
+LOG=$(mktemp)
+exec > >(tee -a "$LOG") 2>&1
+CURRENT_STEP="start"
+step() { CURRENT_STEP=$1; printf '\n==== %s ====\n' "$1"; }
+
+# On GitHub, a failure is written as an annotation: annotations are public,
+# the raw job log is not. Last lines of output, plus the log of every container
+# that is not healthy -- enough to diagnose without re-running anything.
+annotate() {
+    [ -n "${GITHUB_ACTIONS:-}" ] || return 0
+    local body
+    body=$(tail -n 40 "$LOG")
+    for c in $(docker ps -a --format '{{.Names}} {{.Status}}' 2>/dev/null | awk '/^orthanc-/ && !/healthy\)/ {print $1}'); do
+        body+=$'\n'"--- $c (last lines) ---"$'\n'"$(docker logs --tail 15 "$c" 2>&1)"
+    done
+    body=${body//'%'/'%25'}
+    body=${body//$'\r'/'%0D'}
+    body=${body//$'\n'/'%0A'}
+    echo "::error title=e2e failed during: $CURRENT_STEP::$body"
+}
+trap 'status=$?; [ $status -ne 0 ] && annotate; exit $status' EXIT
 
 if [ -e .env ]; then
     echo ".env already exists: run this on a fresh clone, not on an installation." >&2
@@ -48,7 +68,7 @@ if [ "$pending" -ne 0 ]; then
 fi
 
 step "browser run (wizard, sign-in, panel, DICOM, OHIF, OE2)"
-docker run --rm --network host -v "$PWD/tests/e2e:/e2e:ro" "$PLAYWRIGHT_IMAGE" \
+docker run --rm --network host -e GITHUB_ACTIONS -v "$PWD/tests/e2e:/e2e:ro" "$PLAYWRIGHT_IMAGE" \
     sh -c 'pip install -q --disable-pip-version-check pydicom==3.0.1 && python /e2e/browser.py'
 
 step "nightly backup script"

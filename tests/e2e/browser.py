@@ -34,6 +34,9 @@ def check(name, condition, extra=""):
     global failures
     failures += 0 if condition else 1
     print(f"  {'OK  ' if condition else 'FAIL'} {name} {extra}".rstrip(), flush=True)
+    if not condition and os.environ.get("GITHUB_ACTIONS"):
+        # Public on GitHub, unlike the job log.
+        print(f"::error title=e2e check failed::{name} {extra}".replace("\n", " ")[:900], flush=True)
 
 
 def dicom_bytes():
