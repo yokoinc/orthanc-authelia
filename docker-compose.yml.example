@@ -368,9 +368,12 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+    # Ports published on this machine, from .env. bootstrap.sh sets HTTPS_PORT
+    # to the port of the public address: answering https://pacs.example:30003
+    # used to leave the stack listening on 30443, and nothing answered.
     ports:
-      - "30080:80"
-      - "30443:443"
+      - "${HTTP_PORT:-30080}:80"
+      - "${HTTPS_PORT:-30443}:443"
     volumes:
       - nginx-ssl:/etc/nginx/ssl
       # Bind-mount the nginx config from the host (git = source of truth).

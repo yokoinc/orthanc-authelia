@@ -217,8 +217,9 @@ else
     # The terminal test keeps the script usable without interaction -- a CI or
     # a `bootstrap.sh < /dev/null` simply takes the default.
     PUBLIC_URL_DEFAUT="https://pacs.localhost:30443"
-    PUBLIC_URL_SAISIE=""
-    if [[ -t 0 ]]; then
+    # BOOTSTRAP_PUBLIC_URL answers the question without a terminal (CI).
+    PUBLIC_URL_SAISIE=${BOOTSTRAP_PUBLIC_URL:-}
+    if [[ -z $PUBLIC_URL_SAISIE && -t 0 ]]; then
         printf "\n  Public address of this installation, including the port if it is not 443.\n"
         printf "  Behind a Cloudflare tunnel: https://pacs.example.org (no port).\n"
         printf "  Press Enter to accept the local default.\n"
@@ -264,6 +265,20 @@ else
         exit 1
     fi
 
+    # The port written in the address is the port the stack listens on. It used
+    # to be ignored: https://test.localhost:30003 was accepted, written into
+    # every configuration, and the stack kept listening on 30443 -- nothing
+    # answered at the address just given. No port (443: tunnel, reverse proxy
+    # in front) keeps the local 30443.
+    HTTPS_PORT_VALUE=$(printf '%s' "$PUBLIC_URL_VALUE" | sed -nE 's#^https://[^/:]+:([0-9]+)(/.*)?$#\1#p')
+    HTTPS_PORT_VALUE=${HTTPS_PORT_VALUE:-30443}
+    if (( HTTPS_PORT_VALUE < 1 || HTTPS_PORT_VALUE > 65535 )); then
+        err "Invalid port in the public address: $HTTPS_PORT_VALUE"
+        exit 1
+    fi
+    HTTP_PORT_VALUE=30080
+    [[ $HTTPS_PORT_VALUE == 30080 ]] && HTTP_PORT_VALUE=30081
+
     # Default PUBLIC_URL: full local URL, including the compose port. The host
     # name (pacs.localhost) must contain a dot, otherwise Authelia rejects the
     # cookie domain (RFC 6265). None of these values is meant to be typed by a
@@ -281,6 +296,8 @@ else
         -e "s|^AUTH_PASSWORD=.*|AUTH_PASSWORD=$AUTH_PASS|" \
         -e "s|^PUBLIC_URL=.*|PUBLIC_URL=${PUBLIC_URL_VALUE}|" \
         -e "s|^DOMAIN=.*|DOMAIN=${DOMAIN_SAISI}|" \
+        -e "s|^HTTPS_PORT=.*|HTTPS_PORT=${HTTPS_PORT_VALUE}|" \
+        -e "s|^HTTP_PORT=.*|HTTP_PORT=${HTTP_PORT_VALUE}|" \
         -e "s|^LANGUAGE=.*|LANGUAGE=${LANGUAGE_VALUE}|" \
         -e "s|^UPLOAD_USER=.*|UPLOAD_USER=${UPLOAD_USER_VALUE}|" \
         -e "s|^UPLOAD_PASSWORD=.*|UPLOAD_PASSWORD=${UPLOAD_PASS_VALUE}|" \

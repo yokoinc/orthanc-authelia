@@ -158,6 +158,9 @@ docker ps --filter name=orthanc- --format '   {{.Names}} | {{.Status}}'
 # value moves without warning.
 DOMAINE=$(grep -E '^DOMAIN=' .env 2>/dev/null | cut -d= -f2- | tr -d '\r')
 ECHECS=${MOUNT_FAILURES:-0}
+# The port the stack publishes (HTTPS_PORT in .env, 30443 when absent).
+PORT_HTTPS=$(grep -E '^HTTPS_PORT=' .env 2>/dev/null | cut -d= -f2- | tr -d ' \t\r')
+PORT_HTTPS=${PORT_HTTPS:-30443}
 
 if [ -z "$DOMAINE" ]; then
     echo "   DOMAIN not found in .env -- route check skipped."
@@ -174,7 +177,7 @@ else
         route=${paire%:*}
         attendu=${paire##*:}
         code=$(curl -sk -o /dev/null -w '%{http_code}' -H "Host: $DOMAINE" \
-               "https://localhost:30443$route" 2>/dev/null || echo '000')
+               "https://localhost:${PORT_HTTPS}$route" 2>/dev/null || echo '000')
         if [ "$code" = "$attendu" ]; then
             printf '   %-14s %s\n' "$route" "$code"
         else

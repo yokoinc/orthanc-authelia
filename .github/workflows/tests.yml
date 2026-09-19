@@ -52,9 +52,16 @@ jobs:
         run: docker build -t auth-service-test services/auth-service/sources
 
   e2e:
-    name: Fresh install, end to end
+    name: Fresh install, end to end (${{ matrix.url }})
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # The default address, and a custom one with its own port: an address
+    # like https://test.localhost:30003 was accepted by bootstrap.sh while the
+    # stack kept listening on 30443.
+    strategy:
+      fail-fast: false
+      matrix:
+        url: ["https://pacs.localhost:30443", "https://test.localhost:30003"]
     permissions:
       contents: read
       packages: read
@@ -77,6 +84,8 @@ jobs:
 
       - name: Bootstrap, start, browser run, backup, apply
         run: bash tests/e2e/run.sh
+        env:
+          E2E_URL: ${{ matrix.url }}
 
       - name: Container logs
         if: failure()

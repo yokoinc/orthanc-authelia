@@ -73,7 +73,7 @@ def watch_errors(page, allowed):
 
 
 with sync_playwright() as p:
-    browser = p.chromium.launch(args=["--host-resolver-rules=MAP pacs.localhost 127.0.0.1"])
+    browser = p.chromium.launch(args=["--host-resolver-rules=MAP *.localhost 127.0.0.1"])
 
     # A French browser: the wizard must open in French.
     ctx = browser.new_context(ignore_https_errors=True, locale="fr-FR")
@@ -91,7 +91,7 @@ with sync_playwright() as p:
     check("language buttons come from the translation files", sorted(buttons) == ["en", "fr"], str(buttons))
     page.click("button[data-langue=en]")
     check("switches to English", page.evaluate("document.documentElement.lang") == "en")
-    page.fill("#email", "admin@pacs.localhost")
+    page.fill("#email", "admin@" + re.sub(r"^https://([^:/]+).*", r"\1", URL))
     page.fill("#displayname", "Admin E2E")
     page.fill("#password", PASSWORD)
     page.fill("#password2", PASSWORD)

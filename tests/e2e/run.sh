@@ -49,8 +49,11 @@ if [ -e .env ]; then
     exit 1
 fi
 
-step "bootstrap.sh (no questions: the defaults)"
-./bootstrap.sh < /dev/null
+# E2E_URL picks the public address, port included; the default is what a user
+# gets by pressing Enter.
+export E2E_URL=${E2E_URL:-https://pacs.localhost:30443}
+step "bootstrap.sh, public address $E2E_URL"
+BOOTSTRAP_PUBLIC_URL=$E2E_URL ./bootstrap.sh < /dev/null
 
 step "docker compose up"
 docker compose up -d
@@ -68,7 +71,7 @@ if [ "$pending" -ne 0 ]; then
 fi
 
 step "browser run (wizard, sign-in, panel, DICOM, OHIF, OE2)"
-docker run --rm --network host -e GITHUB_ACTIONS -v "$PWD/tests/e2e:/e2e:ro" "$PLAYWRIGHT_IMAGE" \
+docker run --rm --network host -e GITHUB_ACTIONS -e E2E_URL -v "$PWD/tests/e2e:/e2e:ro" "$PLAYWRIGHT_IMAGE" \
     sh -c 'pip install -q --disable-pip-version-check --root-user-action=ignore playwright==1.49.1 pydicom==3.0.1 && python /e2e/browser.py'
 
 step "nightly backup script"
