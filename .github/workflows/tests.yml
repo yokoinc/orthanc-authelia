@@ -52,7 +52,7 @@ jobs:
         run: docker build -t auth-service-test services/auth-service/sources
 
   e2e:
-    name: Fresh install, end to end (${{ matrix.url }})
+    name: Fresh install, end to end (${{ matrix.url }}, ${{ matrix.ssl }})
     runs-on: ubuntu-latest
     timeout-minutes: 40
     # The default address, and a custom one with its own port: an address
@@ -61,7 +61,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        url: ["https://pacs.localhost:30443", "https://test.localhost:30003"]
+        include:
+          - url: https://pacs.localhost:30443
+            ssl: selfsigned
+          # Custom port and your own certificate (SSL_MODE=custom).
+          - url: https://test.localhost:30003
+            ssl: custom
     permissions:
       contents: read
       packages: read
@@ -86,6 +91,7 @@ jobs:
         run: bash tests/e2e/run.sh
         env:
           E2E_URL: ${{ matrix.url }}
+          E2E_SSL: ${{ matrix.ssl }}
 
       - name: Container logs
         if: failure()

@@ -66,6 +66,21 @@ in_browser() {
 step "bootstrap.sh, public address $E2E_URL"
 BOOTSTRAP_PUBLIC_URL=$E2E_URL ./bootstrap.sh < /dev/null
 
+export E2E_SSL=${E2E_SSL:-selfsigned}
+HOST=$(printf '%s' "$E2E_URL" | sed -E 's#^https://([^:/]+).*#\1#')
+if [ "$E2E_SSL" = custom ]; then
+    step "own certificate (SSL_MODE=custom), issued by a throwaway CA for $HOST"
+    openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/e2e-ca.key -out /tmp/e2e-ca.pem \
+        -days 2 -subj "/CN=E2E Test CA" 2>/dev/null
+    openssl req -newkey rsa:2048 -nodes -keyout certs/privkey.pem -out /tmp/e2e.csr \
+        -subj "/CN=$HOST" 2>/dev/null
+    printf 'subjectAltName=DNS:%s\n' "$HOST" > /tmp/e2e.ext
+    openssl x509 -req -in /tmp/e2e.csr -CA /tmp/e2e-ca.pem -CAkey /tmp/e2e-ca.key -CAcreateserial \
+        -days 2 -extfile /tmp/e2e.ext -out /tmp/e2e.crt 2>/dev/null
+    cat /tmp/e2e.crt /tmp/e2e-ca.pem > certs/fullchain.pem
+    sed -i 's/^SSL_MODE=.*/SSL_MODE=custom/' .env
+fi
+
 step "docker compose up"
 docker compose up -d
 
@@ -79,6 +94,16 @@ docker compose ps --format '  {{.Name}}  {{.Status}}'
 if [ "$pending" -ne 0 ]; then
     echo "Containers still not healthy after 7.5 minutes." >&2
     exit 1
+fi
+
+step "certificate served ($E2E_SSL)"
+PORT=$(grep -E '^HTTPS_PORT=' .env | cut -d= -f2)
+issuer=$(echo | openssl s_client -connect "127.0.0.1:$PORT" -servername "$HOST" 2>/dev/null | openssl x509 -noout -issuer)
+echo "  $issuer"
+if [ "$E2E_SSL" = custom ]; then
+    echo "$issuer" | grep -q "E2E Test CA"
+else
+    echo "$issuer" | grep -q "Auto-Generated"
 fi
 
 step "browser run (wizard, sign-in, panel, DICOM, OHIF, OE2)"
@@ -105,4 +130,12 @@ grep -q "Deployment verified" /tmp/e2e-apply-2.log
 step "the PACS at its new address"
 in_browser /e2e/move.py verify
 
-step "fresh install and address change: every step passed"
+if [ "$E2E_SSL" = custom ]; then
+    step "a private key that does not match the certificate stops nginx, with the reason"
+    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out certs/privkey.pem 2>/dev/null
+    docker restart orthanc-nginx >/dev/null
+    sleep 8
+    docker logs --tail 20 orthanc-nginx 2>&1 | grep "is not the private key"
+fi
+
+step "fresh install, certificate and address change: every step passed"

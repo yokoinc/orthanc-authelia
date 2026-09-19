@@ -4,6 +4,9 @@
 # Environment and Configuration
 # ===============================================
 
+# Your own TLS certificate and its private key (SSL_MODE=custom).
+certs/
+
 # Environment variables (contains sensitive data)
 #
 # LISTING THE SUFFIXES DOES NOT WORK. This list used to be an enumeration

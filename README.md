@@ -41,7 +41,7 @@ is unreachable — see [Rescue paths](#rescue-paths).
 | Redis | `redis` | `8.0-alpine` |
 | Docker socket proxy | `tecnativa/docker-socket-proxy` | `0.1.2` |
 | OHIF Viewer | `ghcr.io/yokoinc/orthanc-ohif` | `3.13.4-2` |
-| Nginx | `ghcr.io/yokoinc/orthanc-nginx` | `1.1.2` |
+| Nginx | `ghcr.io/yokoinc/orthanc-nginx` | `1.1.3` |
 | Auth-Service | `ghcr.io/yokoinc/orthanc-auth-service` | `1.2.5` |
 
 These are the versions pinned in `docker-compose.yml.example`. Keep this table

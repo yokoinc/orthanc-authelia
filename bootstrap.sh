@@ -326,7 +326,7 @@ fi
 # exist on the host, Docker creates it itself, and it then belongs to root.
 # The containers run under PUID/PGID (see .env) and fail to write there, with
 # a "Permission denied" that no longer has anything to do with its cause.
-for dossier in data/admin-backups; do
+for dossier in data/admin-backups certs; do
     if [[ ! -d "$dossier" ]]; then
         mkdir -p "$dossier"
         ok "$dossier/ created"
