@@ -1,0 +1,76 @@
+name: Images
+
+# Publishes the stack's own images to GitHub's registry, ghcr.io, so that
+# installing never depends on one person's server being up and reachable. The
+# first end-to-end run on a GitHub machine could not pull from the previous
+# registry: it sat behind Cloudflare, which answered Docker with a bot
+# challenge page.
+#
+# The versions are the ones docker-compose.yml.example pins: bumping a tag there
+# is what releases an image. A tag already published is left alone -- a
+# version, once out, does not change under anyone's feet.
+on:
+  push:
+    branches: [master, e2e-ci]
+    paths:
+      - docker-compose.yml.example
+      - services/**
+      - .github/workflows/images.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: orthanc-auth-service
+            context: services/auth-service/sources
+          - image: orthanc-nginx
+            context: services/nginx
+          # Compiles the viewer from OHIF's sources: about fifteen minutes,
+          # only when its tag changes.
+          - image: orthanc-ohif
+            context: services/ohif/docker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version pinned by the compose file
+        id: version
+        run: |
+          ref=$(grep -oE "ghcr\.io/yokoinc/${{ matrix.image }}:[^[:space:]]+" docker-compose.yml.example | head -1)
+          if [ -z "$ref" ]; then
+            echo "::error::docker-compose.yml.example pins no ghcr.io/yokoinc/${{ matrix.image }} tag"
+            exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Already published?
+        id: published
+        run: |
+          if docker manifest inspect "${{ steps.version.outputs.ref }}" >/dev/null 2>&1; then
+            echo "yes=true" >> "$GITHUB_OUTPUT"
+            echo "${{ steps.version.outputs.ref }} is already published: left alone."
+          else
+            echo "yes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The source label links the package to this repository on GitHub.
+      - name: Build and push
+        if: steps.published.outputs.yes == 'false'
+        run: |
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            -t "${{ steps.version.outputs.ref }}" ${{ matrix.context }}
+          docker push "${{ steps.version.outputs.ref }}"
+          echo "::notice::published ${{ steps.version.outputs.ref }}"

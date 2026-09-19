@@ -55,8 +55,15 @@ jobs:
     name: Fresh install, end to end
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
+
+      # Pulls the OHIF image from ghcr.io even while its package is private.
+      - name: Log in to ghcr.io
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       # The compose file pins published images. Building this commit's
       # auth-service and nginx under those same tags makes the stack run the
@@ -64,7 +71,7 @@ jobs:
       # takes about fifteen minutes.
       - name: Build the images of this commit
         run: |
-          pinned() { grep -oE "registry\.yokoinc\.ovh/orthanc-$1:[^[:space:]]+" docker-compose.yml.example | head -1; }
+          pinned() { grep -oE "ghcr\.io/yokoinc/orthanc-$1:[^[:space:]]+" docker-compose.yml.example | head -1; }
           docker build -q -t "$(pinned auth-service)" services/auth-service/sources
           docker build -q -t "$(pinned nginx)" services/nginx
 

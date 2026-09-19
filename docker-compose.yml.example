@@ -161,7 +161,7 @@ services:
   # =============================================================================
   
   auth-service:
-    image: registry.yokoinc.ovh/orthanc-auth-service:1.2.3
+    image: ghcr.io/yokoinc/orthanc-auth-service:1.2.3
     container_name: orthanc-auth-service
     restart: unless-stopped
     # /health already exists in the service; without a probe, nobody checked
@@ -340,7 +340,7 @@ services:
   # =============================================================================
   
   ohif:
-    image: registry.yokoinc.ovh/orthanc-ohif:3.13.4-2
+    image: ghcr.io/yokoinc/orthanc-ohif:3.13.4-2
     container_name: orthanc-ohif
     restart: unless-stopped
     volumes:
@@ -359,7 +359,7 @@ services:
     # Image >= 1.1.0 no longer bakes the nginx config in: the templates are
     # bind-mounted from the host (see volumes below). Tags before 1.1.0 will
     # NOT start with these mounts because they expect the templates baked in.
-    image: registry.yokoinc.ovh/orthanc-nginx:1.1.2
+    image: ghcr.io/yokoinc/orthanc-nginx:1.1.2
     container_name: orthanc-nginx
     restart: unless-stopped
     healthcheck:
