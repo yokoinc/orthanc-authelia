@@ -2006,6 +2006,30 @@ session:
         assert "DOMAIN=nouveau.example.org" in env
         assert "TZ=Europe/Paris" in env, "les autres variables survivent"
 
+    def test_port_of_the_address_becomes_the_published_port(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        authelia_full,
+    ):
+        r = client.post("/api/admin/network",
+                        json={"public_url": "https://nouveau.example.org:30005"},
+                        headers=csrf_headers)
+        assert r.status_code == 200, r.text
+        env = env_file.read_text(encoding="utf-8")
+        assert "PUBLIC_URL=https://nouveau.example.org:30005" in env
+        assert "HTTPS_PORT=30005" in env
+
+    def test_an_address_without_port_keeps_the_published_port(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        authelia_full,
+    ):
+        """Behind a tunnel or a proxy the address has no port, and the local
+        port the proxy points to must not move."""
+        env_file.write_text(env_file.read_text(encoding="utf-8") + "HTTPS_PORT=30443\n", encoding="utf-8")
+        client.post("/api/admin/network",
+                    json={"public_url": "https://nouveau.example.org"},
+                    headers=csrf_headers)
+        assert "HTTPS_PORT=30443" in env_file.read_text(encoding="utf-8")
+
     def test_comments_survive(
         self, client, tmp_paths, fake_redis, csrf_headers, env_file,
         authelia_full,

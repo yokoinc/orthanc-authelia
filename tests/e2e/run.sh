@@ -52,6 +52,17 @@ fi
 # E2E_URL picks the public address, port included; the default is what a user
 # gets by pressing Enter.
 export E2E_URL=${E2E_URL:-https://pacs.localhost:30443}
+export E2E_NEW_URL=${E2E_NEW_URL:-https://moved.localhost:30005}
+export E2E_EMAIL=admin-e2e@example.org
+E2E_PASSWORD=$(openssl rand -hex 12)
+export E2E_PASSWORD
+
+# Playwright, pinned, with the host's network: *.localhost reaches the stack.
+in_browser() {
+    docker run --rm --network host -e GITHUB_ACTIONS -e E2E_URL -e E2E_NEW_URL -e E2E_EMAIL \
+        -e E2E_PASSWORD -v "$PWD/tests/e2e:/e2e:ro" "$PLAYWRIGHT_IMAGE" \
+        sh -c "pip install -q --disable-pip-version-check --root-user-action=ignore playwright==1.49.1 pydicom==3.0.1 && python $*"
+}
 step "bootstrap.sh, public address $E2E_URL"
 BOOTSTRAP_PUBLIC_URL=$E2E_URL ./bootstrap.sh < /dev/null
 
@@ -71,8 +82,7 @@ if [ "$pending" -ne 0 ]; then
 fi
 
 step "browser run (wizard, sign-in, panel, DICOM, OHIF, OE2)"
-docker run --rm --network host -e GITHUB_ACTIONS -e E2E_URL -v "$PWD/tests/e2e:/e2e:ro" "$PLAYWRIGHT_IMAGE" \
-    sh -c 'pip install -q --disable-pip-version-check --root-user-action=ignore playwright==1.49.1 pydicom==3.0.1 && python /e2e/browser.py'
+in_browser /e2e/browser.py
 
 step "nightly backup script"
 sh scripts/backup-postgres.sh --check
@@ -85,4 +95,14 @@ step "apply.sh"
 sh scripts/apply.sh | tee /tmp/e2e-apply.log
 grep -q "Deployment verified" /tmp/e2e-apply.log
 
-step "fresh install: every step passed"
+step "change the public address from the panel: $E2E_URL -> $E2E_NEW_URL"
+in_browser /e2e/move.py change
+
+step "apply.sh after the change (recreates nginx on the new port, restarts Authelia)"
+sh scripts/apply.sh | tee /tmp/e2e-apply-2.log
+grep -q "Deployment verified" /tmp/e2e-apply-2.log
+
+step "the PACS at its new address"
+in_browser /e2e/move.py verify
+
+step "fresh install and address change: every step passed"

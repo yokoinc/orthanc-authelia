@@ -20,8 +20,8 @@ from pydicom.dataset import Dataset, FileMetaDataset
 from pydicom.uid import ExplicitVRLittleEndian, SecondaryCaptureImageStorage, generate_uid
 
 URL = os.environ.get("E2E_URL", "https://pacs.localhost:30443")
-PASSWORD = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(20))
-EMAIL = "admin-e2e@example.org"
+PASSWORD = os.environ.get("E2E_PASSWORD") or "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(20))
+EMAIL = os.environ.get("E2E_EMAIL", "admin-e2e@example.org")
 USERS_TAB = {"fr": "Utilisateurs", "en": "Users"}
 MENU = {"fr": ("Partages", "Administration", "Déconnexion"), "en": ("Shares", "Administration", "Sign out")}
 SHARES_TITLE = {"fr": "Partages", "en": "Shares"}

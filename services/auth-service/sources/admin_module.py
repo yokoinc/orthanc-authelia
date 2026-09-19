@@ -516,6 +516,13 @@ async def _apply_public_url(new_url: str, actor: str) -> dict:
     )
     _write_env_var("PUBLIC_URL", origin)
     _write_env_var("DOMAIN", host)
+    # The port of the address is the port the stack publishes, as with
+    # bootstrap.sh: moving to https://pacs.example:30005 used to leave nginx on
+    # the old port. An address without a port (443: a tunnel or a proxy in
+    # front) leaves the published port as it is.
+    port = urlparse(origin).port
+    if port:
+        _write_env_var("HTTPS_PORT", str(port))
     await _audit(
         "network.public_url.changed", actor=actor,
         old=previous_origin, new=origin, substitutions=substitutions,

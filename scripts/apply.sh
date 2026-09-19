@@ -141,6 +141,21 @@ if [ -n "$DETACHED" ]; then
     fi
 fi
 
+# Authelia reads configuration.yml only when it starts. If the file changed
+# since -- public address or session durations changed from the panel -- it is
+# restarted here; the file was validated above, so it will start. Compared
+# inside the container: the configuration directory is not readable by the
+# NAS user.
+if docker ps --format '{{.Names}}' | grep -qx orthanc-authelia \
+   && [ -n "$(docker exec orthanc-authelia sh -c 'find /config/configuration.yml -newer /proc/1' 2>/dev/null)" ]; then
+    echo "== Authelia configuration changed since Authelia started: restarting it =="
+    docker restart orthanc-authelia >/dev/null
+    for _ in $(seq 30); do
+        [ "$(docker inspect -f '{{.State.Health.Status}}' orthanc-authelia 2>/dev/null)" = healthy ] && break
+        sleep 2
+    done
+fi
+
 # Always, unconditionally. Restarting nginx costs two seconds, forgetting to do
 # it costs a silent authentication outage.
 echo "== Refreshing the addresses seen by nginx =="
