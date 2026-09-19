@@ -11,11 +11,11 @@
          replaced on the server side before any rendering (admin_module._render).
          The JavaScript reads the same section from window.__I18N__. -->
     <style>
-        /* flex-wrap plutot que overflow-x : avec huit onglets la barre depasse
-           des 760px de large, et un defilement horizontal qu'aucune barre ne
-           signale rend les derniers onglets inatteignables -- on ne sait meme
-           pas qu'ils existent. Le retour a la ligne les garde tous cliquables.
-           overflow-x reste en filet pour un onglet plus large que l'ecran. */
+        /* flex-wrap rather than overflow-x: with eight tabs the bar is wider
+           than 760px, and a horizontal scroll that no scrollbar shows makes the
+           last tabs unreachable -- you do not even know they exist. Wrapping
+           keeps them all clickable. overflow-x stays as a safety net for a tab
+           wider than the screen. */
         .admin-tabs { display: flex; flex-wrap: wrap; overflow-x: auto; gap: 4px;
                       border-bottom: 1px solid var(--oe2-border-subtle); padding: 0 16px; }
         .admin-tab { background: transparent; border: none; padding: 10px 14px; color: var(--oe2-muted);
@@ -36,9 +36,9 @@
                                             border: 1px solid var(--oe2-border-subtle);
                                             color: var(--oe2-nav-color); padding: 5px 8px;
                                             border-radius: 2px; font-size:var(--oe2-fs-tiny); }
-        /* Le « ? » qui porte l'explication d'un reglage. Discret au repos,
-           net au survol et au focus clavier. cursor: help plutot que pointer :
-           il n'y a rien a cliquer, seulement a lire. */
+        /* The "?" carrying a setting's explanation. Discreet at rest, sharp on
+           hover and keyboard focus. cursor: help rather than pointer: there is
+           nothing to click, only something to read. */
         .aide {
             display: inline-flex; align-items: center; justify-content: center;
             width: 14px; height: 14px; margin-left: 5px;
@@ -51,10 +51,10 @@
             color: var(--oe2-body-color); border-color: var(--oe2-accent);
             outline: none;
         }
-        /* La bulle est dessinee ici plutot que laissee au title du navigateur :
-           celui-ci tarde une seconde a sortir, s'efface tout seul, et ne
-           s'affichait pas du tout sur cette page. Elle remet a zero l'uppercase
-           et la couleur attenuee herites du label. */
+        /* The tooltip is drawn here rather than left to the browser's title:
+           that one takes a second to appear, vanishes on its own, and did not
+           show at all on this page. It resets the uppercase and the dimmed
+           colour inherited from the label. */
         .aide::after {
             content: attr(data-aide);
             position: absolute; left: 0; bottom: calc(100% + 7px);
@@ -72,14 +72,14 @@
         .aide:hover::after, .aide:focus-visible::after {
             opacity: 1; visibility: visible;
         }
-        /* Le bandeau est en surimpression, pas dans le flux.
-           Il vivait sous les onglets, en haut du panneau : l'operateur qui
-           clique « Redemarrer Orthanc » regarde un bouton situe bien plus bas,
-           ne voit rien, et le message s'efface avant qu'il ait remonte. C'est
-           l'action la plus longue du panneau (une quinzaine de secondes,
-           la route attend qu'Orthanc reponde) et c'etait la seule dont le
-           resultat passait inapercu. Fond opaque : en semi-transparent,
-           superpose au contenu, il devenait illisible. */
+        /* The banner floats over the page, it is not in the flow.
+           It used to live under the tabs, at the top of the panel: the
+           operator clicking "Restart Orthanc" looks at a button far lower,
+           sees nothing, and the message fades before they scroll back up. It
+           is the panel's longest action (some fifteen seconds, the route
+           waits for Orthanc to answer) and it was the only one whose result
+           went unnoticed. Opaque background: semi-transparent over the
+           content, it became unreadable. */
         .msg { position: fixed; top: 16px; right: 16px; z-index: 1000;
                max-width: min(520px, calc(100vw - 32px)); margin: 0;
                padding: 12px 14px; border-radius: 3px;
@@ -88,11 +88,16 @@
         .msg--ok { background: #1c3b25; border-left: 3px solid var(--oe2-success); color: #b6f0c0; }
         .msg--err { background: #3d1f24; border-left: 3px solid var(--oe2-danger); color: #ffb0b0; }
         .msg--info { background: #1f2a38; border-left: 3px solid #5b8def; color: #c7d8f5; }
-        /* Bouton verrouille : le dernier administrateur actif. Volontairement
-           PAS l'attribut disabled -- un bouton disabled n'emet aucun evenement
-           de souris, donc ni survol ni clic : l'operateur voit un bouton eteint
-           sans jamais apprendre pourquoi. Il reste donc cliquable et repond par
-           le bandeau d'explication. */
+        /* Inside a tab, a message belongs to the page. Pinned like the banner
+           above, the Cloudflare tab's "not configured" note floated over the
+           tab bar and swallowed every click on the tabs -- on every fresh
+           install. Found by the end-to-end test (tests/e2e) on 2026-09-19. */
+        .admin-panel .msg { position: static; max-width: none; z-index: auto; box-shadow: none; }
+        /* Locked button: the last active administrator. Deliberately NOT the
+           disabled attribute -- a disabled button emits no mouse event, so
+           neither hover nor click: the operator sees a greyed-out button
+           without ever learning why. It stays clickable and answers with the
+           explanation banner. */
         .btn-verrouille { opacity: 0.4; cursor: not-allowed; }
         .badge-admin { background: var(--oe2-accent-orange); color: #fff; padding: 2px 6px;
                        border-radius: 2px; font-size:var(--oe2-fs-tiny); text-transform: uppercase; }

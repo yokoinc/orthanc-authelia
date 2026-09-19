@@ -34,7 +34,7 @@ annotate() {
     [ -n "${GITHUB_ACTIONS:-}" ] || return 0
     local body
     body=$(tail -n 40 "$LOG")
-    for c in $(docker ps -a --format '{{.Names}} {{.Status}}' 2>/dev/null | awk '/^orthanc-/ && !/healthy\)/ {print $1}'); do
+    for c in $(docker ps -a --format '{{.Names}} {{.Status}}' 2>/dev/null | awk '/^orthanc-/ && (/unhealthy/ || !/Up/) {print $1}'); do
         body+=$'\n'"--- $c (last lines) ---"$'\n'"$(docker logs --tail 15 "$c" 2>&1)"
     done
     body=${body//'%'/'%25'}

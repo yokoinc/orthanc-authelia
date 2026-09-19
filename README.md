@@ -42,7 +42,7 @@ is unreachable — see [Rescue paths](#rescue-paths).
 | Docker socket proxy | `tecnativa/docker-socket-proxy` | `0.1.2` |
 | OHIF Viewer | `ghcr.io/yokoinc/orthanc-ohif` | `3.13.4-2` |
 | Nginx | `ghcr.io/yokoinc/orthanc-nginx` | `1.1.2` |
-| Auth-Service | `ghcr.io/yokoinc/orthanc-auth-service` | `1.2.3` |
+| Auth-Service | `ghcr.io/yokoinc/orthanc-auth-service` | `1.2.4` |
 
 These are the versions pinned in `docker-compose.yml.example`. Keep this table
 and that file in sync when bumping an image.
@@ -203,7 +203,7 @@ Check it before opening a pull request:
 
 ```bash
 docker run --rm --entrypoint sh -v "$PWD:/repo" -w /repo/services/auth-service/sources \
-  ghcr.io/yokoinc/orthanc-auth-service:1.2.3 \
+  ghcr.io/yokoinc/orthanc-auth-service:1.2.4 \
   -c 'pip install -q -r requirements-dev.txt && python -m pytest tests/test_i18n.py -q'
 ```
 
