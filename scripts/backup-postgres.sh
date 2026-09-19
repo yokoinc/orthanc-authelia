@@ -68,8 +68,9 @@ pg_field() {
 
 # The container behind a host name, resolved the way Orthanc resolves it: only
 # on the Docker networks the Orthanc container is attached to, by container
-# name or network alias ("database" on the reference installation, "postgres"
-# on a fresh one). Searching every container is wrong: on the reference NAS,
+# name, network alias or compose service name ("database" on the reference
+# installation, "postgres" on a fresh one; recent Docker no longer lists the
+# service name among the aliases). Searching every container is wrong: on the reference NAS,
 # Immich's own database also answers to "database", on another network.
 ORTHANC_CONTAINER="${ORTHANC_CONTAINER:-orthanc-server}"
 container_for_host() {
@@ -77,7 +78,7 @@ container_for_host() {
             --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' 2>/dev/null); do
         for c in $(docker network inspect "$net" --format '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null); do
             names="$c $(docker inspect "$c" --format \
-                "{{with index .NetworkSettings.Networks \"$net\"}}{{range .Aliases}}{{.}} {{end}}{{end}}" 2>/dev/null)"
+                "{{with index .NetworkSettings.Networks \"$net\"}}{{range .Aliases}}{{.}} {{end}}{{end}} {{index .Config.Labels \"com.docker.compose.service\"}}" 2>/dev/null)"
             for n in $names; do
                 if [ "$n" = "$1" ]; then echo "$c"; break; fi
             done

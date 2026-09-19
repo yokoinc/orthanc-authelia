@@ -51,6 +51,35 @@ jobs:
       - name: auth-service
         run: docker build -t auth-service-test services/auth-service/sources
 
+  e2e:
+    name: Fresh install, end to end
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      # The compose file pins published images. Building this commit's
+      # auth-service and nginx under those same tags makes the stack run the
+      # code being tested, not the last release. OHIF is pulled: its build
+      # takes about fifteen minutes.
+      - name: Build the images of this commit
+        run: |
+          pinned() { grep -oE "registry\.yokoinc\.ovh/orthanc-$1:[^[:space:]]+" docker-compose.yml.example | head -1; }
+          docker build -q -t "$(pinned auth-service)" services/auth-service/sources
+          docker build -q -t "$(pinned nginx)" services/nginx
+
+      - name: Bootstrap, start, browser run, backup, apply
+        run: bash tests/e2e/run.sh
+
+      - name: Container logs
+        if: failure()
+        run: |
+          for c in $(docker ps -a --format '{{.Names}}' | grep '^orthanc-'); do
+            echo "::group::$c"
+            docker logs --tail 80 "$c" 2>&1
+            echo "::endgroup::"
+          done
+
   consistency:
     name: Repository consistency
     runs-on: ubuntu-latest

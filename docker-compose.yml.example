@@ -84,7 +84,7 @@ services:
     environment:
       - POSTGRES_DB=orthanc
       - POSTGRES_USER=orthanc
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD absent de .env -- relancer ./bootstrap.sh}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?POSTGRES_PASSWORD missing from .env -- run ./bootstrap.sh again}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
