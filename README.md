@@ -22,7 +22,7 @@ Concretely, once the stack is up:
 | Change an Orthanc setting | Admin panel, *Orthanc* tab |
 | Declare a DICOM modality | Admin panel, *Modalities* tab |
 | Change the public address | Admin panel, *Session* tab |
-| Take or restore a backup | Admin panel, *Backups* tab |
+| Take or restore a configuration backup | Admin panel, *Backups* tab |
 | See who did what | Admin panel, *Audit* tab |
 | Check that everything is alive | Admin panel, *Health* tab |
 
@@ -114,8 +114,10 @@ cd orthanc-authelia
 ./bootstrap.sh
 ```
 
-`bootstrap.sh` asks one question — the public address, press Enter to keep the
-local default `https://pacs.localhost:30443` — then generates every secret
+`bootstrap.sh` asks two questions — the public address (press Enter to keep
+the local default `https://pacs.localhost:30443`), and an optional Cloudflare
+Tunnel token (press Enter to skip, see [Cloudflare Tunnel](docs/CLOUDFLARE_TUNNEL.md))
+— then generates every secret
 (PostgreSQL included), writes `.env`, `docker-compose.yml` and the Authelia and
 Orthanc configurations, creates the directories the panel writes to, and sets
 the file permissions on everything holding a secret. It refuses to overwrite an
@@ -237,10 +239,14 @@ Default ports `30080` (HTTP) and `30443` (HTTPS).
 
 ## Programmatic upload
 
-An optional route for scripts and batch imports, disabled by default. It
+A route for scripts and batch imports, such as the Windows import tool. It
 bypasses Authelia — a script cannot complete an interactive login — and is
-protected instead by HTTP Basic auth with a dedicated `uploader` account
-restricted to `POST`.
+protected instead by **Cloudflare Access**: the client presents a service
+token at Cloudflare's edge, and the signed assertion Cloudflare forwards is
+verified again at the origin (issuer, audience, signature, expiry). Until the
+team domain and audience are set in the admin panel, *Cloudflare Access* tab,
+every programmatic upload is refused. Orthanc's anonymous profile on this route
+only allows storing.
 
 **Post to `/api-upload/instances`, never to `/instances`.** The latter is the
 interface route: it sits behind Authelia, answers a programmatic POST with a
@@ -253,22 +259,33 @@ equivalent, and treat any 3xx as a failure.
 See [docs/EXPLOITATION.md](docs/EXPLOITATION.md) for the threat model, and
 `tools/windows-dicom-import/` for a working client.
 
-## Building the images
+## Backups
 
-The three custom images are built from this repository:
+The DICOM images live in PostgreSQL, so backing up the PACS means backing up the
+database. `scripts/backup-postgres.sh`, scheduled every night, writes a
+`pg_dump` of it to `data/postgres-backups/`, reads it back before accepting
+it, and keeps the last three. It finds the database the way Orthanc does, from
+`orthanc.json`; `--check` shows what it would dump without dumping.
+
+Copy those dumps **off the machine** (HyperBackup, rsync, anything), and never
+the live PostgreSQL files: copied while the database writes, they may not start
+once restored. Scheduling, off-site copy and restore:
+[docs/EXPLOITATION.md](docs/EXPLOITATION.md).
+
+## Images
+
+The three custom images are built and published by GitHub
+(`.github/workflows/images.yml`) to `ghcr.io/yokoinc/`, at the versions
+`docker-compose.yml.example` pins: bumping a tag there releases it, and a
+version already published is never rebuilt. To build them yourself:
 
 ```bash
-# Auth-service
 docker build -t your-registry/orthanc-auth-service:VERSION services/auth-service/sources
-
-# Nginx
 docker build -t your-registry/orthanc-nginx:VERSION services/nginx
-
-# OHIF — long build, around 15 minutes
-docker build -t your-registry/orthanc-ohif:VERSION services/ohif/docker
+docker build -t your-registry/orthanc-ohif:VERSION services/ohif/docker   # ~15 minutes
 ```
 
-Then point `docker-compose.yml` at your own registry.
+then point `docker-compose.yml` at your registry.
 
 ## Tests
 
@@ -282,8 +299,20 @@ docker run --rm --entrypoint sh \
   -c 'pip install -q -r requirements-dev.txt && python -m pytest tests/ -q'
 ```
 
-The same suite, the image builds, and six repository consistency checks run on
-every push — see `.github/workflows/tests.yml`.
+The same suite, the image builds and the repository consistency checks run on
+every push, together with an **end-to-end test of a fresh installation**:
+`bootstrap.sh`, `docker compose up`, then a real browser runs the setup wizard,
+signs in, goes through every panel tab, uploads a DICOM image and opens it in
+OHIF, before the backup script and `apply.sh` run. See
+`.github/workflows/tests.yml`.
+
+To run it yourself, on a throwaway clone (it generates the configuration in
+place and uses ports 30080/30443):
+
+```bash
+git clone https://github.com/yokoinc/orthanc-authelia.git e2e && cd e2e
+bash tests/e2e/run.sh
+```
 
 ## Documentation
 
