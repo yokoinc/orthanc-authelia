@@ -11,7 +11,7 @@ name: Images
 # version, once out, does not change under anyone's feet.
 on:
   push:
-    branches: [master, e2e-ci]
+    branches: [master]
     paths:
       - docker-compose.yml.example
       - services/**
