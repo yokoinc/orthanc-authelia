@@ -359,7 +359,7 @@ services:
     # Image >= 1.1.0 no longer bakes the nginx config in: the templates are
     # bind-mounted from the host (see volumes below). Tags before 1.1.0 will
     # NOT start with these mounts because they expect the templates baked in.
-    image: ghcr.io/yokoinc/orthanc-nginx:1.1.3
+    image: ghcr.io/yokoinc/orthanc-nginx:1.1.4
     container_name: orthanc-nginx
     restart: unless-stopped
     healthcheck:

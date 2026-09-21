@@ -70,7 +70,13 @@ custom)
     chmod 600 "$SSL_DIR/key.pem"
     echo "Custom certificate: $(openssl x509 -in "$CERT" -noout -subject | sed 's/^subject=//'), valid until $(openssl x509 -in "$CERT" -noout -enddate | cut -d= -f2)."
     ;;
-selfsigned)
+*)
+    # Any value other than custom serves the self-signed certificate, as every
+    # value did before SSL_MODE was read: an installation upgraded with
+    # SSL_MODE=none or disabled (both once suggested) must not lose its nginx.
+    if [ "$SSL_MODE" != selfsigned ]; then
+        echo "WARNING: SSL_MODE=${SSL_MODE} is not a mode (selfsigned or custom): serving the self-signed certificate."
+    fi
     # Regenerated when missing, when within 30 days of expiry, or when the file
     # is not one generated here (coming back from SSL_MODE=custom).
     #
@@ -94,10 +100,6 @@ selfsigned)
             -addext "subjectAltName=DNS:${DOMAIN}" 2>/dev/null
     fi
     echo "Self-signed certificate, valid until $(openssl x509 -in "$SSL_DIR/cert.pem" -noout -enddate | cut -d= -f2)."
-    ;;
-*)
-    echo "ERROR: unknown SSL_MODE '${SSL_MODE}' (expected selfsigned or custom)." >&2
-    exit 1
     ;;
 esac
 
