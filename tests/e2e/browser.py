@@ -197,6 +197,14 @@ with sync_playwright() as p:
     check("OE2 menu: shares", page.inner_text("#shares-injected").strip() == MENU["en"][0])
     check("OE2 menu: administration", page.inner_text("#admin-injected").strip() == MENU["en"][1])
     check("OE2 menu: sign out", page.inner_text("#logout-fixe").strip() == MENU["en"][2])
+    # The settings entry must stay followed by its own submenu: Administration
+    # once slid in between, and System/Monitoring opened under Administration.
+    order = page.evaluate("""() => {
+        const entry = document.querySelector('[data-bs-target="#settings-list"]');
+        return entry ? [entry.nextElementSibling && entry.nextElementSibling.id,
+                        document.getElementById('settings-list').nextElementSibling.id] : null; }""")
+    check("OE2 menu: settings submenu under settings, then Administration",
+          order == ["settings-list", "admin-injected"], str(order))
     page.goto(URL + "/auth/tokens/manage")
     page.wait_for_load_state("networkidle")
     check("share page", SHARES_TITLE["en"] in page.title(), page.title())

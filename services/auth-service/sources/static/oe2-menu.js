@@ -152,7 +152,17 @@
         // not among the day-to-day ones.
         var settings = findItemByLabel(SETTINGS_LABELS);
         if (settings) {
-            settings.parentNode.insertBefore(made.li, settings.nextSibling);
+            // After the settings SUBMENU, not after the entry. OE2 renders the
+            // entry, then its submenu (System, Monitoring...) as the next
+            // sibling -- <ul class="sub-menu collapse" id="settings-list">,
+            // which the entry names in data-bs-target. Inserted straight after
+            // the entry, Administration slid in between, and the settings
+            // submenu opened under Administration.
+            var anchor = settings;
+            var target = settings.getAttribute("data-bs-target");
+            var submenu = target && document.querySelector(target);
+            if (submenu && submenu.parentNode === settings.parentNode) anchor = submenu;
+            anchor.parentNode.insertBefore(made.li, anchor.nextSibling);
             return;
         }
         place(made, ["shares-injected"]);
