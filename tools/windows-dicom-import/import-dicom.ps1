@@ -286,6 +286,10 @@ if ($drive) {
         }
 
         if ($file.Length -lt 132) { continue }
+        # DICOMDIR carries the DICM signature too, but it is the CD's index,
+        # not an image: Orthanc refuses it, it landed in _failed-files.txt and
+        # was sent again on every later run. It is copied on its own below.
+        if ($file.Name -eq 'DICOMDIR') { continue }
 
         $isDicom = $false
         $headerUnreadable = $false
@@ -467,7 +471,8 @@ if ($drive) {
             # Some uploads failed: stick to the list, it is precise.
             Get-Content -Path $listeEchecs -Encoding UTF8 | ForEach-Object {
                 $line = $_.Trim()
-                if ($line -and (Test-Path -LiteralPath $line)) { $dicomFiles.Add($line) }
+                # DICOMDIR: listed by versions that took it for an image. Skipped.
+                if ($line -and (Test-Path -LiteralPath $line) -and (Split-Path $line -Leaf) -ne 'DICOMDIR') { $dicomFiles.Add($line) }
             }
             # Archived for history: the new list will be written at the end.
             $arch = Join-Path $dossier.FullName (
