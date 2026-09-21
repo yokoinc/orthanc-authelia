@@ -72,7 +72,10 @@ window.config = {
   // ROUTING & UI CONFIGURATION
   // =============================================================================
   routerBasename: '/ohif',                     // Base URL path for OHIF
-  showStudyList: true,                         // Display study list on startup
+  // No study list in OHIF, and so no back arrow in the viewer header: the
+  // study list is Orthanc Explorer 2, where every study is opened from. For a
+  // share link it also keeps an external recipient from being sent to a list.
+  showStudyList: false,
   useRelativeUrls: true,                       // Use relative URLs for better proxy support
   extensions: [],                              // Additional OHIF extensions (none configured)
   modes: [],                                   // Additional viewing modes (none configured)
