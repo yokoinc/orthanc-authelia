@@ -212,7 +212,7 @@ else
     #
     # BOOTSTRAP_DOMAIN and BOOTSTRAP_HTTPS_PORT answer without a terminal (CI);
     # BOOTSTRAP_PUBLIC_URL, kept for compatibility, fills both at once.
-    DOMAINE_DEFAUT="pacs.localhost"
+    DOMAINE_DEFAUT="localhost"
     PORT_DEFAUT="30443"
     if [[ -n ${BOOTSTRAP_PUBLIC_URL:-} ]]; then
         BOOTSTRAP_DOMAIN=${BOOTSTRAP_DOMAIN:-$(printf '%s' "$BOOTSTRAP_PUBLIC_URL" | sed -E 's#^https?://##; s#[:/].*$##')}
@@ -223,7 +223,7 @@ else
     if [[ -z $DOMAIN_SAISI && -t 0 ]]; then
         printf "\n  1. Domain name this PACS is reached at, https only.\n"
         printf "     A real name for an installation on the Internet (pacs.example.org),\n"
-        printf "     or the local default for a test on this machine.\n"
+        printf "     or the default for an installation used from this machine.\n"
         printf "     [%s] > " "$DOMAINE_DEFAUT"
         read -r DOMAIN_SAISI || true
     fi

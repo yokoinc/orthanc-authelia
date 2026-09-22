@@ -62,7 +62,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - url: https://pacs.localhost:30443
+          # The defaults bootstrap.sh proposes: localhost, port 30443.
+          - url: https://localhost:30443
             ssl: selfsigned
           # Custom port and your own certificate (SSL_MODE=custom).
           - url: https://test.localhost:30003
