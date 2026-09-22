@@ -303,6 +303,22 @@ else
     TUNNEL_PROFILE_VALUE=""
     [[ -n $TUNNEL_TOKEN_VALUE ]] && TUNNEL_PROFILE_VALUE="tunnel"
 
+    # A name of your own needs three things this script cannot do for you, and
+    # each one fails in its own way: no DNS record and nothing resolves; no
+    # route to the port and the browser times out; no certificate for that name
+    # and every visitor gets a security warning. Said here rather than
+    # discovered one at a time.
+    if [[ $DOMAIN_SAISI != *.localhost && $DOMAIN_SAISI != localhost && -z $TUNNEL_TOKEN_VALUE ]]; then
+        printf "\n  %s is not a local name. Outside this script you still need:\n" "$DOMAIN_SAISI"
+        printf "    - a DNS record pointing %s at this connection;\n" "$DOMAIN_SAISI"
+        printf "    - port %s reaching this machine (router), or a Cloudflare tunnel;\n" "$HTTPS_PORT_VALUE"
+        printf "    - a certificate for %s: put fullchain.pem and privkey.pem in\n" "$DOMAIN_SAISI"
+        printf "      certs/ and set SSL_MODE=custom in .env (docs/SSL_SETUP.md),\n"
+        printf "      or serve it through a tunnel, which brings its own.\n"
+        printf "    Until then the PACS answers on this machine only, with a\n"
+        printf "    self-signed certificate.\n"
+    fi
+
     # A host name without a dot makes the browser reject the cookie (RFC 6265):
     # Authelia authenticates, sets its cookie, and the next request goes out
     # anonymous again -- a login loop with no error message. "localhost" is the
