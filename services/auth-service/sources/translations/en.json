@@ -117,7 +117,7 @@
     "public_url_https": "The public address must start with https://",
     "public_url_no_host": "The public address has no host name.",
     "public_url_path": "Give the origin only, without a path (for example https://pacs.example.org).",
-    "public_url_no_dot": "'{host}' contains no dot: browsers will reject the session cookie. Use a fully qualified name (pacs.example.org) or pacs.localhost.",
+    "public_url_no_dot": "'{host}' contains no dot: Authelia refuses it as a session cookie domain and would not start. Use a name with a dot: pacs.example.org, or pacs.localhost on this machine.",
     "authelia_config_not_found": "Authelia's configuration.yml was not found.",
     "authelia_config_host_missing": "No trace of '{host}' in configuration.yml: the file was edited by hand, change aborted.",
     "public_url_absent": "PUBLIC_URL absent from .env, change aborted.",

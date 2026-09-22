@@ -212,7 +212,7 @@ else
     #
     # BOOTSTRAP_DOMAIN and BOOTSTRAP_HTTPS_PORT answer without a terminal (CI);
     # BOOTSTRAP_PUBLIC_URL, kept for compatibility, fills both at once.
-    DOMAINE_DEFAUT="localhost"
+    DOMAINE_DEFAUT="pacs.localhost"
     PORT_DEFAUT="30443"
     if [[ -n ${BOOTSTRAP_PUBLIC_URL:-} ]]; then
         BOOTSTRAP_DOMAIN=${BOOTSTRAP_DOMAIN:-$(printf '%s' "$BOOTSTRAP_PUBLIC_URL" | sed -E 's#^https?://##; s#[:/].*$##')}
@@ -234,18 +234,20 @@ else
     DOMAIN_SAISI=$(printf '%s' "$DOMAIN_SAISI" | sed -E 's#^https?://##; s#[:/].*$##' | tr -d '[:space:]')
     [[ -n $PORT_COLLE ]] && PORT_DEFAUT=$PORT_COLLE
 
-    # A host name without a dot makes the browser reject the cookie (RFC 6265):
-    # Authelia authenticates, sets its cookie, and the next request goes out
-    # anonymous again -- a login loop with no error message. "localhost" is the
-    # only accepted exception.
+    # A name without a dot is refused, plain "localhost" included: Authelia
+    # will not start on it -- "option 'domain' is not a valid cookie domain:
+    # must have at least a single period or be an ip address" -- and browsers
+    # drop such a cookie anyway (RFC 6265), which would loop the sign-in
+    # without a message. Hence the pacs.localhost default: it is local and it
+    # has a dot.
     if [[ -z $DOMAIN_SAISI ]]; then
         err "Empty domain name."
         exit 1
     fi
-    if [[ $DOMAIN_SAISI != *.* && $DOMAIN_SAISI != "localhost" ]]; then
-        err "'$DOMAIN_SAISI' contains no dot: the browser will reject the"
-        err "session cookie and sign-in will loop without any message."
-        err "Use a qualified name, for example pacs.example.org"
+    if [[ $DOMAIN_SAISI != *.* ]]; then
+        err "'$DOMAIN_SAISI' contains no dot: Authelia refuses it as a session"
+        err "cookie domain and would not start at all."
+        err "On this machine use pacs.localhost; on the Internet, pacs.example.org."
         exit 1
     fi
 

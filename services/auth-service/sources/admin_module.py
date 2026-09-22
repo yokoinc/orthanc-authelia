@@ -457,9 +457,11 @@ def _normalise_public_url(raw: str) -> tuple[str, str]:
             400,
             _msg("public_url_path"),
         )
-    # RFC 6265: some browsers drop a cookie set on a host without a dot.
-    # "localhost" is the exception, "mypacs" is not.
-    if "." not in parsed.hostname and parsed.hostname != "localhost":
+    # A name without a dot, "localhost" included: Authelia refuses it as a
+    # session cookie domain ("must have at least a single period or be an ip
+    # address") and does not start, and browsers drop such a cookie anyway
+    # (RFC 6265). pacs.localhost is the local answer.
+    if "." not in parsed.hostname:
         raise HTTPException(
             400,
             _msg("public_url_no_dot", host=parsed.hostname),

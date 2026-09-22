@@ -2072,6 +2072,18 @@ session:
                         headers=csrf_headers)
         assert r.status_code == 400
 
+    def test_plain_localhost_refused(
+        self, client, tmp_paths, fake_redis, csrf_headers, env_file,
+        authelia_full,
+    ):
+        """Authelia does not start on it: "option 'domain' is not a valid
+        cookie domain: must have at least a single period or be an ip
+        address". Accepting it would produce a stack that cannot start."""
+        r = client.post("/api/admin/network",
+                        json={"public_url": "https://localhost:30443"},
+                        headers=csrf_headers)
+        assert r.status_code == 400
+
     def test_host_without_dot_refused(
         self, client, tmp_paths, fake_redis, csrf_headers, env_file,
         authelia_full,
