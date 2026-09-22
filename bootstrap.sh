@@ -350,6 +350,24 @@ else
         printf "      brings its own.\n"
     fi
 
+    sed \
+        -e "s|^AUTHELIA_SESSION_SECRET=.*|AUTHELIA_SESSION_SECRET=$S1|" \
+        -e "s|^AUTHELIA_STORAGE_ENCRYPTION_KEY=.*|AUTHELIA_STORAGE_ENCRYPTION_KEY=$S2|" \
+        -e "s|^AUTHELIA_JWT_SECRET=.*|AUTHELIA_JWT_SECRET=$S3|" \
+        -e "s|^AUTH_PASSWORD=.*|AUTH_PASSWORD=$AUTH_PASS|" \
+        -e "s|^PUBLIC_URL=.*|PUBLIC_URL=${PUBLIC_URL_VALUE}|" \
+        -e "s|^DOMAIN=.*|DOMAIN=${DOMAIN_SAISI}|" \
+        -e "s|^HTTPS_PORT=.*|HTTPS_PORT=${HTTPS_PORT_VALUE}|" \
+        -e "s|^HTTP_PORT=.*|HTTP_PORT=${HTTP_PORT_VALUE}|" \
+        -e "s|^LANGUAGE=.*|LANGUAGE=${LANGUAGE_VALUE}|" \
+        -e "s|^UPLOAD_USER=.*|UPLOAD_USER=${UPLOAD_USER_VALUE}|" \
+        -e "s|^UPLOAD_PASSWORD=.*|UPLOAD_PASSWORD=${UPLOAD_PASS_VALUE}|" \
+        -e "s|^ORTHANC_ADMIN_PASS=.*|ORTHANC_ADMIN_PASS=$ORTHANC_PASS|" \
+        -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG_PASS|" \
+        -e "s|^CLOUDFLARE_TUNNEL_TOKEN=.*|CLOUDFLARE_TUNNEL_TOKEN=${TUNNEL_TOKEN_VALUE}|" \
+        -e "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=${TUNNEL_PROFILE_VALUE}|" \
+        .env.example > .env
+
     ok ".env generated: 6 random secrets (Authelia x3, Orthanc service, DICOM import, PostgreSQL), nothing to type"
     ok "Interface language: ${LANGUAGE_VALUE} (from the system locale; can be changed in the setup wizard and the admin panel)"
     if [[ -n $TUNNEL_TOKEN_VALUE ]]; then
