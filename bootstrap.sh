@@ -253,18 +253,80 @@ else
         exit 1
     fi
 
-    # The port this machine listens on, and the port in the public address --
-    # they are the same thing, which is what an installation answering on
-    # 30443 while announcing 30003 got wrong.
-    HTTPS_PORT_VALUE=${BOOTSTRAP_HTTPS_PORT:-}
-    if [[ -z $HTTPS_PORT_VALUE && -t 0 ]]; then
-        printf "\n  2. HTTPS port of this machine.\n"
-        printf "     443 to serve the standard port directly; keep %s behind a\n" "$PORT_DEFAUT"
-        printf "     Cloudflare tunnel, a reverse proxy, or for a local test.\n"
-        printf "     [%s] > " "$PORT_DEFAUT"
-        read -r HTTPS_PORT_VALUE || true
+    # 2. Cloudflare, asked before the port: behind a tunnel there is no port
+    #    to choose here. An API token does the whole thing -- tunnel, routing
+    #    and DNS record -- which is the difference between "publish this PACS"
+    #    and "go and read the tunnel documentation". An existing tunnel token
+    #    is accepted too, and is told apart by its shape.
+    TUNNEL_TOKEN_VALUE=${CLOUDFLARE_TUNNEL_TOKEN:-}
+    CF_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
+    if [[ -z $TUNNEL_TOKEN_VALUE && -z $CF_API_TOKEN && -t 0 ]]; then
+        printf "\n  2. Cloudflare (optional): reach this PACS from the Internet without\n"
+        printf "     opening any port, with a real certificate.\n"
+        printf "     - paste an API TOKEN (permissions: Account -> Cloudflare Tunnel ->\n"
+        printf "       Edit, and Zone -> DNS -> Edit): the tunnel, its routing and the\n"
+        printf "       DNS record for %s are created here;\n" "$DOMAIN_SAISI"
+        printf "     - or paste an existing TUNNEL token to use it as is;\n"
+        printf "     - or press Enter: installation reachable from this machine only.\n"
+        printf "     > "
+        read -rs REPONSE_CF || true
+        printf "\n"
+        REPONSE_CF=$(printf '%s' "${REPONSE_CF:-}" | tr -d '[:space:]')
+        # A tunnel token is a long base64 JSON, so it starts with eyJ; an API
+        # token never does.
+        if [[ $REPONSE_CF == eyJ* ]]; then
+            TUNNEL_TOKEN_VALUE=$REPONSE_CF
+        else
+            CF_API_TOKEN=$REPONSE_CF
+        fi
     fi
-    HTTPS_PORT_VALUE=$(printf '%s' "${HTTPS_PORT_VALUE:-$PORT_DEFAUT}" | tr -d '[:space:]')
+
+    if [[ -n $CF_API_TOKEN ]]; then
+        printf "\n  Cloudflare: creating the tunnel and the DNS record for %s\n" "$DOMAIN_SAISI"
+        # In a container: no python required on the host, and the API token
+        # stays in this shell -- only the tunnel token it returns is written.
+        if ! TUNNEL_TOKEN_VALUE=$(CLOUDFLARE_API_TOKEN=$CF_API_TOKEN docker run --rm \
+                -e CLOUDFLARE_API_TOKEN -e CLOUDFLARE_API_BASE \
+                -v "$PWD/scripts:/scripts:ro" python:3.12-alpine \
+                python /scripts/cloudflare-tunnel.py --domain "$DOMAIN_SAISI"); then
+            err "Cloudflare refused (see above): nothing has been written."
+            err "Fix the token, or run ./bootstrap.sh again and press Enter to skip."
+            exit 1
+        fi
+        ok "Cloudflare: tunnel and DNS record ready for ${DOMAIN_SAISI}"
+    fi
+
+    TUNNEL_TOKEN_VALUE=$(printf '%s' "$TUNNEL_TOKEN_VALUE" | tr -d '[:space:]')
+    if [[ -n $TUNNEL_TOKEN_VALUE && ! $TUNNEL_TOKEN_VALUE =~ ^[A-Za-z0-9_.=+/-]+$ ]]; then
+        err "The tunnel token contains unexpected characters."
+        exit 1
+    fi
+    TUNNEL_PROFILE_VALUE=""
+    [[ -n $TUNNEL_TOKEN_VALUE ]] && TUNNEL_PROFILE_VALUE="tunnel"
+
+    # 3. The port, only when nothing fronts the PACS. Behind a tunnel the
+    #    public address carries no port -- Cloudflare serves 443 -- and the
+    #    local port stays where it is: the tunnel reaches nginx inside the
+    #    Docker network, not through the host.
+    if [[ -n $TUNNEL_TOKEN_VALUE ]]; then
+        HTTPS_PORT_VALUE=${BOOTSTRAP_HTTPS_PORT:-30443}
+        PUBLIC_URL_VALUE="https://${DOMAIN_SAISI}"
+    else
+        HTTPS_PORT_VALUE=${BOOTSTRAP_HTTPS_PORT:-}
+        if [[ -z $HTTPS_PORT_VALUE && -t 0 ]]; then
+            printf "\n  3. HTTPS port of this machine.\n"
+            printf "     443 to serve the standard port directly; keep %s behind a\n" "$PORT_DEFAUT"
+            printf "     reverse proxy, or for an installation used from this machine.\n"
+            printf "     [%s] > " "$PORT_DEFAUT"
+            read -r HTTPS_PORT_VALUE || true
+        fi
+        HTTPS_PORT_VALUE=$(printf '%s' "${HTTPS_PORT_VALUE:-$PORT_DEFAUT}" | tr -d '[:space:]')
+        if [[ $HTTPS_PORT_VALUE == 443 ]]; then
+            PUBLIC_URL_VALUE="https://${DOMAIN_SAISI}"
+        else
+            PUBLIC_URL_VALUE="https://${DOMAIN_SAISI}:${HTTPS_PORT_VALUE}"
+        fi
+    fi
     if [[ ! $HTTPS_PORT_VALUE =~ ^[0-9]+$ ]] || (( HTTPS_PORT_VALUE < 1 || HTTPS_PORT_VALUE > 65535 )); then
         err "'$HTTPS_PORT_VALUE' is not a port number (1-65535)."
         exit 1
@@ -272,96 +334,21 @@ else
     HTTP_PORT_VALUE=30080
     [[ $HTTPS_PORT_VALUE == 30080 ]] && HTTP_PORT_VALUE=30081
     [[ $HTTPS_PORT_VALUE == 443 ]] && HTTP_PORT_VALUE=80
-
-    # The public address is derived, never typed: https is the only scheme, and
-    # 443 is not written -- a cookie carries no port and neither should the URL.
-    if [[ $HTTPS_PORT_VALUE == 443 ]]; then
-        PUBLIC_URL_VALUE="https://${DOMAIN_SAISI}"
-    else
-        PUBLIC_URL_VALUE="https://${DOMAIN_SAISI}:${HTTPS_PORT_VALUE}"
-    fi
     ok "Public address: ${PUBLIC_URL_VALUE}"
 
-    # Optional Cloudflare tunnel: publishes the PACS without opening a port on
-    # the router. The token may also come from the environment, for an
-    # unattended run. Read without echo: it is a secret.
-    TUNNEL_TOKEN_VALUE=${CLOUDFLARE_TUNNEL_TOKEN:-}
-    if [[ -z $TUNNEL_TOKEN_VALUE && -t 0 ]]; then
-        printf "\n  Cloudflare tunnel token, to publish the PACS without opening a port\n"
-        printf "  (Zero Trust -> Networks -> Tunnels -> Create -> Docker: the string\n"
-        printf "  after --token). Press Enter to skip.\n"
-        printf "  > "
-        read -rs TUNNEL_TOKEN_VALUE || true
-        printf "\n"
-    fi
-    TUNNEL_TOKEN_VALUE=$(printf '%s' "$TUNNEL_TOKEN_VALUE" | tr -d '[:space:]')
-    if [[ -n $TUNNEL_TOKEN_VALUE && ! $TUNNEL_TOKEN_VALUE =~ ^[A-Za-z0-9_.=+/-]+$ ]]; then
-        err "The tunnel token contains unexpected characters: paste only the"
-        err "string that follows --token in the command Cloudflare shows."
-        exit 1
-    fi
-    TUNNEL_PROFILE_VALUE=""
-    [[ -n $TUNNEL_TOKEN_VALUE ]] && TUNNEL_PROFILE_VALUE="tunnel"
-
-    # A name of your own needs three things this script cannot do for you, and
-    # each one fails in its own way: no DNS record and nothing resolves; no
-    # route to the port and the browser times out; no certificate for that name
-    # and every visitor gets a security warning. Said here rather than
-    # discovered one at a time.
-    if [[ $DOMAIN_SAISI != *.localhost && $DOMAIN_SAISI != localhost && -z $TUNNEL_TOKEN_VALUE ]]; then
+    # A name of your own, served without a tunnel, needs three things this
+    # script cannot do: the DNS record, a route to the port, and a certificate.
+    # Each fails in its own way -- nothing resolves, the browser times out,
+    # every visitor gets a warning -- so they are named here rather than met
+    # one at a time.
+    if [[ $DOMAIN_SAISI != *.localhost && -z $TUNNEL_TOKEN_VALUE ]]; then
         printf "\n  %s is not a local name. Outside this script you still need:\n" "$DOMAIN_SAISI"
         printf "    - a DNS record pointing %s at this connection;\n" "$DOMAIN_SAISI"
         printf "    - port %s reaching this machine (router), or a Cloudflare tunnel;\n" "$HTTPS_PORT_VALUE"
-        printf "    - a certificate for %s: put fullchain.pem and privkey.pem in\n" "$DOMAIN_SAISI"
-        printf "      certs/ and set SSL_MODE=custom in .env (docs/SSL_SETUP.md),\n"
-        printf "      or serve it through a tunnel, which brings its own.\n"
-        printf "    Until then the PACS answers on this machine only, with a\n"
-        printf "    self-signed certificate.\n"
+        printf "    - a certificate for %s: fullchain.pem and privkey.pem in certs/\n" "$DOMAIN_SAISI"
+        printf "      with SSL_MODE=custom (docs/SSL_SETUP.md), or that tunnel, which\n"
+        printf "      brings its own.\n"
     fi
-
-    # A host name without a dot makes the browser reject the cookie (RFC 6265):
-    # Authelia authenticates, sets its cookie, and the next request goes out
-    # anonymous again -- a login loop with no error message. "localhost" is the
-    # only accepted exception.
-    DOMAIN_SAISI=$(printf '%s' "$PUBLIC_URL_VALUE" | sed -E 's#^https?://##; s#:[0-9]+$##; s#/.*$##')
-    if [[ $DOMAIN_SAISI != *.* && $DOMAIN_SAISI != "localhost" ]]; then
-        err "'$DOMAIN_SAISI' contains no dot: the browser will reject the"
-        err "session cookie and sign-in will loop without any message."
-        err "Use a qualified name, for example https://pacs.example.org"
-        exit 1
-    fi
-    if [[ $PUBLIC_URL_VALUE != https://* ]]; then
-        err "The public address must start with https:// (got: $PUBLIC_URL_VALUE)"
-        exit 1
-    fi
-
-    # Default PUBLIC_URL: full local URL, including the compose port. The host
-    # name (pacs.localhost) must contain a dot, otherwise Authelia rejects the
-    # cookie domain (RFC 6265). None of these values is meant to be typed by a
-    # human: the .env.example template only carries the SHAPE of the file, this
-    # script fills it. The three Authelia secrets are never even displayed.
-    #
-    # DOMAIN and PUBLIC_URL get a local default: the real domain is set later
-    # from the panel, network tab, which knows how to cover the twelve places
-    # where it lives. pacs.localhost carries a dot, without which Authelia
-    # rejects the cookie (RFC 6265).
-    sed \
-        -e "s|^AUTHELIA_SESSION_SECRET=.*|AUTHELIA_SESSION_SECRET=$S1|" \
-        -e "s|^AUTHELIA_STORAGE_ENCRYPTION_KEY=.*|AUTHELIA_STORAGE_ENCRYPTION_KEY=$S2|" \
-        -e "s|^AUTHELIA_JWT_SECRET=.*|AUTHELIA_JWT_SECRET=$S3|" \
-        -e "s|^AUTH_PASSWORD=.*|AUTH_PASSWORD=$AUTH_PASS|" \
-        -e "s|^PUBLIC_URL=.*|PUBLIC_URL=${PUBLIC_URL_VALUE}|" \
-        -e "s|^DOMAIN=.*|DOMAIN=${DOMAIN_SAISI}|" \
-        -e "s|^HTTPS_PORT=.*|HTTPS_PORT=${HTTPS_PORT_VALUE}|" \
-        -e "s|^HTTP_PORT=.*|HTTP_PORT=${HTTP_PORT_VALUE}|" \
-        -e "s|^LANGUAGE=.*|LANGUAGE=${LANGUAGE_VALUE}|" \
-        -e "s|^UPLOAD_USER=.*|UPLOAD_USER=${UPLOAD_USER_VALUE}|" \
-        -e "s|^UPLOAD_PASSWORD=.*|UPLOAD_PASSWORD=${UPLOAD_PASS_VALUE}|" \
-        -e "s|^ORTHANC_ADMIN_PASS=.*|ORTHANC_ADMIN_PASS=$ORTHANC_PASS|" \
-        -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PG_PASS|" \
-        -e "s|^CLOUDFLARE_TUNNEL_TOKEN=.*|CLOUDFLARE_TUNNEL_TOKEN=${TUNNEL_TOKEN_VALUE}|" \
-        -e "s|^COMPOSE_PROFILES=.*|COMPOSE_PROFILES=${TUNNEL_PROFILE_VALUE}|" \
-        .env.example > .env
 
     ok ".env generated: 6 random secrets (Authelia x3, Orthanc service, DICOM import, PostgreSQL), nothing to type"
     ok "Interface language: ${LANGUAGE_VALUE} (from the system locale; can be changed in the setup wizard and the admin panel)"

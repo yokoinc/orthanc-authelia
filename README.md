@@ -114,10 +114,19 @@ cd orthanc-authelia
 ./bootstrap.sh
 ```
 
-`bootstrap.sh` asks two questions — the public address (press Enter to keep
-the local default `https://pacs.localhost:30443`), and an optional Cloudflare
-Tunnel token (press Enter to skip, see [Cloudflare Tunnel](docs/CLOUDFLARE_TUNNEL.md))
-— then generates every secret
+`bootstrap.sh` asks three questions:
+
+1. **the domain name** this PACS answers on — press Enter for `pacs.localhost`,
+   local and, unlike plain `localhost`, carrying the dot Authelia requires of a
+   session cookie domain;
+2. **Cloudflare**, optional — paste an API token and the tunnel, its routing and
+   the DNS record are created for you, so the PACS is reachable on the Internet
+   with a real certificate and no port open on the router (see
+   [Cloudflare Tunnel](docs/CLOUDFLARE_TUNNEL.md)); press Enter to skip;
+3. **the HTTPS port** of this machine, asked only without a tunnel — Enter for
+   `30443`.
+
+It then generates every secret
 (PostgreSQL included), writes `.env`, `docker-compose.yml` and the Authelia and
 Orthanc configurations, creates the directories the panel writes to, and sets
 the file permissions on everything holding a secret. It refuses to overwrite an

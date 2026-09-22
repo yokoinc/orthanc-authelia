@@ -15,20 +15,46 @@ The last hop uses nginx's self-signed certificate without verifying it. That is
 deliberate and safe: it never leaves the Docker network, there is nobody in
 between to impersonate nginx.
 
-## 1. Create the tunnel
+## The short way: an API token
+
+`bootstrap.sh` asks for it, right after the domain name, and does the rest:
+it creates the tunnel, routes your domain to nginx with the three settings
+this stack needs, creates the DNS record, and starts the tunnel with the stack.
+Nothing to click in the dashboard, no port to open.
+
+Create the token at **My Profile → API Tokens → Create Token → Create Custom
+Token**, with exactly two permissions:
+
+| Type | Permission |
+|---|---|
+| Account | Cloudflare Tunnel → Edit |
+| Zone | DNS → Edit (on the zone of your domain) |
+
+The domain must already be managed by Cloudflare (its nameservers point there).
+The API token is **not stored**: only the tunnel token it returns is written to
+`.env`.
+
+On an existing installation, the same thing without reinstalling:
+
+```bash
+CLOUDFLARE_API_TOKEN=... python3 scripts/cloudflare-tunnel.py --domain pacs.example.org
+```
+
+It prints the tunnel token; put it in `.env` as below. Running it again is
+harmless: the tunnel is reused and the DNS record updated.
+
+## The manual way: a tunnel token
 
 Cloudflare dashboard → **Zero Trust** → **Networks** → **Tunnels** →
 **Create a tunnel** → type **Cloudflared** → give it a name → environment
 **Docker**. Cloudflare shows a command ending in `--token eyJ…`: copy the string
-after `--token`. Nothing to run from that page.
+after `--token`. `bootstrap.sh` accepts it at the same question — a token
+starting with `eyJ` is recognised as a tunnel token rather than an API token.
+The public hostname is then yours to add, as described further down.
 
-## 2. Give the token to the installation
+## Giving the token to an existing installation
 
-**Fresh install**: `./bootstrap.sh` asks for it, after the public address. Answer
-the address with the tunnel's hostname, without a port:
-`https://pacs.example.org`.
-
-**Existing install**: in `.env`,
+In `.env`,
 
 ```ini
 CLOUDFLARE_TUNNEL_TOKEN=eyJ...

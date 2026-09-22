@@ -36,6 +36,19 @@ jobs:
             auth-service-test \
             -c 'pip install -q -r requirements-dev.txt && python -m pytest tests/ -q'
 
+  cloudflare:
+    name: Cloudflare helper
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # scripts/cloudflare-tunnel.py creates the tunnel, its routing and the
+      # DNS record from an API token. Tested against a stub of the API: no
+      # network, no account, and the settings the stack depends on are
+      # asserted (no TLS verify, Host header, HTTP/2, the CNAME).
+      - name: Against a stub of the Cloudflare API
+        run: python3 -m unittest discover -s tests/cloudflare -v
+
   images:
     name: Image builds
     runs-on: ubuntu-latest
