@@ -221,9 +221,11 @@ else
 
     DOMAIN_SAISI=${BOOTSTRAP_DOMAIN:-}
     if [[ -z $DOMAIN_SAISI && -t 0 ]]; then
-        printf "\n  1. Domain name this PACS is reached at, https only.\n"
-        printf "     A real name for an installation on the Internet (pacs.example.org),\n"
-        printf "     or the default for an installation used from this machine.\n"
+        printf "\n  1. Domain name this PACS answers on (https only).\n"
+        printf "     It MUST contain a dot: Authelia refuses a dotless name as its\n"
+        printf "     session cookie domain, and would not start at all.\n"
+        printf "     On the Internet: pacs.example.org -- on this machine: any name\n"
+        printf "     ending in .localhost (pacs.localhost, orthanc.localhost).\n"
         printf "     [%s] > " "$DOMAINE_DEFAUT"
         read -r DOMAIN_SAISI || true
     fi
