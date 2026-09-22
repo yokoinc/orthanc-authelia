@@ -206,27 +206,77 @@ else
     UPLOAD_USER_VALUE="import-dicom"
     UPLOAD_PASS_VALUE=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
 
-    # THE only question of the whole installation. Everything else is generated
-    # or has a default, this one cannot be guessed.
+    # Two questions, not one URL to compose. Everything else is generated or
+    # has a default; these cannot be guessed. https is not asked: it is the
+    # only scheme this stack serves.
     #
-    # The local default remains valid: the domain can be changed later from the
-    # panel, network tab, which covers the twelve places where it lives. But
-    # setting it now avoids that detour AND the stack restart it requires
-    # (Authelia only re-reads configuration.yml at startup).
-    #
-    # The terminal test keeps the script usable without interaction -- a CI or
-    # a `bootstrap.sh < /dev/null` simply takes the default.
-    PUBLIC_URL_DEFAUT="https://pacs.localhost:30443"
-    # BOOTSTRAP_PUBLIC_URL answers the question without a terminal (CI).
-    PUBLIC_URL_SAISIE=${BOOTSTRAP_PUBLIC_URL:-}
-    if [[ -z $PUBLIC_URL_SAISIE && -t 0 ]]; then
-        printf "\n  Public address of this installation, including the port if it is not 443.\n"
-        printf "  Behind a Cloudflare tunnel: https://pacs.example.org (no port).\n"
-        printf "  Press Enter to accept the local default.\n"
-        printf "  [%s] > " "$PUBLIC_URL_DEFAUT"
-        read -r PUBLIC_URL_SAISIE || true
+    # BOOTSTRAP_DOMAIN and BOOTSTRAP_HTTPS_PORT answer without a terminal (CI);
+    # BOOTSTRAP_PUBLIC_URL, kept for compatibility, fills both at once.
+    DOMAINE_DEFAUT="pacs.localhost"
+    PORT_DEFAUT="30443"
+    if [[ -n ${BOOTSTRAP_PUBLIC_URL:-} ]]; then
+        BOOTSTRAP_DOMAIN=${BOOTSTRAP_DOMAIN:-$(printf '%s' "$BOOTSTRAP_PUBLIC_URL" | sed -E 's#^https?://##; s#[:/].*$##')}
+        BOOTSTRAP_HTTPS_PORT=${BOOTSTRAP_HTTPS_PORT:-$(printf '%s' "$BOOTSTRAP_PUBLIC_URL" | sed -nE 's#^https?://[^/:]+:([0-9]+).*#\1#p')}
     fi
-    PUBLIC_URL_VALUE=${PUBLIC_URL_SAISIE:-$PUBLIC_URL_DEFAUT}
+
+    DOMAIN_SAISI=${BOOTSTRAP_DOMAIN:-}
+    if [[ -z $DOMAIN_SAISI && -t 0 ]]; then
+        printf "\n  1. Domain name this PACS is reached at, https only.\n"
+        printf "     A real name for an installation on the Internet (pacs.example.org),\n"
+        printf "     or the local default for a test on this machine.\n"
+        printf "     [%s] > " "$DOMAINE_DEFAUT"
+        read -r DOMAIN_SAISI || true
+    fi
+    DOMAIN_SAISI=${DOMAIN_SAISI:-$DOMAINE_DEFAUT}
+    # Forgiving: a pasted https://pacs.example.org:30443/ gives the name, and
+    # its port becomes the default of the next question.
+    PORT_COLLE=$(printf '%s' "$DOMAIN_SAISI" | sed -nE 's#^(https?://)?[^/:]+:([0-9]+).*#\2#p')
+    DOMAIN_SAISI=$(printf '%s' "$DOMAIN_SAISI" | sed -E 's#^https?://##; s#[:/].*$##' | tr -d '[:space:]')
+    [[ -n $PORT_COLLE ]] && PORT_DEFAUT=$PORT_COLLE
+
+    # A host name without a dot makes the browser reject the cookie (RFC 6265):
+    # Authelia authenticates, sets its cookie, and the next request goes out
+    # anonymous again -- a login loop with no error message. "localhost" is the
+    # only accepted exception.
+    if [[ -z $DOMAIN_SAISI ]]; then
+        err "Empty domain name."
+        exit 1
+    fi
+    if [[ $DOMAIN_SAISI != *.* && $DOMAIN_SAISI != "localhost" ]]; then
+        err "'$DOMAIN_SAISI' contains no dot: the browser will reject the"
+        err "session cookie and sign-in will loop without any message."
+        err "Use a qualified name, for example pacs.example.org"
+        exit 1
+    fi
+
+    # The port this machine listens on, and the port in the public address --
+    # they are the same thing, which is what an installation answering on
+    # 30443 while announcing 30003 got wrong.
+    HTTPS_PORT_VALUE=${BOOTSTRAP_HTTPS_PORT:-}
+    if [[ -z $HTTPS_PORT_VALUE && -t 0 ]]; then
+        printf "\n  2. HTTPS port of this machine.\n"
+        printf "     443 to serve the standard port directly; keep %s behind a\n" "$PORT_DEFAUT"
+        printf "     Cloudflare tunnel, a reverse proxy, or for a local test.\n"
+        printf "     [%s] > " "$PORT_DEFAUT"
+        read -r HTTPS_PORT_VALUE || true
+    fi
+    HTTPS_PORT_VALUE=$(printf '%s' "${HTTPS_PORT_VALUE:-$PORT_DEFAUT}" | tr -d '[:space:]')
+    if [[ ! $HTTPS_PORT_VALUE =~ ^[0-9]+$ ]] || (( HTTPS_PORT_VALUE < 1 || HTTPS_PORT_VALUE > 65535 )); then
+        err "'$HTTPS_PORT_VALUE' is not a port number (1-65535)."
+        exit 1
+    fi
+    HTTP_PORT_VALUE=30080
+    [[ $HTTPS_PORT_VALUE == 30080 ]] && HTTP_PORT_VALUE=30081
+    [[ $HTTPS_PORT_VALUE == 443 ]] && HTTP_PORT_VALUE=80
+
+    # The public address is derived, never typed: https is the only scheme, and
+    # 443 is not written -- a cookie carries no port and neither should the URL.
+    if [[ $HTTPS_PORT_VALUE == 443 ]]; then
+        PUBLIC_URL_VALUE="https://${DOMAIN_SAISI}"
+    else
+        PUBLIC_URL_VALUE="https://${DOMAIN_SAISI}:${HTTPS_PORT_VALUE}"
+    fi
+    ok "Public address: ${PUBLIC_URL_VALUE}"
 
     # Optional Cloudflare tunnel: publishes the PACS without opening a port on
     # the router. The token may also come from the environment, for an
@@ -264,20 +314,6 @@ else
         err "The public address must start with https:// (got: $PUBLIC_URL_VALUE)"
         exit 1
     fi
-
-    # The port written in the address is the port the stack listens on. It used
-    # to be ignored: https://test.localhost:30003 was accepted, written into
-    # every configuration, and the stack kept listening on 30443 -- nothing
-    # answered at the address just given. No port (443: tunnel, reverse proxy
-    # in front) keeps the local 30443.
-    HTTPS_PORT_VALUE=$(printf '%s' "$PUBLIC_URL_VALUE" | sed -nE 's#^https://[^/:]+:([0-9]+)(/.*)?$#\1#p')
-    HTTPS_PORT_VALUE=${HTTPS_PORT_VALUE:-30443}
-    if (( HTTPS_PORT_VALUE < 1 || HTTPS_PORT_VALUE > 65535 )); then
-        err "Invalid port in the public address: $HTTPS_PORT_VALUE"
-        exit 1
-    fi
-    HTTP_PORT_VALUE=30080
-    [[ $HTTPS_PORT_VALUE == 30080 ]] && HTTP_PORT_VALUE=30081
 
     # Default PUBLIC_URL: full local URL, including the compose port. The host
     # name (pacs.localhost) must contain a dot, otherwise Authelia rejects the
