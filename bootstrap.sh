@@ -224,6 +224,8 @@ else
         err "From the previous installation's directory:  docker compose down -v"
         err "Or, if that directory is gone and the data is not wanted:"
         err "    docker volume rm $(printf '%s ' $VOLUMES_ANCIENS)"
+        err "('docker system prune --volumes' does NOT remove these: it only"
+        err " removes anonymous volumes, never named ones.)"
         err "To keep them on purpose:  BOOTSTRAP_KEEP_VOLUMES=1 ./bootstrap.sh"
         exit 1
     fi
