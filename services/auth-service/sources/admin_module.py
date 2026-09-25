@@ -593,7 +593,19 @@ async def _setup_is_done() -> bool:
     reopen the door.
     """
     if (await _r().get(SETUP_KEY)) == "1":
-        return True
+        # The flag only caches "an administrator exists"; it is not a fact of
+        # its own. Reinstalling in place keeps the Redis volume -- its name is
+        # fixed in the compose file -- while the user database starts empty:
+        # the wizard then answered 404 on an installation nobody could enter,
+        # with no way back in. Found on a real reinstall, 2026-09-25.
+        try:
+            if _active_admins(_load_authelia()):
+                return True
+        except HTTPException:
+            return True  # unreadable file: keep the wizard shut, say nothing
+        await _r().delete(SETUP_KEY)
+        await _audit("setup.reopened_no_admin", actor="system")
+        return False
 
     # Wizard in progress: the admin present in the YAML is the one create-admin
     # just wrote, not the trace of an earlier install. Without this guard the

@@ -161,7 +161,7 @@ services:
   # =============================================================================
   
   auth-service:
-    image: ghcr.io/yokoinc/orthanc-auth-service:1.2.7
+    image: ghcr.io/yokoinc/orthanc-auth-service:1.2.8
     container_name: orthanc-auth-service
     restart: unless-stopped
     # /health already exists in the service; without a probe, nobody checked
@@ -234,8 +234,8 @@ services:
       - AUTH_PASSWORD=${AUTH_PASSWORD}
       - REDIS_HOST=redis
       # Semantic version shown in the token manager footer. Keep it in sync
-      # with the image tag above (1.2.7) on every bump.
-      - IMAGE_VERSION=1.2.7
+      # with the image tag above (1.2.8) on every bump.
+      - IMAGE_VERSION=1.2.8
       # Optional overrides (uncomment in .env if needed)
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - DEFAULT_TOKEN_MAX_USES=${DEFAULT_TOKEN_MAX_USES:-50}

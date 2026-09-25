@@ -206,6 +206,28 @@ else
     UPLOAD_USER_VALUE="import-dicom"
     UPLOAD_PASS_VALUE=$(openssl rand -base64 24 | tr -d '=+/' | cut -c1-24)
 
+    # Volumes left by a previous installation. Their names are fixed in the
+    # compose file, so a re-clone reuses them: PostgreSQL keeps its studies and
+    # Redis keeps the flag saying the wizard is done. Together with a brand new
+    # user database, that locks everyone out -- the wizard answers 404 and no
+    # account exists. Found on a real reinstall on 2026-09-25.
+    #
+    # Refused rather than guessed: deleting a volume that may hold a PACS is
+    # not this script's call.
+    VOLUMES_ANCIENS=$(docker volume ls --format '{{.Name}}' 2>/dev/null \
+        | grep -E '^orthanc_(redis_data|postgres_data|nginx_ssl)$' || true)
+    if [[ -n $VOLUMES_ANCIENS && -z ${BOOTSTRAP_KEEP_VOLUMES:-} ]]; then
+        err "Docker volumes of a previous installation are still here:"
+        printf '%s\n' "$VOLUMES_ANCIENS" | sed 's/^/        /'
+        err "Reused with a new user database, they leave the setup wizard closed"
+        err "and no account to sign in with."
+        err "From the previous installation's directory:  docker compose down -v"
+        err "Or, if that directory is gone and the data is not wanted:"
+        err "    docker volume rm $(printf '%s ' $VOLUMES_ANCIENS)"
+        err "To keep them on purpose:  BOOTSTRAP_KEEP_VOLUMES=1 ./bootstrap.sh"
+        exit 1
+    fi
+
     # Two questions, not one URL to compose. Everything else is generated or
     # has a default; these cannot be guessed. https is not asked: it is the
     # only scheme this stack serves.

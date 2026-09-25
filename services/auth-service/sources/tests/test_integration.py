@@ -281,6 +281,38 @@ class TestSetupWizard:
         }}
         tmp_paths["authelia"].write_text(yaml.safe_dump(data, sort_keys=False))
 
+    def test_the_wizard_reopens_when_the_flag_outlived_its_administrators(
+        self, client, tmp_paths, fake_redis, redis_sync, valid_authelia_yml,
+    ):
+        """Reinstalling in place keeps the Redis volume: the flag says done
+        while the user database is new. The wizard used to answer 404 on an
+        installation nobody could enter."""
+        redis_sync.set(admin_module.SETUP_KEY, "1")
+        tmp_paths["authelia"].write_text(yaml.safe_dump({"users": {
+            admin_module.COMPTE_AMORCAGE: {
+                "disabled": True, "displayname": "amorcage",
+                "email": "bootstrap@localhost", "password": "x", "groups": [],
+            },
+        }}, sort_keys=False))
+
+        r = client.get("/auth/setup")
+        assert r.status_code == 200, "no administrator left: the wizard must open again"
+        assert redis_sync.get(admin_module.SETUP_KEY) is None, "the stale flag is cleared"
+
+    def test_the_wizard_stays_shut_while_an_administrator_exists(
+        self, client, tmp_paths, fake_redis, redis_sync, valid_authelia_yml,
+    ):
+        redis_sync.set(admin_module.SETUP_KEY, "1")
+        tmp_paths["authelia"].write_text(yaml.safe_dump({"users": {
+            "admin@exemple.fr": {
+                "disabled": False, "displayname": "Admin", "email": "admin@exemple.fr",
+                "password": "x", "groups": [admin_module.ADMIN_GROUP],
+            },
+        }}, sort_keys=False))
+
+        assert client.get("/auth/setup").status_code == 404
+        assert redis_sync.get(admin_module.SETUP_KEY) == "1"
+
     def test_finalize_removes_inert_bootstrap_account_and_saves_language(
         self, client, tmp_paths, fake_redis, redis_sync,
     ):
