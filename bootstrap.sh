@@ -614,6 +614,54 @@ if grep -q 'EXAMPLE_HASH_REPLACE_THIS' "$USERS_DB" 2>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
+# Start the stack
+# ---------------------------------------------------------------------------
+# Done here rather than left as "now type docker compose up -d": there is
+# nothing to decide between the two, and the address below only means anything
+# once it answers. BOOTSTRAP_NO_START=1 skips it (tests, or a machine where the
+# images are pulled separately).
+#
+# `docker compose` (v2, the plugin) when it exists, the standalone binary
+# otherwise -- the same choice scripts/apply.sh makes.
+if [[ -z ${BOOTSTRAP_NO_START:-} ]]; then
+    if docker compose version >/dev/null 2>&1; then
+        compose() { docker compose "$@"; }
+    else
+        compose() { docker-compose "$@"; }
+    fi
+    # Quiet on purpose: forty lines of pulls and health checks bury the one
+    # thing that matters, the wizard address. The log is kept and only shown
+    # when something failed.
+    JOURNAL_DEMARRAGE=$(mktemp)
+    printf '\n  Starting the stack (first run pulls the images, a few minutes)...\n'
+    if ! compose up -d > "$JOURNAL_DEMARRAGE" 2>&1; then
+        tail -20 "$JOURNAL_DEMARRAGE"
+        err "docker compose up failed: the configuration is written, fix the"
+        err "error above and run 'docker compose up -d' again."
+        exit 1
+    fi
+    # Healthy means: PostgreSQL initialised, Authelia's configuration accepted,
+    # nginx started. Waiting here turns "it does not answer yet" into "it is
+    # ready", which is the difference between a working install and a support
+    # question.
+    printf '  Waiting for the services to be ready...\n'
+    for _ in $(seq 90); do
+        en_attente=$(compose ps --format '{{.Name}} {{.Health}}' 2>/dev/null \
+            | awk 'NF == 2 && $2 != "healthy"' | wc -l)
+        [[ ${en_attente:-1} -eq 0 ]] && break
+        sleep 5
+    done
+    if [[ ${en_attente:-1} -eq 0 ]]; then
+        ok "Stack started"
+    else
+        warn "Some services are not ready yet. 'docker compose ps' shows their state;"
+        warn "'docker compose logs <service>' says why."
+        compose ps --format '    {{.Name}}  {{.Status}}' 2>/dev/null
+    fi
+    rm -f "$JOURNAL_DEMARRAGE"
+fi
+
+# ---------------------------------------------------------------------------
 # Recap
 # ---------------------------------------------------------------------------
 G=$'\033[32m'; C=$'\033[36m'; R=$'\033[0m'
@@ -629,16 +677,11 @@ ${G}═════════════════════════�
 
 Next steps:
 
-  1. ${C}Review .env${R} if needed (domain, language, TZ)
-
-  2. ${C}Start the stack${R}:
-       docker compose up -d
-
-  3. ${C}Setup wizard${R} — create the first administrator:
+  1. ${C}Setup wizard${R} — create the first administrator:
        ${URL}/auth/setup
        (self-signed certificate: accept the browser warning)
 
-  4. ${C}After the wizard${R}:
+  2. ${C}After the wizard${R}:
        ${URL}/                Orthanc Explorer
        ${URL}/auth/admin      Administration panel
 

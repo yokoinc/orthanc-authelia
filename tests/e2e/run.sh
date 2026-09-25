@@ -64,7 +64,7 @@ in_browser() {
         sh -c "pip install -q --disable-pip-version-check --root-user-action=ignore playwright==1.49.1 pydicom==3.0.1 && python $*"
 }
 step "bootstrap.sh, public address $E2E_URL"
-BOOTSTRAP_PUBLIC_URL=$E2E_URL ./bootstrap.sh < /dev/null
+BOOTSTRAP_PUBLIC_URL=$E2E_URL BOOTSTRAP_NO_START=1 ./bootstrap.sh < /dev/null
 
 export E2E_SSL=${E2E_SSL:-selfsigned}
 HOST=$(printf '%s' "$E2E_URL" | sed -E 's#^https://([^:/]+).*#\1#')

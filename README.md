@@ -106,7 +106,7 @@ Two ways in, and only two:
 Nothing else: the database, the secrets and the certificate are all created
 for you.
 
-### Three steps
+### Two steps
 
 ```bash
 git clone https://github.com/yokoinc/orthanc-authelia.git
@@ -132,13 +132,10 @@ Orthanc configurations, creates the directories the panel writes to, and sets
 the file permissions on everything holding a secret. It refuses to overwrite an
 existing installation unless given `--force`.
 
-```bash
-docker compose up -d
-```
-
-The first start takes a few minutes: images are pulled and PostgreSQL
-initialises its volume. Then open the setup wizard, which creates the first
-administrator:
+It then starts the stack itself and waits for every service to be ready — the
+first run pulls the images and PostgreSQL initialises its volume, so it takes a
+few minutes. Nothing else to type: it ends on the address of the setup wizard,
+which creates the first administrator:
 
 ```
 https://pacs.localhost:30443/auth/setup
