@@ -146,7 +146,9 @@ if [ "$E2E_SSL" != custom ]; then
     # once Authelia has started) without stopping anything, and the wizard then
     # answers 404 on an installation believed empty, with no account left to
     # sign in with. Happened twice on a real machine on 2026-09-25.
-    sh scripts/reset-install.sh --yes
+    # bash, not sh: unlike apply.sh and backup-postgres.sh, this script uses
+    # arrays and pipefail. Under dash it dies on its second line.
+    bash scripts/reset-install.sh --yes
     BOOTSTRAP_PUBLIC_URL=$E2E_URL ./bootstrap.sh < /dev/null
     PORT=$(grep -E '^HTTPS_PORT=' .env | cut -d= -f2)
     code=$(curl -sk -o /dev/null -w '%{http_code}' \
