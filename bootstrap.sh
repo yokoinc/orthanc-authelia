@@ -162,7 +162,49 @@ else
         if [[ -n ${EXISTING_KEY:-} ]]; then
             S2=$EXISTING_KEY
             warn "Existing Authelia database: encryption key kept"
-            warn "  (to start from scratch: delete services/authelia/config/db.sqlite3)"
+            warn "  (to start from scratch: ./scripts/reset-install.sh)"
+        else
+            # The database is there but its key is not: .env has gone -- a
+            # reset that deleted it, a restore that forgot it. Keeping the
+            # database then means Authelia refuses to start, for good and
+            # with no way back, since no key on earth opens it any more:
+            #   "the configured encryption key does not appear to be valid
+            #    for this database"
+            # It is therefore moved aside rather than kept. What is lost is
+            # the open sessions, the 2FA registrations and the brute-force
+            # counters; the accounts live in users_database.yml, untouched.
+            ORPHELINE="services/authelia/config/db.sqlite3.orpheline-$(date +%Y%m%d-%H%M%S)"
+            if mv services/authelia/config/db.sqlite3 "$ORPHELINE" 2>/dev/null; then
+                warn "Authelia database found without its encryption key."
+                warn "  Moved to $ORPHELINE (sessions lost, accounts kept)."
+            else
+                # The directory belongs to root and is closed (Authelia takes
+                # it over at startup): only a container can get in. --user 0
+                # and --entrypoint sh matter: an application image runs its
+                # server as an unprivileged account, and the command below
+                # would become arguments to that server.
+                DEPLACEE=0
+                for IMAGE_AIDE in $(docker image ls --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+                        | grep -E '^(alpine|busybox|redis|postgres|nginx|authelia/authelia)' || true) alpine:3.20; do
+                    if docker run --rm --user 0 --entrypoint sh \
+                            -v "$PWD/services/authelia/config:/config" \
+                            "$IMAGE_AIDE" \
+                            -c "mv /config/db.sqlite3 /config/$(basename "$ORPHELINE")" >/dev/null 2>&1; then
+                        DEPLACEE=1
+                        break
+                    fi
+                done
+                if [[ $DEPLACEE -eq 1 ]]; then
+                    warn "Authelia database found without its encryption key."
+                    warn "  Moved to $ORPHELINE (sessions lost, accounts kept)."
+                else
+                    err "Authelia database present without its encryption key, and"
+                    err "impossible to move (services/authelia/config/db.sqlite3)."
+                    err "Authelia would refuse to start. Reset the installation:"
+                    err "    ./scripts/reset-install.sh"
+                    exit 1
+                fi
+            fi
         fi
     fi
     # Password of the embedded PostgreSQL. Like Authelia's storage key, it must
@@ -221,7 +263,7 @@ else
         printf '%s\n' "$VOLUMES_ANCIENS" | sed 's/^/        /'
         err "Reused with a new user database, they leave the setup wizard closed"
         err "and no account to sign in with."
-        err "From the previous installation's directory:  docker compose down -v"
+        err "From the previous installation's directory:  ./scripts/reset-install.sh"
         err "Or, if that directory is gone and the data is not wanted:"
         err "    docker volume rm $(printf '%s ' $VOLUMES_ANCIENS)"
         err "('docker system prune --volumes' does NOT remove these: it only"
@@ -671,6 +713,39 @@ G=$'\033[32m'; C=$'\033[36m'; R=$'\033[0m'
 # bound to the PUBLIC_URL domain, another host name has no access to it.
 URL=$(grep '^PUBLIC_URL=' .env 2>/dev/null | cut -d= -f2- || true)
 URL=${URL:-https://pacs.localhost:30443}
+
+# The wizard only opens as long as no account exists. Sending to /auth/setup
+# when users_database.yml already holds one means sending to a 404, with no
+# explanation -- the single most confusing outcome of a reinstall done over a
+# surviving file. The accounts are counted here, and the message says what is
+# true. bootstrap@localhost does not count: it is the inert account this very
+# script writes.
+#
+# Read directly when the directory is still open, through a container
+# otherwise: once started, Authelia takes its configuration directory over
+# (root, drwx------).
+COMPTES=""
+if [[ -r services/authelia/config/users_database.yml ]]; then
+    COMPTES=$(grep -cE '^  [^ #]+:' services/authelia/config/users_database.yml 2>/dev/null || true)
+    BOOTSTRAP_PRESENT=$(grep -cE '^  bootstrap@localhost:' services/authelia/config/users_database.yml 2>/dev/null || true)
+    COMPTES=$(( ${COMPTES:-0} - ${BOOTSTRAP_PRESENT:-0} ))
+elif [[ -f docker-compose.yml ]] && docker ps --format '{{.Names}}' 2>/dev/null | grep -q '^orthanc-authelia$'; then
+    LIGNES=$(docker exec orthanc-authelia grep -cE '^  [^ #]+:' /config/users_database.yml 2>/dev/null || true)
+    AMORCE=$(docker exec orthanc-authelia grep -cE '^  bootstrap@localhost:' /config/users_database.yml 2>/dev/null || true)
+    [[ -n ${LIGNES:-} ]] && COMPTES=$(( ${LIGNES:-0} - ${AMORCE:-0} ))
+fi
+
+if [[ -n $COMPTES && $COMPTES -gt 0 ]]; then
+    ETAPE1="  1. ${C}Sign in${R} — an account already exists on this installation:
+       ${URL}/
+       (the setup wizard is closed: it only opens while no account exists.
+        Starting over from an empty installation: ./scripts/reset-install.sh)"
+else
+    ETAPE1="  1. ${C}Setup wizard${R} — create the first administrator:
+       ${URL}/auth/setup
+       (self-signed certificate: accept the browser warning)"
+fi
+
 cat <<EOF
 
 ${G}════════════════════════════════════════════${R}
@@ -679,19 +754,14 @@ ${G}═════════════════════════�
 
 Next steps:
 
-  1. ${C}Setup wizard${R} — create the first administrator:
-       ${URL}/auth/setup
-       (self-signed certificate: accept the browser warning)
+${ETAPE1}
 
   2. ${C}After the wizard${R}:
        ${URL}/                Orthanc Explorer
        ${URL}/auth/admin      Administration panel
 
 Start over (deletes every stored image):
-  docker compose down -v
-  rm -rf .env docker-compose.yml data/admin-backups \\
-         services/authelia/config/{configuration.yml,users_database.yml} \\
-         services/orthanc/config/orthanc.json
+  ./scripts/reset-install.sh
   ./bootstrap.sh
 
 EOF

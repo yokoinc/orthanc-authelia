@@ -138,4 +138,21 @@ if [ "$E2E_SSL" = custom ]; then
     docker logs --tail 20 orthanc-nginx 2>&1 | grep "is not the private key"
 fi
 
+if [ "$E2E_SSL" != custom ]; then
+    step "reset-install.sh then bootstrap.sh: the wizard opens again"
+    # The installation here has an administrator, an Authelia session database
+    # and files the containers own -- exactly what someone reinstalls over.
+    # Deleting them by hand fails on the Authelia directory (root, drwx------
+    # once Authelia has started) without stopping anything, and the wizard then
+    # answers 404 on an installation believed empty, with no account left to
+    # sign in with. Happened twice on a real machine on 2026-09-25.
+    sh scripts/reset-install.sh --yes
+    BOOTSTRAP_PUBLIC_URL=$E2E_URL ./bootstrap.sh < /dev/null
+    PORT=$(grep -E '^HTTPS_PORT=' .env | cut -d= -f2)
+    code=$(curl -sk -o /dev/null -w '%{http_code}' \
+        --resolve "$HOST:$PORT:127.0.0.1" "$E2E_URL/auth/setup")
+    echo "  /auth/setup -> $code"
+    [ "$code" = 200 ]
+fi
+
 step "fresh install, certificate and address change: every step passed"

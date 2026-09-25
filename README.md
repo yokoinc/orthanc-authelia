@@ -152,16 +152,22 @@ the domain, language or timezone.
 
 ### Starting over
 
-`down -v` deletes the volumes, **the PostgreSQL one included — every stored
-image goes with it**. Only for a test installation.
+This deletes the volumes, **the PostgreSQL one included — every stored image
+goes with it**, along with the accounts and the secrets. Only for a test
+installation.
 
 ```bash
-docker compose down -v
-rm -rf .env docker-compose.yml data/admin-backups \
-       services/authelia/config/{configuration.yml,users_database.yml} \
-       services/orthanc/config/orthanc.json
+./scripts/reset-install.sh
 ./bootstrap.sh
 ```
+
+Deleting these files by hand does not work, and fails in a way that is easy to
+miss: at startup Authelia takes over its own configuration directory
+(`root`, `drwx------`), so `rm` refuses in the middle of an otherwise
+successful command. The installation then looks erased while the previous
+administrator account is still there — the setup wizard stays closed (404)
+with no account left to sign in with. The script deletes what it cannot reach
+through a throwaway container, and checks the result.
 
 ## Interface language
 
