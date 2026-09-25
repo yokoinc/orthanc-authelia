@@ -1012,9 +1012,13 @@ class TestHealth:
         assert "create-admin" in r.text  # the JS fetch points at it
 
     def test_setup_page_redirects_when_setup_done(
-        self, client, tmp_paths, fake_redis, redis_sync,
+        self, client, tmp_paths, fake_redis, redis_sync, valid_authelia_yml,
     ):
-        """GET /auth/setup after finalize = 302 to /auth/admin (setup_gate)."""
+        """GET /auth/setup after finalize = 404 (setup_gate).
+
+        With an administrator in place: the flag alone is not enough any more,
+        it is checked against the user database before being believed.
+        """
         redis_sync.set("orthanc_authelia:setup_completed", "1")
 
         r = client.get("/auth/setup", follow_redirects=False)
